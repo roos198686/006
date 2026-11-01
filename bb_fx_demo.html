@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>宝宝牌 大牌特效浏览器模拟（同花顺喷火 / 炸弹炸头像）</title>
+<style>
+  body { margin:0; background:#1b5e3a; font-family:Arial,"Microsoft YaHei",sans-serif; }
+  #wrap { position:relative; max-width:1280px; margin:0 auto; }
+  canvas { display:block; width:100%; height:auto; }
+  #bar { position:absolute; top:10px; left:10px; z-index:9; }
+  #bar button { margin-right:8px; padding:8px 14px; font-size:14px; border:0; border-radius:6px;
+    background:#ffb300; color:#3a2500; cursor:pointer; }
+  #bar button:hover { background:#ffc933; }
+  #tip { position:absolute; top:14px; right:14px; color:#fff; font-size:13px; opacity:.8; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="bar">
+    <button onclick="demoFire()">同花顺喷火（座位2）</button>
+    <button onclick="demoBomb()">炸弹（座位0 炸小牌）</button>
+    <button onclick="demoQueue()">队列连播（火+炸弹）</button>
+    <button onclick="toggleAuto(this)">自动循环：关</button>
+  </div>
+  <div id="tip">与 BBGame.js 中 _fxFire/_fxBurst 的时序、颜色、缩放完全一致（y轴已翻转）</div>
+  <canvas id="cv" width="1280" height="720"></canvas>
+</div>
+<script>
+// ============ 牌桌模拟: 6 个座位 ============
+var cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+var CX = 640, CY = 380;
+// 座位: 下左 下右 左 右 上左 上右 (canvas坐标, y向下)
+var seats = [
+  { x: CX-260, y: CY+230, name: "座位0(我)", lv: 10 },  // 炸弹
+  { x: CX+260, y: CY+230, name: "座位1",     lv: 3  },
+  { x: CX-500, y: CY,     name: "座位2",     lv: 12 },  // 6同花顺
+  { x: CX+500, y: CY,     name: "座位3",     lv: 5  },
+  { x: CX-260, y: CY-230, name: "座位4",     lv: 8  },
+  { x: CX+260, y: CY-230, name: "座位5",     lv: 1  }
+];
+function tableCenter() {
+  var sx=0, sy=0; for (var i=0;i<seats.length;i++){ sx+=seats[i].x; sy+=seats[i].y; }
+  return { x: sx/seats.length, y: sy/seats.length };
+}
+
+// ============ 特效队列(对应 _playHandFx) ============
+var fxQueue = [], fxRunning = false, fxNodes = [];
+function enqueueFx() {
+  for (var i=0;i<seats.length;i++) {
+    if (seats[i].lv >= 11) fxQueue.push({kind:"fire", off:i});
+    else if (seats[i].lv == 10) fxQueue.push({kind:"bomb", off:i});
+  }
+  fxRunning = true; nextFx();
+}
+function nextFx() {
+  if (fxQueue.length == 0) { fxRunning=false; return; }
+  var it = fxQueue.shift();
+  if (it.kind == "fire") fxFire(it.off, nextFx);
+  else fxBomb(it.off, nextFx);
+}
+
+// ============ 同花顺喷火(对应 _fxFire) ============
+function fxFire(off, done) {
+  var from = seats[off], c = tableCenter();
+  fxNodes.push({ kind:"fire", t0:performance.now(),
+    from:{x:from.x,y:from.y}, to:c, dur:1900 });
+  setTimeout(done, 1900);   // 与 scheduleOnce(1.9) 一致
+}
+function drawFire(fx, now) {
+  var t = (now - fx.t0)/1000, x, y, sx, sy, op=1;
+  if (t < 0.5) {                       // cc.spawn(moveTo 0.5, scaleTo 0.5→(1.15,1.3))
+    var k = t/0.5;
+    x = fx.from.x + (fx.to.x-fx.from.x)*k;
+    y = fx.from.y + (fx.to.y-fx.from.y)*k;
+    sx = 0.12 + (1.15-0.12)*k; sy = 0.12 + (1.30-0.12)*k;
+  } else if (t < 1.75) {               // moveBy(1.25,(0,620)) scale→(0.62,0.9) fadeOut
+    var k2 = (t-0.5)/1.25;
+    x = fx.to.x;
+    y = fx.to.y - 620*k2;              // cocos y向上 = canvas y减小
+    sx = 1.15 + (0.62-1.15)*k2; sy = 1.30 + (0.90-1.30)*k2;
+    op = 1-k2;
+  } else return false;                 // removeSelf
+  ctx.save(); ctx.translate(x,y); ctx.scale(sx,sy); ctx.globalAlpha = op;
+  // 光晕 circle r86 alpha70
+  ctx.fillStyle = "rgba(255,130,0," + (70/255) + ")";
+  ctx.beginPath(); ctx.arc(0,0,86,0,Math.PI*2); ctx.fill();
+  // 外焰 ellipse(46,80) cocos y+10 → canvas y-10
+  ctx.fillStyle = "rgba(255,160,30," + (245/255) + ")";
+  ctx.beginPath(); ctx.ellipse(0,-10,46,80,0,0,Math.PI*2); ctx.fill();
+  // 内焰 ellipse(30,56) y-4 → canvas y+4
+  ctx.fillStyle = "rgba(255,90,0," + (245/255) + ")";
+  ctx.beginPath(); ctx.ellipse(0,4,30,56,0,0,Math.PI*2); ctx.fill();
+  // 焰心 ellipse(15,32) y-18 → canvas y+18
+  ctx.fillStyle = "rgba(255,244,180,1)";
+  ctx.beginPath(); ctx.ellipse(0,18,15,32,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+  return true;
+}
+
+// ============ 炸弹(对应 _fxBomb/_fxBurst): 炸在牌型比它小的头像上 ============
+function fxBomb(off, done) {
+  var myLv = seats[off].lv;
+  for (var o=0;o<seats.length;o++) {
+    if (o==off || seats[o].lv==null || seats[o].lv > myLv) continue;
+    fxBurst(o);
+  }
+  setTimeout(done, 1100);   // 与 scheduleOnce(1.1) 一致
+}
+function fxBurst(off) {
+  var p = seats[off], now = performance.now();
+  fxNodes.push({ kind:"burst", t0:now, x:p.x, y:p.y });   // 星形爆炸
+  fxNodes.push({ kind:"ring",  t0:now, x:p.x, y:p.y });   // 冲击波圆环
+}
+function starPath(R, r, n) {
+  ctx.beginPath();
+  for (var i=0;i<n*2;i++) {
+    var a = Math.PI*i/n - Math.PI/2, rad = (i%2==0)?R:r;
+    var px = Math.cos(a)*rad, py = Math.sin(a)*rad;
+    if (i==0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+  }
+  ctx.closePath();
+}
+function drawBurst(fx, now) {
+  var t = (now - fx.t0)/1000, s, op=1;
+  if (t < 0.25)      { s = 0.12 + (1.35-0.12)*(t/0.25); }
+  else if (t < 0.65) { var k=(t-0.25)/0.4; s = 1.35+(1.8-1.35)*k; op = 1-k; }
+  else return false;
+  ctx.save(); ctx.translate(fx.x, fx.y); ctx.scale(s,s); ctx.globalAlpha = op;
+  ctx.fillStyle = "rgba(255,70,0," + (230/255) + ")"; starPath(68,26,12); ctx.fill();
+  ctx.fillStyle = "rgba(255,190,40,1)";               starPath(40,16,12); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,220,1)";
+  ctx.beginPath(); ctx.arc(0,0,20,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+  return true;
+}
+function drawRing(fx, now) {
+  var t = (now - fx.t0)/1000, s, op=230/255;
+  if (t < 0.45)      { s = 0.3 + (1.9-0.3)*(t/0.45); }
+  else if (t < 0.75) { var k=(t-0.45)/0.3; s = 1.9+(2.5-1.9)*k; op = (230/255)*(1-k); }
+  else return false;
+  ctx.save(); ctx.translate(fx.x, fx.y); ctx.scale(s,s); ctx.globalAlpha = op;
+  ctx.strokeStyle = "rgb(255,230,120)"; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.arc(0,0,46,0,Math.PI*2); ctx.stroke();
+  ctx.restore();
+  return true;
+}
+
+// ============ 渲染主循环 ============
+function drawTable() {
+  // 桌面
+  ctx.fillStyle = "#1b5e3a"; ctx.fillRect(0,0,1280,720);
+  ctx.fillStyle = "#2e7d4f";
+  ctx.beginPath(); ctx.ellipse(CX,CY,430,240,0,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = "#8d6e63"; ctx.lineWidth = 14;
+  ctx.beginPath(); ctx.ellipse(CX,CY,440,250,0,0,Math.PI*2); ctx.stroke();
+  // 座位头像
+  for (var i=0;i<seats.length;i++) {
+    var s = seats[i];
+    ctx.fillStyle = "#37474f";
+    ctx.beginPath(); ctx.arc(s.x,s.y,46,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "#eceff1"; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = "#fff"; ctx.font = "14px Arial"; ctx.textAlign = "center";
+    ctx.fillText(s.name, s.x, s.y+68);
+    ctx.fillStyle = "#ffd54f";
+    var lvName = s.lv>=11 ? "同花顺" : (s.lv==10 ? "炸弹" : "牌型"+s.lv);
+    ctx.fillText(lvName, s.x, s.y-58);
+  }
+}
+function loop() {
+  drawTable();
+  var now = performance.now();
+  fxNodes = fxNodes.filter(function(fx){
+    if (fx.kind == "fire")  return drawFire(fx, now);
+    if (fx.kind == "burst") return drawBurst(fx, now);
+    if (fx.kind == "ring")  return drawRing(fx, now);
+    return false;
+  });
+  requestAnimationFrame(loop);
+}
+
+// ============ 演示按钮 ============
+function resetLv() { for (var i=0;i<seats.length;i++) seats[i].lv = 1; }
+function demoFire()  { resetLv(); seats[2].lv = 12; fxQueue=[]; enqueueFx(); }
+function demoBomb()  { resetLv(); seats[0].lv = 10; seats[1].lv=3; seats[3].lv=5; seats[4].lv=8; fxQueue=[]; enqueueFx(); } // 其余家牌型都更小, 都会被炸
+function demoQueue() { resetLv(); seats[2].lv = 12; seats[0].lv = 10; seats[1].lv=3; seats[3].lv=5; seats[4].lv=8; fxQueue=[]; enqueueFx(); }
+// 自动循环: 每隔3.5秒重播一次"火+炸弹"队列, 方便截图/录屏
+var autoTimer = null;
+function toggleAuto(btn) {
+  if (autoTimer) { clearInterval(autoTimer); autoTimer = null; btn.textContent = "自动循环：关"; return; }
+  btn.textContent = "自动循环：开";
+  demoQueue();
+  autoTimer = setInterval(function () { if (!fxRunning) demoQueue(); }, 3500);
+}
+loop();
+</script>
+</body>
+</html>

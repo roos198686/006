@@ -1,0 +1,17 @@
+[
+  {
+    "__type__": "cc.AnimationClip",
+    "_name": "bb_legacy_play_efx",
+    "_objFlags": 0,
+    "_native": "",
+    "speed": 1,
+    "sample": 60,
+    "wrapMode": 1,
+    "curveData": {
+      "paths": []
+    },
+    "events": [],
+    "_duration": 0,
+    "_hash": null
+  }
+]

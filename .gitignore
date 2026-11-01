@@ -1,0 +1,69 @@
+# === Node ===
+node_modules/
+npm-debug.log*
+package-lock.json
+
+# === 运行时日志 ===
+*.log
+out.log
+error.log
+
+# === 本地数据库密码配置 ===
+server/configs_win.js
+server/configs.js
+server/*/configs_win.js
+server/*/configs.js
+
+# === 项目内各种备份目录(本地留着,不推GitHub) ===
+_tmp_backup/
+_unused_backup/
+_tools/backup/
+atlas_frames/
+backup_*/
+client_backup_*/
+
+# === 场景/文件旁边的 .bak / .bgfixbak 临时备份 ===
+*.bak_*
+*.bgfixbak
+
+# === Cocos 临时/缓存 ===
+client/temp/
+client/library/
+client/local/
+client/build/*
+client/profiles/
+client/.trae/
+
+# 原生工程 jsb-default 需要推送到 GitHub 供云端编译,但忽略其它构建产物
+!client/build/jsb-default/
+
+# === 系统 ===
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# === IDE ===
+.vscode/
+.idea/
+
+# === 大文件二进制产物(如果有) ===
+*.zip
+*.rar
+*.7z
+
+# === 本地备份/临时(不推送) ===
+_backups/
+removed_backup/
+_tools/
+_fx_frames/
+release/
+.trae-html-share-packages/
+
+# === 签名密钥(绝不进仓库) ===
+*.keystore
+*.jks
+
+server_deploy/
+
