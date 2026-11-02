@@ -32,6 +32,28 @@
 
 #import <OpenAL/alc.h>
 #import <AVFoundation/AVFoundation.h>
+#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+#import <UIKit/UIKit.h>
+#import <math.h>
+
+// ===== 临时诊断：开机弹窗 + 测试音，定位 iOS 无声问题，修好后删除 =====
+static void showAudioDebugAlert(NSString* msg)
+{
+    NSLog(@"[AUDIODBG] %@", msg);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"AUDIO-DEBUG"
+                                                                       message:msg
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+        UIWindow* win = [UIApplication sharedApplication].delegate.window;
+        if (win == nil) win = [[UIApplication sharedApplication].windows firstObject];
+        UIViewController* root = win.rootViewController;
+        while (root.presentedViewController) root = root.presentedViewController;
+        [root presentViewController:alert animated:YES completion:nil];
+    });
+}
+// ===== 诊断代码结束 =====
+#endif
 
 #include "audio/include/AudioEngine.h"
 #include "platform/CCFileUtils.h"
@@ -256,19 +278,39 @@ AudioEngineImpl::~AudioEngineImpl()
 bool AudioEngineImpl::init()
 {
     bool ret = false;
+#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+    NSMutableString* dbg = [NSMutableString stringWithCapacity:256];
+#endif
     do{
 #if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
         s_AudioEngineSessionHandler = [[AudioEngineSessionHandler alloc] init];
+        {
+            NSError* actErr = nil;
+            BOOL act = [[AVAudioSession sharedInstance] setActive:YES error:&actErr];
+            [dbg appendFormat:@"setActive=%d err=%ld\n", (int)act, (long)(actErr ? actErr.code : 0)];
+        }
 #endif
 
         s_ALDevice = alcOpenDevice(nullptr);
+#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+        [dbg appendFormat:@"alcOpenDevice=%p\n", (void*)s_ALDevice];
+#endif
 
         if (s_ALDevice) {
             s_ALContext = alcCreateContext(s_ALDevice, nullptr);
             alcMakeContextCurrent(s_ALContext);
+#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+            {
+                const ALCchar* devName = alcGetString(s_ALDevice, ALC_DEVICE_SPECIFIER);
+                [dbg appendFormat:@"ctx=%p dev=%s\n", (void*)s_ALContext, devName ? devName : "?"];
+            }
+#endif
 
             alGenSources(MAX_AUDIOINSTANCES, _alSources);
             auto alError = alGetError();
+#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+            [dbg appendFormat:@"genSources err=0x%x\n", (unsigned)alError];
+#endif
             if(alError != AL_NO_ERROR)
             {
                 ALOGE("%s:generating sources failed! error = %x", __PRETTY_FUNCTION__, alError);
@@ -344,9 +386,35 @@ bool AudioEngineImpl::init()
             _scheduler = Application::getInstance()->getScheduler();
             ret = true;
             ALOGI("OpenAL was initialized successfully!");
+#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+            // ===== 临时诊断：直接播 880Hz 测试音，验证 OpenAL->喇叭 整条链路 =====
+            {
+                const int sampleRate = 44100;
+                const int frames = sampleRate * 3 / 10;
+                short* pcm = (short*)malloc(frames * sizeof(short));
+                for (int i = 0; i < frames; ++i)
+                    pcm[i] = (short)(sin(2.0 * M_PI * 880.0 * i / sampleRate) * 12000);
+                ALuint beepBuf = 0;
+                alGenBuffers(1, &beepBuf);
+                alGetError();
+                alBufferData(beepBuf, AL_FORMAT_MONO16, pcm, frames * sizeof(short), sampleRate);
+                free(pcm);
+                ALenum bufErr = alGetError();
+                alSourcei(_alSources[0], AL_BUFFER, beepBuf);
+                alSourcei(_alSources[0], AL_LOOPING, AL_FALSE);
+                alSourcePlay(_alSources[0]);
+                ALenum playErr = alGetError();
+                [dbg appendFormat:@"beep bufErr=0x%x playErr=0x%x\n", (unsigned)bufErr, (unsigned)playErr];
+            }
+            // ===== 诊断代码结束 =====
+#endif
         }
     }while (false);
 
+#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+    [dbg appendFormat:@"init ret=%d", (int)ret];
+    showAudioDebugAlert(dbg);
+#endif
     return ret;
 }
 
