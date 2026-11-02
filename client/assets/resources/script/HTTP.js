@@ -4,7 +4,7 @@ var _host = "127.0.0.1";
 var _isAndroid = false;
 if(typeof cc !== "undefined"){
     if(cc.sys && cc.sys.isNative){
-        _host = "sbb.appsldodspptg.top"; // 生产服务器域名
+        _host = "47.239.100.68"; // 生产服务器IP(直连免DNS解析,每次HTTP请求省100~500ms;换服务器需重出包)
     } else if(typeof location !== "undefined" && location.hostname){
         _host = location.hostname; // 浏览器回连当前访问地址
     }
