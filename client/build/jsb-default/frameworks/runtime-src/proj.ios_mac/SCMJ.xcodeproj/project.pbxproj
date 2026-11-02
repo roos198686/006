@@ -243,7 +243,6 @@
 				D454520C156E22BD00887EB5 /* libz.dylib in Frameworks */,
 				A92275421517C094001B78AA /* QuartzCore.framework in Frameworks */,
 				A92275441517C094001B78AA /* OpenGLES.framework in Frameworks */,
-				A92275461517C094001B78AA /* OpenAL.framework in Frameworks */,
 				A92275481517C094001B78AA /* AudioToolbox.framework in Frameworks */,
 				A922754A1517C094001B78AA /* AVFoundation.framework in Frameworks */,
 				A922754C1517C094001B78AA /* UIKit.framework in Frameworks */,
