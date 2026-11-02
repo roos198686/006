@@ -425,7 +425,7 @@ THE SOFTWARE.
  * If enabled, --jitless flag will be add to V8
  */
 #ifndef CC_IOS_FORCE_DISABLE_JIT
-# define CC_IOS_FORCE_DISABLE_JIT 0
+# define CC_IOS_FORCE_DISABLE_JIT 1
 #endif
 
 #endif // __CCCONFIG_H__
