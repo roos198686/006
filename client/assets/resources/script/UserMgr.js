@@ -7,7 +7,8 @@ cc.Class({
 		lv:0,          //等级
 		exp:0,       //经验
 		coins:0,      //金币
-		gems:0,      //房卡
+		gems:0,      //房卡(宝宝豆)
+		safe_beans:0, //保险柜宝宝豆(不参与游戏)
 		sign:0,       //标志
         ip:"",      //ip
         sex:0,     //性别
@@ -30,9 +31,41 @@ cc.Class({
             account = Date.now(); //date
             cc.sys.localStorage.setItem("account",account); //设置本地存储 账号为本地时间
         }
+        this._authType = "guest";
         //请求参数 account ,ip(可省略)
         ///guest只在账号服:登录后再回登录页时HTTP.url已是大厅服,必须显式指定master_url,否则请求打到9101失败
         cc.vv.http.sendRequest("/guest",{account:account},this.onAuth,cc.vv.http.master_url);  //游客请求登入
+    },
+
+    //账号密码登录:调账号服/auth,返回{account,halladdr,sign},成功后走onAuth进大厅
+    pwdAuth:function(account,password){
+        if(!account || !password){
+            if(cc.vv.wc){ cc.vv.wc.showError("请输入账号和密码"); }
+            return;
+        }
+        this._authType = "pwd";
+        cc.vv.http.sendRequest("/auth",{account:account,password:password},this.onAuth,cc.vv.http.master_url);
+    },
+
+    //本地是否保存了上次的登录态
+    hasSavedSession:function(){
+        var acc = cc.sys.localStorage.getItem("login_account");
+        var sign = cc.sys.localStorage.getItem("login_sign");
+        return !!(acc && sign);
+    },
+
+    //用本地保存的登录态自动登录:true=已发起登录,false=没有登录态
+    autoLogin:function(onFail){
+        if(!this.hasSavedSession()){ return false; }
+        this.account = cc.sys.localStorage.getItem("login_account");
+        this.sign = cc.sys.localStorage.getItem("login_sign");
+        //登录态存在时HTTP.url可能还是账号服,这里切回大厅服(与onAuth一致)
+        if(cc.vv.SI && cc.vv.SI.hall){
+            cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(cc.vv.SI.hall) : cc.vv.SI.hall);
+        }
+        this._autoLoginFail = onFail || null;
+        this.login();
+        return true;
     },
     
 
@@ -48,10 +81,15 @@ cc.Class({
         var self = cc.vv.userMgr;  //取得当前对象
         if(ret.errcode !== 0){   
             console.log(ret.errmsg);  //返回错误信息
+            if(cc.vv.wc){ cc.vv.wc.showError(ret.errmsg || "登录失败"); }
         }
         else{
             self.account = ret.account; //账号
             self.sign = ret.sign;   //标志
+            //保存登录态:下次打开APP直接用这里自动登录进大厅
+            cc.sys.localStorage.setItem("login_account", self.account);
+            cc.sys.localStorage.setItem("login_sign", self.sign == null ? "" : String(self.sign));
+            cc.sys.localStorage.setItem("login_type", self._authType || "guest");
             cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(cc.vv.SI.hall) : cc.vv.SI.hall);  //设置URL为取得版本接口时 ret.hall
             self.login();  //获取成功后登陆
         }   
@@ -64,6 +102,13 @@ cc.Class({
         var onLogin = function(ret){
             if(ret.errcode !== 0){
                 console.log(ret.errmsg);
+                //本地登录态失效(账号被删/数据回档):清掉登录态,回到登录按钮
+                cc.sys.localStorage.removeItem("login_account");
+                cc.sys.localStorage.removeItem("login_sign");
+                if(cc.vv.wc){ cc.vv.wc.hide(); }
+                var f = self._autoLoginFail;
+                self._autoLoginFail = null;
+                if(f){ f(ret); }
             }
             else{
                 if(!ret.userid){
@@ -84,7 +129,13 @@ cc.Class({
                     // cc.sys.localStorage.setItem("roomid",ret.roomid); //设置本地存储 账号为本地时间
                     self.sex = ret.sex;
                     self.ip = ret.ip;
-        			cc.director.loadScene("hall"); //登录后先到大厅,再由大厅入口进俱乐部
+                    self._autoLoginFail = null;
+        			// 用 SceneMgr 带过渡进大厅,解决白闪/冻结
+        			if(cc.vv && cc.vv.sceneMgr){
+        			    cc.vv.sceneMgr.load("hall");
+        			}else{
+        			    cc.director.loadScene("hall");
+        			}
                 }
             }
         };
@@ -93,10 +144,17 @@ cc.Class({
         cc.vv.http.sendRequest("/login",{account:this.account,sign:this.sign},onLogin);
     },
     
-    //生成默认昵称(首次游客登录自动建档用): YB+随机姓氏
+    //生成默认昵称(首次游客登录自动建档用): 复姓+双字名, 固定四个汉字, 看起来像正常人名
     _genDefaultName:function(){
-        var names = ["上官","欧阳","东方","端木","独孤","司马","南宫","诸葛","皇甫","宇文","轩辕","子言","雀圣","赌侠","赌圣","稳赢","不输","好运","自摸","有钱","土豪"];
-        return "YB" + names[Math.floor(Math.random() * names.length)];
+        var xing = ["欧阳","上官","诸葛","宇文","司马","南宫","慕容","皇甫","端木","独孤","轩辕","东方","夏侯","长孙","令狐","司徒"];
+        var ming = ["子墨","清和","知远","嘉言","景行","若溪","书言","思远","亦辰","星野","明轩","修文","语嫣","安然","星河","沐阳","若尘","文昊","念安","雨辰"];
+        return xing[Math.floor(Math.random() * xing.length)] + ming[Math.floor(Math.random() * ming.length)];
+    },
+
+    //生成默认头像(首次建档随机取一个内置头像 avatar_01~avatar_18), 不再使用默认占位图
+    _genDefaultAvatar:function(){
+        var n = Math.floor(Math.random() * 18) + 1;
+        return "avatar_" + (n < 10 ? "0" + n : n);
     },
 
     //创建用户
@@ -114,7 +172,8 @@ cc.Class({
         var data = {
             account:this.account,
             sign:this.sign,
-            name:name
+            name:name,
+            headimg:this._genDefaultAvatar()
         };
         cc.vv.http.sendRequest("/create_user",data,onCreate);    
     },

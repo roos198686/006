@@ -551,6 +551,7 @@ function startReveal(game){
 }
 
 function sendStart(game){
+    console.log("[宝宝][时序] bb_start t=" + Date.now() + " room=" + game.roomId);
     var seatsInfo = getSeatsInfo(game);
     for(var i = 0; i < game.gameSeats.length; ++i){
         var s = game.gameSeats[i];
@@ -767,13 +768,42 @@ function doGameOver(game){
             overData.endinfo = endinfo;
         }
 
+        // 房间剩余人数不足两人(其他玩家因宝宝豆不足/主动退出等原因已离座): 本局之后无法再开局,
+        // 通知客户端在本局结算弹窗里显示「退出房间」按钮, 玩家看完结果自己离开
+        var remainPlayers = 0;
+        if(roomInfo && roomInfo.seats){
+            for(var pi = 0; pi < roomInfo.seats.length; ++pi){
+                if(roomInfo.seats[pi].userId > 0) remainPlayers++;
+            }
+        }
+        // 本局结算后余额低于「请出阈值」的玩家也会被踢出房间, 提前从剩余人数里扣掉,
+        // 避免踢人异步清座位时误判成"还能继续开局"
+        if(kickBean > 0 && roomInfo && roomInfo.seats){
+            for(var gi = 0; gi < game.gameSeats.length; ++gi){
+                var gsu = game.gameSeats[gi];
+                if(gsu.score >= kickBean) continue;
+                for(var pi2 = 0; pi2 < roomInfo.seats.length; ++pi2){
+                    if(roomInfo.seats[pi2].userId == gsu.userId){ remainPlayers--; break; }
+                }
+            }
+        }
+        if(remainPlayers < 0) remainPlayers = 0;
+        var isFinalRound = !!(roomInfo && roomInfo.numOfGames >= roomInfo.conf.maxGames);
+        if(remainPlayers < 2 && !isFinalRound){
+            overData.roomEnd = true;
+            console.log("[宝宝] 房间人数不足(" + remainPlayers + "), 本局结算显示退出房间 room=" + game.roomId);
+        }
+
         // 保存结算数据: 结算阶段重连时补发 game_over_push, 避免重进后空等倒计时
         game.lastOver = overData;
 
         game.phase = "result";
         sendToGameSeats(game, 'game_over_push', overData);
 
-        if(roomInfo && roomInfo.numOfGames >= roomInfo.conf.maxGames){
+        if(isFinalRound){
+            //整场结束: 不立即踢人/散桌, 客户端先弹本局结算, 再弹120秒总结算弹窗;
+            //125秒(120秒倒计时+5秒缓冲)后仍未离开的玩家才统一清退并销毁房间
+            console.log("[宝宝] 整场结束, 125秒后自动清退 room=" + game.roomId + " t=" + Date.now());
             setTimeout(function(){
                 userMgr.brocastInRoom(game.roomId, 'dispress_push', {});
                 setTimeout(function(){
@@ -782,7 +812,11 @@ function doGameOver(game){
                     roomMgr.destroy(endRoomId);   //销毁内部会在牌桌解绑落库后广播座位清空
                     delete games[endRoomId];
                 }, 500);
-            }, 5000);
+            }, 125000);
+        } else if(overData.roomEnd){
+            // 人数不足: 不自动续局也不设置结算倒计时推进, 等剩余玩家在结算弹窗点「退出房间」;
+            // 房间由退房/自动解散定时器兜底回收
+            console.log("[宝宝] 结算后不续局(人数不足), 等待玩家退出 room=" + game.roomId);
         } else {
             // 非整场结束: 结算倒计时到点只把没点的玩家自动确认, 仍然必须全员确认后才发下一局的牌
             game.resultTimer = setTimeout(function(){
@@ -842,8 +876,16 @@ exports.start = function(roomInfo, readyUids){
         console.log("[宝宝] 人数不足，无法开局");
         return;
     }
-    // 开局前把各玩家积分初始化为账户宝宝豆余额, 局内结算直接按余额加减
+    // 开局不能被数据库读长时间阻塞: 原来要等所有玩家余额都查回来才发牌, MySQL 一慢(或连接池忙)
+    // 结算后就要多等几秒才发下一局。现在最多等 300ms: 查回来用最新余额, 超时就用座位上缓存的积分直接开局。
+    var started = false;
     var pending = seatedPlayers.length;
+    var timer = setTimeout(function(){
+        if(started) return;
+        started = true;
+        console.log("[宝宝][时序] 取余额超时, 用缓存积分开局 room=" + roomInfo.id + " t=" + Date.now());
+        doStart(roomInfo, seatedPlayers);
+    }, 300);
     seatedPlayers.forEach(function(sp){
         db.get_user_data_by_userid(sp.userId, function(ud){
             if(ud && ud.gems != null){
@@ -851,7 +893,12 @@ exports.start = function(roomInfo, readyUids){
                 var rs = roomInfo.seats[sp.roomSeatIndex];
                 if(rs) rs.score = ud.gems;
             }
-            if(--pending === 0) doStart(roomInfo, seatedPlayers);
+            if(--pending === 0){
+                clearTimeout(timer);
+                if(started) return;
+                started = true;
+                doStart(roomInfo, seatedPlayers);
+            }
         });
     });
 };
@@ -993,7 +1040,7 @@ exports.continueRound = function(userId, data){
     }
     s.continued = true;
     var count = game.gameSeats.filter(function(x){ return x.continued; }).length;
-    console.log("[宝宝] 结算继续 userId=" + userId + " " + count + "/" + game.gameSeats.length);
+    console.log("[宝宝] 结算继续 userId=" + userId + " " + count + "/" + game.gameSeats.length + " t=" + Date.now());
     sendToGameSeats(game, 'bb_continue_ok_push', { seatIndex: seatIndex, continuedCount: count, total: game.gameSeats.length });
     checkAllReady(game);
 };

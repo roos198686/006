@@ -286,7 +286,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							else if(type == "zj_zx" || type == "zj4_zx") conf.playStyle = 'zixuancaishen';
 							conf.maxTai = roomConf.maxTai || cfg.max_tai || 10;
 							conf.caishen_cpg = cfg.caishen_cpg != null ? cfg.caishen_cpg : 1;
-							conf.taiRules = cfg.tai_rules || null;
+							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
 							conf.baoSeatIndex = roomConf.baoSeatIndex != null ? roomConf.baoSeatIndex : -1;
 							conf.baoTai = roomConf.baoTai || 2;
 							conf.baoTaiFee = roomConf.baoTaiFee || 0;
@@ -315,9 +315,9 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							}
 						}
 
-						// 漳浦麻将特有配置：台数规则全部走后台 tai_rules
+						// 漳浦麻将特有配置：台数规则优先用俱乐部自配(牌桌conf下发),空则用后台全局 tai_rules
 						if(type == "zp" || type == "zp4" || type == "wujin"){
-							conf.taiRules = cfg.tai_rules || null;
+							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
 						}
 
 						// 德州扑克特有配置：小盲、起始筹码
@@ -326,9 +326,9 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							conf.chips = CHIPS[roomConf.chips];
 						}
 
-						// 宝宝(6张): 倍率表/有无庄/乌龙校验/摆牌超时 全部走 tai_rules
+						// 宝宝(6张): 倍率表/有无庄/乌龙校验/摆牌超时 全部走 tai_rules(俱乐部自配优先)
 						if(type == "baobao_mian" || type == "baobao_shou"){
-							conf.taiRules = cfg.tai_rules || null;
+							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
 							// 牌桌级开关(添加牌桌时选有庄/无庄): 优先于后台玩法配置
 							if(roomConf.banker_mode != null){ conf.banker_mode = Number(roomConf.banker_mode) ? 1 : 0; }
 							// 牌桌级宝宝豆: 进场最低 / 结算后低于该值请出

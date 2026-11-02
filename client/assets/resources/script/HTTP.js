@@ -1,10 +1,10 @@
-// 服务器地址：原生APP(安卓/iOS)固定走公网服务器；浏览器/H5回连当前访问的地址(本地预览=127.0.0.1,线上H5=47.239.100.68)
+// 服务器地址：原生APP(安卓/iOS)固定走公网服务器；浏览器/H5回连当前访问的地址(本地预览=127.0.0.1,线上H5=sbb.appsldodspptg.top)
 // 打包发布无需再手动改这里，本地调试也不用改回
 var _host = "127.0.0.1";
 var _isAndroid = false;
 if(typeof cc !== "undefined"){
     if(cc.sys && cc.sys.isNative){
-        _host = "47.239.100.68"; // 生产服务器公网IP
+        _host = "sbb.appsldodspptg.top"; // 生产服务器域名
     } else if(typeof location !== "undefined" && location.hostname){
         _host = location.hostname; // 浏览器回连当前访问地址
     }

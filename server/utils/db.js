@@ -73,6 +73,13 @@ exports.init = function(config){
             if(err){ console.log("create t_replays failed:" + err.message); }
         });
     }, 600);
+
+    //俱乐部玩法台数规则列(老库自动升级;已存在会报 Duplicate column,忽略即可)
+    setTimeout(function(){
+        query('ALTER TABLE `t_club_games` ADD COLUMN `tai_rules` TEXT NULL COMMENT "台数规则JSON(俱乐部自配,空=用默认)"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_club_games.tai_rules failed:" + err.message); }
+        });
+    }, 900);
 };
 
 exports.is_account_exist = function(account,callback){
@@ -243,6 +250,46 @@ exports.add_user_gems = function(userid,gems,callback){
             callback(rows.affectedRows > 0);
             return; 
         } 
+    });
+};
+
+//查询玩家宝宝豆与保险柜余额
+exports.get_user_safe = function(userid,callback){
+    callback = callback == null? nop:callback;
+    if(userid == null){ callback(null); return; }
+    query('SELECT gems,safe_beans FROM t_users WHERE userid = ' + userid, function(err, rows){
+        if(err || !rows || rows.length == 0){ callback(null); return; }
+        callback({gems: Number(rows[0].gems) || 0, safe_beans: Number(rows[0].safe_beans) || 0});
+    });
+};
+
+//保险柜存取:amount>0 存入(gems→safe_beans), amount<0 取出(safe_beans→gems)
+//余额不足时返回 false,成功返回 {gems, safe_beans}
+exports.safe_transfer = function(userid,amount,callback){
+    callback = callback == null? nop:callback;
+    if(userid == null || amount == null || amount === 0){ callback(false); return; }
+    amount = parseInt(amount);
+    if(!isFinite(amount)){ callback(false); return; }
+    //先查当前余额
+    exports.get_user_safe(userid, function(bal){
+        if(bal == null){ callback(false); return; }
+        if(amount > 0){
+            //存入:gems 要足够
+            if(bal.gems < amount){ callback(false,'宝宝豆不足'); return; }
+            query('UPDATE t_users SET gems = gems - ' + amount + ', safe_beans = safe_beans + ' + amount + ' WHERE userid = ' + userid, function(err, rows){
+                if(err){ console.log(err); callback(false); return; }
+                callback({gems: bal.gems - amount, safe_beans: bal.safe_beans + amount});
+            });
+        }
+        else{
+            //取出:safe_beans 要足够
+            var wd = -amount;
+            if(bal.safe_beans < wd){ callback(false,'保险柜余额不足'); return; }
+            query('UPDATE t_users SET gems = gems + ' + wd + ', safe_beans = safe_beans - ' + wd + ' WHERE userid = ' + userid, function(err, rows){
+                if(err){ console.log(err); callback(false); return; }
+                callback({gems: bal.gems + wd, safe_beans: bal.safe_beans - wd});
+            });
+        }
     });
 };
 
@@ -1169,6 +1216,50 @@ exports.club_list_of_user = function(userid,callback){
     });
 };
 
+//查询某用户作为创建人的所有俱乐部
+exports.clubs_by_owner = function(userid,callback){
+    callback = callback == null? nop:callback;
+    if(userid == null){ callback([]); return; }
+    query('SELECT id,name FROM t_clubs WHERE owner_userid = ' + userid, function(err, rows){
+        if(err){ console.log(err); callback([]); return; }
+        callback(rows || []);
+    });
+};
+
+//注销账号:删除用户及其创建的俱乐部、成员关系、绑定关系
+exports.delete_user_account = function(account,callback){
+    callback = callback == null? nop:callback;
+    if(account == null){ callback(false); return; }
+    exports.get_user_data(account,function(data){
+        if(data == null){ callback(false); return; }
+        var userid = data.userid;
+        //1. 删除该用户创建的所有俱乐部(级联清理成员/牌桌/玩法/管理员绑定)
+        exports.clubs_by_owner(userid,function(clubs){
+            var idx = 0;
+            var delNextClub = function(){
+                if(idx >= clubs.length){
+                    //2. 从所有俱乐部成员表中移除该用户
+                    query('DELETE FROM t_club_members WHERE userid = ' + userid, function(){
+                        //3. 删除绑定关系
+                        query('DELETE FROM t_user_bindings WHERE account_a = "' + account + '" OR account_b = "' + account + '"', function(){
+                            //4. 删除用户主记录
+                            query('DELETE FROM t_users WHERE account = "' + account + '"', function(err, rows){
+                                if(err){ console.log(err); callback(false); return; }
+                                callback(true);
+                            });
+                        });
+                    });
+                    return;
+                }
+                var cid = clubs[idx].id;
+                idx++;
+                exports.admin_club_delete(cid, function(){ delNextClub(); });
+            };
+            delNextClub();
+        });
+    });
+};
+
 //后台添加俱乐部桌面
 exports.club_add_table = function(clubId,gameType,name,conf,callback){
     callback = callback == null? nop:callback;
@@ -1325,6 +1416,15 @@ exports.club_game_add = function(clubId,gameType,name,difen,jushu,cost,sort,call
     });
 };
 
+//单个俱乐部玩法(按俱乐部+玩法类型)
+exports.club_game_get_by_type = function(clubId,gameType,callback){
+    callback = callback == null? nop:callback;
+    queryP('SELECT * FROM t_club_games WHERE club_id = ? AND game_type = ? ORDER BY id LIMIT 1',[clubId,gameType],function(err,rows){
+        if(err || rows.length == 0){ callback(null); return; }
+        callback(rows[0]);
+    });
+};
+
 //更新俱乐部玩法
 exports.club_game_update = function(id,fields,callback){
     callback = callback == null? nop:callback;
@@ -1334,6 +1434,8 @@ exports.club_game_update = function(id,fields,callback){
     if(fields.difen_options){ sets.push('difen_options = ?'); params.push(JSON.stringify(fields.difen_options)); }
     if(fields.jushu_options){ sets.push('jushu_options = ?'); params.push(JSON.stringify(fields.jushu_options)); }
     if(fields.cost_options){ sets.push('cost_options = ?'); params.push(JSON.stringify(fields.cost_options)); }
+    //台数规则:显式传 null 表示清空(留空按默认值)
+    if(fields.tai_rules !== undefined){ sets.push('tai_rules = ?'); params.push(fields.tai_rules == null ? null : JSON.stringify(fields.tai_rules)); }
     if(fields.sort != null){ sets.push('sort = ?'); params.push(fields.sort); }
     if(fields.enabled != null){ sets.push('enabled = ?'); params.push(fields.enabled ? 1 : 0); }
     if(sets.length == 0){ callback(false); return; }
@@ -1359,24 +1461,90 @@ exports.club_game_delete = function(id,callback){
 };
 
 //俱乐部成员列表(含房卡)
+//绑定过账号的成员按主账号合并: 绑定账号与主账号视为同一成员, 只保留一行, 房卡取主账号的数值
 exports.club_members = function(clubId,callback){
     callback = callback == null? nop:callback;
     var sql = 'SELECT u.userid,u.account,u.name,u.gems,m.join_time FROM t_club_members m '
         + 'LEFT JOIN t_users u ON u.userid = m.userid WHERE m.club_id = ? ORDER BY m.join_time DESC';
     queryP(sql,[clubId],function(err,rows){
         if(err){ console.log(err); callback([]); return; }
+        if(rows.length == 0){ callback([]); return; }
         rows.forEach(function(r){ if(r.name){ r.name = crypto.fromBase64(r.name); } });
-        callback(rows);
+        //先把每个成员解析到绑定后的主账号
+        var pending = rows.length;
+        rows.forEach(function(r){
+            if(!r.account){ r._primary = null; if(--pending === 0){ build(); } return; }
+            exports.get_bind_primary(r.account,function(primary){
+                r._primary = primary || r.account;
+                if(--pending === 0){ build(); }
+            });
+        });
+        function build(){
+            var groups = [], map = {};
+            rows.forEach(function(r){
+                var key = r._primary || r.account || ("uid_" + r.userid);
+                var g = map[key];
+                if(!g){ g = map[key] = {key:key,rows:[],join_time:r.join_time,account:r.account}; groups.push(g); }
+                g.rows.push(r);
+                if(r.join_time && (!g.join_time || r.join_time < g.join_time)){ g.join_time = r.join_time; }
+            });
+            var out = [], remain = groups.length;
+            groups.forEach(function(g){
+                //主账号自己的成员行优先(它的房卡/昵称就是主账号的)
+                var own = null;
+                for(var i = 0; i < g.rows.length; ++i){ if(g.rows[i].account === g.key){ own = g.rows[i]; break; } }
+                if(own){
+                    out.push({userid:own.userid,account:g.key,name:own.name,gems:own.gems,join_time:g.join_time});
+                    if(--remain === 0){ done(); }
+                    return;
+                }
+                if(g.key.indexOf("uid_") === 0){
+                    var r0 = g.rows[0];
+                    out.push({userid:r0.userid,account:r0.account,name:r0.name,gems:r0.gems,join_time:g.join_time});
+                    if(--remain === 0){ done(); }
+                    return;
+                }
+                //成员只有绑定账号: 展示主账号的账号/昵称/房卡
+                exports.get_user_data(g.key,function(pu){
+                    if(pu){
+                        out.push({userid:pu.userid,account:pu.account,name:pu.name,gems:pu.gems,join_time:g.join_time});
+                    } else {
+                        var r1 = g.rows[0];
+                        out.push({userid:r1.userid,account:r1.account,name:r1.name,gems:r1.gems,join_time:g.join_time});
+                    }
+                    if(--remain === 0){ done(); }
+                });
+            });
+            function done(){
+                out.sort(function(a,b){ return (b.join_time || 0) - (a.join_time || 0); });
+                callback(out);
+            }
+        }
     });
 };
 
 //俱乐部管理员给成员增减房卡(仅限本俱乐部成员)
+//绑定账号与主账号视为同一成员: 成员校验认绑定组, 房卡加到实际登录使用的主账号上
 exports.club_member_gems = function(clubId,userid,gems,callback){
     callback = callback == null? nop:callback;
-    exports.club_is_member(clubId,userid,function(isMember){
-        if(!isMember){ callback(false,'not_member'); return; }
-        exports.add_user_gems(userid,gems,function(ok){
-            callback(ok,ok?null:'failed');
+    exports.get_user_data_by_userid(userid,function(u){
+        if(!u){ callback(false,'not_member'); return; }
+        exports.get_bind_primary(u.account,function(primary){
+            var pr = primary || u.account;
+            var sql = 'SELECT m.userid FROM t_club_members m JOIN t_users u ON u.userid = m.userid'
+                + ' WHERE m.club_id = ' + clubId + ' AND u.account IN ("' + u.account + '","' + pr + '") LIMIT 1';
+            query(sql,function(err,rows){
+                if(err || rows.length == 0){ callback(false,'not_member'); return; }
+                var apply = function(targetId){
+                    exports.add_user_gems(targetId,gems,function(ok){
+                        callback(ok,ok?null:'failed');
+                    });
+                };
+                if(pr === u.account){ apply(u.userid); return; }
+                exports.get_user_data(pr,function(pu){
+                    apply(pu ? pu.userid : u.userid);
+                });
+            });
         });
     });
 };

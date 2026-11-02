@@ -173,10 +173,10 @@ cc.Class({
         if(backClub){
             cc.vv.fromClub = true;
             if(nm && nm.roomBackClubId && !cc.vv.fromClubId){ cc.vv.fromClubId = nm.roomBackClubId; }
-            cc.director.loadScene("club");
+            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
         }
         else{
-            cc.director.loadScene("hall");
+            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
         }
     },
 

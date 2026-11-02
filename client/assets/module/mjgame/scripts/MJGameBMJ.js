@@ -48,7 +48,7 @@ cc.Class({
             //背景图完全由场景文件控制,代码不再动态拉伸/替换
         }
         if(!cc.vv){
-            cc.director.loadScene("loading");
+            cc.director.loadScene("login"); // cc.vv 未初始化时跳 login(login 自带初始化)
             return;
         }
         //加载以下脚本（诸暨玩法无定缺/换三张）;组件已固化到场景,存在则跳过避免重复挂载

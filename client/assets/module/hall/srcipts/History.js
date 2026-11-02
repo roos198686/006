@@ -2,6 +2,8 @@
 //列表:房间 -> 局 两级(场景内 history/viewlist/content 的 HistoryItem 模板)
 //回放:独立全屏浮层,上帝视角(四家手牌全明),只保留牌桌与头像,其余按钮全部隐藏
 var TYPE_NAMES = {
+    "baobao_mian": "宝宝麻将(免摆)",
+    "baobao_shou": "宝宝麻将(手摆)",
     "ldh": "赖倒胡",
     "zj_lao": "诸暨赖倒胡",
     "zj_bt": "包麻将",
@@ -72,6 +74,11 @@ cc.Class({
         if(this._root == null){ return; }
 
         this._emptyTip = this._root.getChildByName("emptyTip");
+        //空列表提示(场景里Label没写文字时是默认"Label",这里改成明确文案)
+        if(this._emptyTip){
+            var et = this._emptyTip.getComponent(cc.Label);
+            if(et){ et.string = "暂无对局记录"; }
+        }
         this._viewlist = this._root.getChildByName("viewlist");
         this._content = cc.find("view/content", this._viewlist);
         if(this._content == null || this._content.childrenCount == 0){

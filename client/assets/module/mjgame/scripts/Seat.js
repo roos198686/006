@@ -32,6 +32,10 @@ cc.Class({
         }
         
         this._sprIcon = this.node.getChildByName("icon").getComponent("ImageLoader");
+        //兼容:场景icon节点漏挂ImageLoader时运行时补挂,保证头像一定能加载
+        if(!this._sprIcon){
+            this._sprIcon = this.node.getChildByName("icon").addComponent("ImageLoader");
+        }
         //头像尺寸/位置/层级以场景内icon节点的设计值为准(80x80、玻璃底层之上),此处不再覆盖
         //获取名字(宽度对齐头像框,字号缩小,不换行,超出部分裁剪隐藏)
         this._lblName = this.node.getChildByName("name").getComponent(cc.Label);

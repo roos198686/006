@@ -100,7 +100,7 @@ cc.Class({
             if(type === "touch-end" && cc.vv && cc.vv.audioMgr){
                 var btn = this.getComponent ? this.getComponent(cc.Button) : null;
                 if((btn && btn.interactable !== false) || /^btn/i.test(this.name) || /button/i.test(this.name)){
-                    cc.vv.audioMgr.playSFX("btnClick.mp3");
+                    cc.vv.audioMgr.playSFX("btnClick.wav");
                 }
             }
             return _nodeEmit.apply(this, arguments);
@@ -109,6 +109,19 @@ cc.Class({
         var Utils = require("Utils");
         cc.vv.utils = new Utils();
         
+        // 统一场景管理(预加载 + 淡入淡出过渡,解决切场景白闪/冻结)
+        try {
+            var SceneMgr = require("SceneMgr");
+            cc.vv.sceneMgr = new SceneMgr();
+            cc.vv.sceneMgr.init();
+        } catch (e) {
+            console.warn("[SceneMgr] 加载失败:", e.message);
+            // SceneMgr 缺失时的兜底:直接挂一个只转调 cc.director.loadScene 的空壳
+            cc.vv.sceneMgr = {
+                load: function (name, cb) { return cc.director.loadScene(name, cb); }
+            };
+        }
+
         cc.args = this.urlParse();
     },
     
@@ -222,7 +235,12 @@ cc.Class({
         this._isLoading = false;
         this._progress = 1;
         this._stateStr = "准备登陆";
-        cc.director.loadScene("login");
+        // 用 SceneMgr 带过渡切到登录页(loading 自己在 SceneMgr 里标记为 bypass,所以不会闪)
+        if(cc.vv && cc.vv.sceneMgr){
+            cc.vv.sceneMgr.load("login");
+        }else{
+            cc.director.loadScene("login");
+        }
         cc.loader.onComplete = null;
     },
 

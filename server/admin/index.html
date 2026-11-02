@@ -120,6 +120,7 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
     <div class="nav-item" data-tab="config" onclick="switchTab('config', this)">玩法配置</div>
     <div class="nav-item" data-tab="users" onclick="switchTab('users', this)">用户管理</div>
     <div class="nav-item" data-tab="games" onclick="switchTab('games', this)">战绩查询</div>
+    <div class="nav-item" data-tab="app" onclick="switchTab('app', this)">APP发布</div>
     <div class="nav-item" data-tab="sys" onclick="switchTab('sys', this)">系统配置</div>
   </div>
   <div class="main">
@@ -175,6 +176,32 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <button class="btn btn-primary" onclick="loadGames()">刷新战绩</button>
       </div>
       <div class="card-grid" id="gameList"></div>
+    </div>
+
+    <!-- APP发布 -->
+    <div id="tab-app" class="panel" style="display:none">
+      <div class="card" style="max-width:640px">
+        <h3 style="margin-top:0">当前发布版本</h3>
+        <div id="appInfo" style="line-height:2;color:#666">加载中...</div>
+        <hr>
+        <h3>上传新版本</h3>
+        <div class="form-group">
+          <label>版本号</label>
+          <input type="text" id="appVersion" placeholder="例如 1.0.0">
+        </div>
+        <div class="form-group">
+          <label>APK安装包</label>
+          <input type="file" id="appFile" accept=".apk">
+        </div>
+        <div id="appProgress" style="display:none;margin:10px 0">
+          <div style="background:#eee;height:18px;border-radius:9px;overflow:hidden">
+            <div id="appProgressBar" style="background:#1976d2;height:100%;width:0%;transition:width .2s"></div>
+          </div>
+          <div id="appProgressText" style="font-size:12px;color:#888;margin-top:4px"></div>
+        </div>
+        <button class="btn btn-primary" id="appUploadBtn" onclick="uploadApp()">开始上传</button>
+        <button class="btn" onclick="loadAppInfo()">刷新</button>
+      </div>
     </div>
 
     <!-- 系统配置 -->
@@ -300,20 +327,7 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
       </div>
     </div>
 
-    <!-- 选项配置 -->
-    <div class="cfg-section">
-      <div class="cfg-section-title">选项配置</div>
-      <div class="cfg-grid">
-        <div class="form-group">
-          <label>底分选项</label>
-          <div class="array-input" id="difenArr"></div>
-        </div>
-        <div class="form-group">
-          <label>局数选项</label>
-          <div class="array-input" id="jushuArr"></div>
-        </div>
-      </div>
-    </div>
+    <!-- 底分/局数选项已改为俱乐部自行配置(俱乐部管理面板-玩法配置) -->
 
     <!-- 规则参数 -->
     <div class="cfg-section">
@@ -385,11 +399,7 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
       </div>
     </div>
 
-    <!-- 台数规则(按玩法类型动态显示) -->
-    <div class="cfg-section" id="cfgTaiRulesSection" data-switch-group="tai">
-      <div class="cfg-section-title">台数规则（留空按默认值）</div>
-      <div id="taiRulesBox"></div>
-    </div>
+    <!-- 台数规则已改为俱乐部自行配置(俱乐部管理面板-玩法配置) -->
 
     <div class="form-group">
       <label class="inline"><input type="checkbox" id="cfg_enabled" checked> 启用</label>
@@ -447,6 +457,84 @@ function onAuthExpired(){
   location.reload();
 }
 
+// ============ APP发布 ============
+function fmtSize(n){
+  if(!n) return '0 B';
+  if(n < 1024) return n + ' B';
+  if(n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  if(n < 1024*1024*1024) return (n/1024/1024).toFixed(2) + ' MB';
+  return (n/1024/1024/1024).toFixed(2) + ' GB';
+}
+function loadAppInfo(){
+  api('/admin/app/info').then(function(ret){
+    var el = document.getElementById('appInfo');
+    if(ret.code !== 0){ el.innerHTML = '<span style="color:red">'+ret.msg+'</span>'; return; }
+    var d = ret.data || {};
+    var t = d.update_time ? new Date(d.update_time*1000).toLocaleString() : '—';
+    if(!d.has_file){
+      el.innerHTML = '版本号：<b>暂无</b><br>文件大小：—<br>更新时间：—<br>状态：<span style="color:#e67e22">还未上传安装包</span>';
+    } else {
+      el.innerHTML = '版本号：<b style="color:#1976d2">'+d.version+'</b><br>'
+        + '文件大小：'+fmtSize(d.size)+'<br>'
+        + '更新时间：'+t+'<br>'
+        + '状态：<span style="color:#27ae60">已发布</span>';
+    }
+  });
+}
+var appUploadTimer = null;
+function uploadApp(){
+  var ver = document.getElementById('appVersion').value.trim();
+  var file = document.getElementById('appFile').files[0];
+  if(!ver){ alert('请填写版本号'); return; }
+  if(!file){ alert('请选择APK文件'); return; }
+  if(!/\.apk$/i.test(file.name)){ alert('请选择 .apk 格式的安装包'); return; }
+  var btn = document.getElementById('appUploadBtn');
+  var box = document.getElementById('appProgress');
+  var bar = document.getElementById('appProgressBar');
+  var txt = document.getElementById('appProgressText');
+  btn.disabled = true;
+  box.style.display = 'block';
+  bar.style.width = '0%';
+  txt.textContent = '正在读取文件...';
+  var reader = new FileReader();
+  reader.onload = function(){
+    var dataUrl = reader.result;
+    txt.textContent = '正在上传（' + fmtSize(file.size) + '）...';
+    // 进度条用定时器缓慢推进到90%,收到响应后跳100%
+    if(appUploadTimer) clearInterval(appUploadTimer);
+    var pct = 0;
+    appUploadTimer = setInterval(function(){
+      pct = Math.min(90, pct + Math.max(1, (90-pct)*0.08));
+      bar.style.width = pct.toFixed(1) + '%';
+    }, 200);
+    api('/admin/app/upload', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({version: ver, base64: dataUrl})
+    }).then(function(ret){
+      clearInterval(appUploadTimer); appUploadTimer = null;
+      if(ret.code === 0){
+        bar.style.width = '100%';
+        txt.textContent = '上传成功，版本 ' + ret.data.version + '（' + fmtSize(ret.data.size) + '）';
+        document.getElementById('appFile').value = '';
+        loadAppInfo();
+      } else {
+        txt.textContent = '上传失败：' + ret.msg;
+      }
+      btn.disabled = false;
+    }).catch(function(e){
+      clearInterval(appUploadTimer); appUploadTimer = null;
+      txt.textContent = '上传出错：' + e.message;
+      btn.disabled = false;
+    });
+  };
+  reader.onerror = function(){
+    txt.textContent = '文件读取失败';
+    btn.disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+
 // 登录
 function doLogin(){
   var u = document.getElementById('loginUser').value;
@@ -496,7 +584,7 @@ if(token){
   });
 }
 
-var TAB_TITLES = {clubs:'俱乐部管理', admins:'管理员管理', config:'玩法配置', users:'用户管理', games:'战绩查询', sys:'系统配置'};
+var TAB_TITLES = {clubs:'俱乐部管理', admins:'管理员管理', config:'玩法配置', users:'用户管理', games:'战绩查询', app:'APP发布', sys:'系统配置'};
 //刷新后停留在原页面
 function restoreTab(){
   var name = localStorage.getItem('admin_tab') || 'clubs';
@@ -519,6 +607,7 @@ function switchTab(name, btn){
   if(name === 'users') loadUsers();
   if(name === 'sys') loadSysConfig();
   if(name === 'games') loadGames();
+  if(name === 'app') loadAppInfo();
 }
 
 // ============ 俱乐部管理 ============
@@ -955,9 +1044,6 @@ function showConfigModal(){
   document.getElementById('cfg_sort').value = 0;
   document.getElementById('cfg_auto_dissolve').value = 300;
   document.getElementById('cfg_enabled').checked = true;
-  renderArray('difenArr', [1,2,5]);
-  renderArray('jushuArr', [4,8]);
-  renderTaiRules(null);
   applyTypeGroups('');
   document.getElementById('configModal').style.display = 'block';
 }
@@ -1031,9 +1117,6 @@ function editConfig(id){
     document.getElementById('cfg_sort').value = c.sort;
     document.getElementById('cfg_auto_dissolve').value = c.auto_dissolve_seconds != null ? c.auto_dissolve_seconds : 300;
     document.getElementById('cfg_enabled').checked = !!c.enabled;
-    renderArray('difenArr', c.difen_options);
-    renderArray('jushuArr', c.jushu_options);
-    renderTaiRules(c.tai_rules);
     applyTypeGroups(c.type);
     document.getElementById('configModal').style.display = 'block';
   });
@@ -1080,11 +1163,8 @@ function saveConfig(){
   var data = {
     type: document.getElementById('cfg_type').value,
     name: document.getElementById('cfg_name').value,
-    difen_options: getArray('difenArr'),
-    jushu_options: getArray('jushuArr'),
     max_players: parseInt(document.getElementById('cfg_maxplayers').value),
     max_tai: parseInt(document.getElementById('cfg_maxtai').value),
-    tai_rules: getTaiRules(),
     cai_chi: document.getElementById('cfg_cai_chi').checked ? 1 : 0,
     cai_peng: document.getElementById('cfg_cai_peng').checked ? 1 : 0,
     cai_gang: document.getElementById('cfg_cai_gang').checked ? 1 : 0,

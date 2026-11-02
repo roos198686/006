@@ -1,13 +1,24 @@
 var express = require('express');
 var path = require('path');
+var fs = require('fs');
 var crypto = require('../utils/crypto');
 var db = require('../utils/db');
 var http = require('../utils/http');
 
 var app = express();
-app.use(express.json());
+// APK上传走base64 JSON体,允许较大的请求体(单包通常几十到上百MB)
+app.use(express.json({limit:'300mb'}));
 // 静态文件：后台管理页面
 app.use('/admin', express.static(path.join(__dirname, '..', 'admin')));
+// 公开下载页及图标(手机浏览器访问)
+app.use(express.static(path.join(__dirname, '..', 'public')));
+// APK文件下载目录
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
+    setHeaders: function(res, filePath){
+        res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+        res.setHeader('Content-Disposition', 'attachment; filename="baobao.apk"');
+    }
+}));
 app.get('/', function(req, res){ res.redirect('/admin/index.html'); });
 
 var config = null;
@@ -669,6 +680,71 @@ app.delete('/admin/admin_user/:id', auth, requireSuper, function(req, res){
     if(id === 1){ send(res, 1, "默认超级管理员账号不可删除"); return; }
     db.admin_user_delete(id, function(ok){
         send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+    });
+});
+
+// ============ APP包发布(仅超级管理员) ============
+var UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+var APK_FILE = path.join(UPLOAD_DIR, 'baobao.apk');
+
+// 读取当前发布的APP信息(版本号/大小/更新时间/下载地址)
+function getAppInfo(callback){
+    db.query('SELECT k,v FROM t_sys_config WHERE k IN ("app_version","app_size","app_update_time")', function(err, rows){
+        var info = { version: '', size: 0, update_time: 0, has_file: fs.existsSync(APK_FILE), url: '/uploads/baobao.apk' };
+        if(!err && rows){
+            rows.forEach(function(r){
+                if(r.k === 'app_version') info.version = r.v;
+                else if(r.k === 'app_size') info.size = parseInt(r.v) || 0;
+                else if(r.k === 'app_update_time') info.update_time = parseInt(r.v) || 0;
+            });
+        }
+        callback(info);
+    });
+}
+
+// 管理后台查询当前APP发布信息
+app.get('/admin/app/info', auth, function(req, res){
+    getAppInfo(function(info){ send(res, 0, "ok", info); });
+});
+
+// 上传APP安装包(APK),base64方式,避免引入multipart依赖
+app.post('/admin/app/upload', auth, requireSuper, function(req, res){
+    var body = req.body || {};
+    var version = String(body.version || '').trim();
+    var base64 = body.base64 || '';
+    if(!version){ send(res, 1, "版本号不能为空"); return; }
+    if(!base64){ send(res, 1, "文件内容为空"); return; }
+    // 去掉 data URI 前缀(如 "data:application/vnd.android.package-archive;base64,")
+    var commaIdx = base64.indexOf(',');
+    if(commaIdx >= 0 && base64.indexOf('base64') >= 0){ base64 = base64.substring(commaIdx + 1); }
+    var buf;
+    try { buf = Buffer.from(base64, 'base64'); }
+    catch(e){ send(res, 1, "文件解析失败"); return; }
+    if(buf.length < 1024){ send(res, 1, "文件过小,可能不是有效APK"); return; }
+    // 先写临时文件,成功后再rename,避免中途失败留下残缺包
+    var tmpFile = APK_FILE + '.tmp';
+    fs.writeFile(tmpFile, buf, function(err){
+        if(err){ send(res, 1, "写入文件失败: " + err.message); return; }
+        fs.rename(tmpFile, APK_FILE, function(err){
+            if(err){ send(res, 1, "替换安装包失败"); return; }
+            var now = Math.floor(Date.now()/1000);
+            var items = { app_version: version, app_size: String(buf.length), app_update_time: String(now) };
+            var sqls = [];
+            for(var k in items){ sqls.push('("' + k + '","' + items[k] + '","APP发布")'); }
+            var sql = 'INSERT INTO t_sys_config(k,v,remark) VALUES ' + sqls.join(',') + ' ON DUPLICATE KEY UPDATE v=VALUES(v)';
+            db.query(sql, function(err){
+                if(err){ send(res, 0, "安装包已上传,但版本信息保存失败: " + err.message, {version: version, size: buf.length}); return; }
+                send(res, 0, "ok", {version: version, size: buf.length});
+            });
+        });
+    });
+});
+
+// 公开接口:下载页获取APP信息(手机端调用,无需登录)
+app.get('/app/info', function(req, res){
+    getAppInfo(function(info){
+        res.setHeader("Content-Type","application/json;charset=utf-8");
+        res.send(JSON.stringify({code:0,msg:"ok",data:info}));
     });
 });
 

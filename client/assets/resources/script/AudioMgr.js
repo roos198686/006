@@ -20,6 +20,7 @@ cc.Class({
 
     // use this for initialization
     init: function () {
+        var self = this;
         var t = cc.sys.localStorage.getItem("bgmVolume");
         if(t != null){
             this.bgmVolume = parseFloat(t);    
@@ -36,7 +37,7 @@ cc.Class({
         });
         cc.game.on(cc.game.EVENT_SHOW, function () {
             console.log("cc.audioEngine.resumeAll");
-            cc.audioEngine.resumeAll();
+            self.resumeAll();
         });
     },
 
@@ -109,5 +110,9 @@ cc.Class({
     
     resumeAll:function(){
         cc.audioEngine.resumeAll();
+        //音乐开关处于关闭时, 切回前台/录音结束的 resumeAll 不能把静音的音乐重新放出来
+        if(this.bgmVolume <= 0 && this.bgmAudioID >= 0){
+            cc.audioEngine.pause(this.bgmAudioID);
+        }
     }
 });

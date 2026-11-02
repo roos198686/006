@@ -39,7 +39,7 @@ cc.Class({
         cc.vv.gameNetMgr.reset();
         cc.vv.gameNetMgr.roomId = null;
         cc.vv.fromClub = true; //直接回独立俱乐部场景(club.fire),由clubScene直达玩法详情页
-        cc.director.loadScene("club");
+        if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
     },
 
     // called every frame, uncomment this function to activate update callback

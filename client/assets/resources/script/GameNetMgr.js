@@ -328,7 +328,11 @@ cc.Class({
             //场景若未导入,loadScene只返回false且仅打日志,这里必须给出可见提示,避免永久卡在"正在进入房间"
             var ok = null;
             try{
-                ok = cc.director.loadScene(sceneName, onSceneLaunched);
+                if(cc.vv.sceneMgr){
+                    ok = cc.vv.sceneMgr.load(sceneName, onSceneLaunched);
+                }else{
+                    ok = cc.director.loadScene(sceneName, onSceneLaunched);
+                }
             }catch(e){
                 console.log("[进入房间]加载场景异常:" + (e && e.message));
             }
@@ -375,18 +379,26 @@ cc.Class({
                 //不主动清零:置位3秒兜底用于异步socket真正断开时的二次触发,防止时间差导致误放行
                 return;
             }
+            // 辅助:SceneMgr 若已有过渡进行中,本回调等过渡完成再切
+            var doLoad = function(name){
+                if(cc.vv.sceneMgr){
+                    cc.vv.sceneMgr.load(name);
+                }else{
+                    cc.director.loadScene(name);
+                }
+            };
             if(self.roomId == null){
                 //无房断线:按进房时记录的来源场景回去(俱乐部进桌回俱乐部详情,大厅进桌回大厅),避免固定回大厅
                 if(self.roomBackScene === "club"){
                     if(self.roomBackClubId){ cc.vv.fromClubId = self.roomBackClubId; }
                     cc.vv.fromClub = true;
-                    cc.director.loadScene("club");
+                    doLoad("club");
                 }
                 else if(cc.vv.fromClub || cc.vv.fromClubId){
-                    cc.director.loadScene("club");
+                    doLoad("club");
                 }
                 else{
-                    cc.director.loadScene("hall");
+                    doLoad("hall");
                 }
             }
             else{
@@ -858,10 +870,12 @@ cc.Class({
             self.bbResultTimeout = data.resultTimeout || 0;
             //宝宝牌结算明细(每场/每道 a,b,winner,score): 结算弹窗按明细只显示与本人相关的输赢
             self.bbOverDetails = data.details || null;
+            //先缓存本次结算数据(含整场 endinfo), 再派发 game_over: 
+            //宝宝结算面板要靠 overData.endinfo 判定"整场最后一局", 否则会误显示洗牌按钮/直接弹总结算
+            self.overData = data;
             self.dispatchEvent('game_over',results);
             //缓存最近一次结算数据:结算停留期断线/刷新重进时,服务端补发的game_over_push
             //会先于游戏场景加载到达,弹窗组件尚未注册监听会错过,场景就绪后由login_finished重放
-            self.overData = data;
             if(data.endinfo){
                 self.isOver = true;
                 // endinfo=统计次数, roundHistory=每局分数明细(整场结算面板展示)

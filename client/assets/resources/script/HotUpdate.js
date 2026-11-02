@@ -37,7 +37,7 @@ cc.Class({
                 cc.log("Already up to date with the latest remote version.");
                 cc.eventManager.removeListener(this._checkListener);
                 this.lblErr.string += "游戏不需要更新\n";
-                cc.director.loadScene("loading");
+                cc.director.loadScene("login"); // hot update 完成后跳 login(login 自带初始化)
                 break;
             case jsb.EventAssetsManager.NEW_VERSION_FOUND:
                 this._needUpdate = true;

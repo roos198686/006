@@ -312,6 +312,52 @@ app.get('/base_info',function(req,res){
 	});
 });
 
+//注销账号:删除用户及其创建的俱乐部、成员关系、绑定关系
+app.get('/delete_account',function(req,res){
+	var account = req.query.account;
+	if(!account){
+		send(res,{errcode:1,errmsg:"missing account"});
+		return;
+	}
+	db.delete_user_account(account,function(ok){
+		if(ok){
+			send(res,{errcode:0,errmsg:"ok"});
+		}
+		else{
+			send(res,{errcode:2,errmsg:"delete failed"});
+		}
+	});
+});
+
+//保险柜:查询玩家宝宝豆与保险柜余额
+app.get('/safe_info',function(req,res){
+	var account = req.query.account;
+	if(!account){ send(res,{errcode:1,errmsg:"missing account"}); return; }
+	db.get_user_data(account,function(data){
+		if(data == null){ send(res,{errcode:2,errmsg:"user not found"}); return; }
+		db.get_user_safe(data.userid,function(bal){
+			if(bal == null){ send(res,{errcode:3,errmsg:"query failed"}); return; }
+			send(res,{errcode:0,errmsg:"ok",gems:bal.gems,safe_beans:bal.safe_beans});
+		});
+	});
+});
+
+//保险柜:amount>0 存入(宝宝豆→保险柜), amount<0 取出(保险柜→宝宝豆)
+app.get('/safe_transfer',function(req,res){
+	var account = req.query.account;
+	var amount = req.query.amount;
+	if(!account || amount == null){ send(res,{errcode:1,errmsg:"missing params"}); return; }
+	amount = parseInt(amount);
+	if(!isFinite(amount) || amount === 0){ send(res,{errcode:2,errmsg:"invalid amount"}); return; }
+	db.get_user_data(account,function(data){
+		if(data == null){ send(res,{errcode:3,errmsg:"user not found"}); return; }
+		db.safe_transfer(data.userid,amount,function(bal,reason){
+			if(bal == false){ send(res,{errcode:4,errmsg:reason || "transfer failed"}); return; }
+			send(res,{errcode:0,errmsg:"ok",gems:bal.gems,safe_beans:bal.safe_beans});
+		});
+	});
+});
+
 //查询当前账号的绑定状态:返回已绑定的用户名/微信标记(供登录检测与个人信息页展示)
 app.get('/bind_status',function(req,res){
 	var account = req.query.account;

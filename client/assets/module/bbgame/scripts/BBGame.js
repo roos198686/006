@@ -8,8 +8,8 @@
 //                  手摆 {players:[{seat,daos[3]{cards[2],desc,rate},wulong,auto}],gameType}
 //   game_over_push {results[roomSeatIndex]={userid,name,delta,totalscore,holds,typeKey/typeName/rate,
 //                   daos/wulong},bankerSeat,bankerMode,gameType,details,endinfo?}
-// 牌型特效音效: 项目暂无火焰/爆炸专用音频, 暂复用现有音效; 有专用文件时只改这里
-var BB_FX_SFX = { fire: "guess/win.mp3", bomb: "nv/gang.mp3" };
+// 牌型特效音效: 从美术提供的特效视频里提取(裁到特效时长); 手牌聚焦不配音
+var BB_FX_SFX = { fire: "bbfx_fire.mp3", bomb: "bbfx_bomb.mp3", pairs: "bbfx_pairs.mp3", nine: "bbfx_pairs.mp3" };
 cc.Class({
     extends: cc.Component,
 
@@ -39,6 +39,14 @@ cc.Class({
         return null;
     },
     setStr: function (node, s) { if (node) { var lb = node.getComponent(cc.Label); if (lb) lb.string = s; } },
+    // 结算文字样式: 本局结算明牌行多, 用场景默认字号; 整场总结算只有总分几行, 用更小字号
+    _setSettleContentStyle: function (fontSize, lineHeight, y) {
+        var node = this._n.resultContent;
+        if (!node || !cc.isValid(node)) return;
+        var lb = node.getComponent(cc.Label);
+        if (lb) { lb.fontSize = fontSize; lb.lineHeight = lineHeight; }
+        if (y != null) node.y = y;
+    },
     // 只挂点击回调, 不改按钮外观: 不加 Button 组件, 也不让已有 Button 用 COLOR 过渡覆盖 Sprite 的
     // 颜色(否则场景里调好的蓝色底图会被运行时重置成白色, 不同玩家看到的按钮就不一样)
     bindButton: function (node, handler, target) {
@@ -90,7 +98,7 @@ cc.Class({
         });
     },
 
-    // 预加载特效帧: 同花顺火箭升空(bbfx_fire 288x512) + 炸弹爆炸(bbfx_bomb 512x288), 各73帧
+    // 预加载特效帧: 同花顺火箭升空(bbfx_fire 288x512) + 炸弹爆炸(bbfx_bomb 512x288) + 3对/3组9玩具枪(bbfx_pairs 512x288)
     loadFireFrames: function () {
         var self = this;
         function loadDir(dir, key) {
@@ -102,6 +110,7 @@ cc.Class({
         }
         loadDir("images/bbfx_fire", "_fireFrames");
         loadDir("images/bbfx_bomb", "_bombFrames");
+        loadDir("images/bbfx_pairs", "_pairsFrames");
     },
 
     onLoad: function () {
@@ -141,6 +150,12 @@ cc.Class({
         this._total = 2;
         this._gameType = null;
         this._exitPending = false;      // 本局进行中点了退出: 等本局结算完成后再退
+        this._settle1Done = true;       // 本局结算是否已看完(整场最后一局要先看完本局再弹总结算)
+        this._summaryShown = false;     // 总结算弹窗是否已弹出
+        this._roomEnd = false;          // 结算后房间人数不足, 无法再续局: 弹窗显示「退出房间」
+        this._backTimer = null;         // 被请出/断线后返回来源页的兜底定时器
+        this._endDetail = null;         // 整场结束推送(endinfo 总分), 等本局结算关掉后使用
+        this._settleClosedAt = 0;       // 本局结算关闭时刻: 用于统计到下一局开局的耗时
         // 房间内「设置」面板的退出房间按钮统一走这里(见 setting.js): 本局未结束则排队到结算后
         var selfHook = this;
         if (cc.vv) cc.vv.bbExitHook = function () { selfHook.onExitRequest(); };
@@ -191,6 +206,11 @@ cc.Class({
         n.resultPanel = this.findNode(root, "settlePanel");
         n.resultTitle = this.findNode(n.resultPanel, "settleTitle");
         n.resultContent = this.findNode(n.resultPanel, "settleContent");
+        // 记录场景里结算文字的字号/位置: 本局结算用场景默认值, 整场总结算行数少, 改用更小字号
+        var rcLabel = n.resultContent ? n.resultContent.getComponent(cc.Label) : null;
+        this._settleFontSize = rcLabel ? rcLabel.fontSize : 32;
+        this._settleLineHeight = rcLabel ? rcLabel.lineHeight : 46;
+        this._settleContentY = n.resultContent ? n.resultContent.y : 108;
         n.resultCloseBtn = this.findNode(n.resultPanel, "settleAgainBtn");
         n.resultExitBtn = this.findNode(n.resultPanel, "settleExitBtn");
         n.resultCloseLabel = this.findNode(n.resultCloseBtn, "settleAgainBtnLabel");
@@ -267,6 +287,7 @@ cc.Class({
         var seat = new cc.Node("bbSeat");
         var icon = new cc.Node("icon");
         icon.addComponent(cc.Sprite);
+        try { icon.addComponent("ImageLoader"); } catch (e) {}
         seat.addChild(icon);
         for (var c = 0; c < 6; ++c) {
             var sp = new cc.Node("bbCard" + c);
@@ -419,9 +440,28 @@ cc.Class({
             // 请出提示留到回到牌桌列表页时弹窗, 房间内只做文字提示
             if (cc.vv) cc.vv.bbKickTip = "因宝宝豆不足，已自动退出房间！";
             self.showTip((info && info.msg) || "宝宝豆不足，已被请出房间");
+            // 兜底: dispress_push 若因断线丢失, 800ms后仍返回进房前的页面
+            if (!self._backTimer) {
+                self._backTimer = setTimeout(function () {
+                    self._backTimer = null;
+                    if (cc.isValid(self.node) && !self._leaving) self.leaveRoom();
+                }, 800);
+            }
         });
-        this.node.on('disconnect', function () { self.showTip("连接断开，重连中…"); });
-        this.node.on('reconnect', function () { self.showTip(""); });
+        // 宝宝场景没有重连组件: 断线即视为已离开房间, 3秒后回到进房前的页面(俱乐部进桌回俱乐部, 大厅进桌回大厅)
+        this.node.on('disconnect', function () {
+            self.showTip("连接断开，正在返回…");
+            if (!self._backTimer) {
+                self._backTimer = setTimeout(function () {
+                    self._backTimer = null;
+                    if (cc.isValid(self.node) && !self._leaving) self.leaveRoom();
+                }, 3000);
+            }
+        });
+        this.node.on('reconnect', function () {
+            self.showTip("");
+            if (self._backTimer) { clearTimeout(self._backTimer); self._backTimer = null; }
+        });
         // 服务端已释放座位并回包(exit_result): 立刻切场景, 不再空等固定时长
         this.node.on('exit_result', function () {
             if (self._exitTimer) { clearTimeout(self._exitTimer); self._exitTimer = null; }
@@ -609,7 +649,7 @@ cc.Class({
         if (this._confirmAutoShown || this._confirmMoving) return;
         this._confirmAutoShown = true;
         this._confirmMoving = true;
-        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("sort.mp3");   //免摆摆牌音效
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("sort.wav");   //免摆摆牌音效
         if (this._confirmAutoBtn) this._confirmAutoBtn.opacity = 120;
         var nm = cc.vv.gameNetMgr;
         var raw = (nm.bbMyCards || []).slice();
@@ -753,7 +793,7 @@ cc.Class({
         //倒计时进入最后5秒播放一次报警音
         if (left > 0 && left <= 5 && !this._cdAlarmed) {
             this._cdAlarmed = true;
-            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("timeup_alarm.mp3");
+            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("timeup_alarm.wav");
         }
         if (left <= 0) {
             var cb = this._cdEnd;
@@ -769,6 +809,7 @@ cc.Class({
     },
 
     onDestroy: function () {
+        if (this._backTimer) { clearTimeout(this._backTimer); this._backTimer = null; }
         if (cc.vv && cc.vv.bbExitHook) cc.vv.bbExitHook = null;
         this._stopCountdown(); this._stopDeal();
     },
@@ -786,6 +827,7 @@ cc.Class({
         var rs = bs && nm.seats ? nm.seats[bs.roomSeatIndex] : null;
         return {
             gs: gs,
+            userid: bs ? bs.userid : null,
             name: bs ? (bs.name || "") : "",
             score: rs && rs.score != null ? rs.score : (bs && bs.score != null ? bs.score : null),
             isBanker: !!nm.bbBankerMode && gs == nm.bbBankerSeat,
@@ -822,6 +864,7 @@ cc.Class({
                     offset: k,
                     info: {
                         gs: occ[k].i,
+                        userid: s2.userid,
                         name: s2.name || "",
                         score: s2.score != null ? s2.score : 0,
                         isBanker: false,
@@ -830,8 +873,17 @@ cc.Class({
                 });
             }
         }
-        // 先全部隐藏
-        for (var i2 = 0; i2 < 6; ++i2) if (this._seatNodes[i2]) this._seatNodes[i2].root.active = false;
+        // 先全部隐藏 + 清头像(防止上一局/上一阶段的玩家头像残留)
+        for (var i2 = 0; i2 < 6; ++i2) {
+            var sn0 = this._seatNodes[i2];
+            if (!sn0) continue;
+            sn0.root.active = false;
+            if (sn0.icon) {
+                var clr = sn0.icon.getComponent("ImageLoader");
+                if (clr) { clr.clearAvatar ? clr.clearAvatar() : (clr._spriteFrame = null, clr.setupSpriteFrame()); }
+                else { var sp0 = sn0.icon.getComponent(cc.Sprite); if (sp0) sp0.spriteFrame = null; }
+            }
+        }
 
         var layout = this._layoutOf(total);
         for (var j = 0; j < infos.length; ++j) {
@@ -844,6 +896,14 @@ cc.Class({
             this.setStr(sn.scoreLabel, infos[j].info.score != null ? ("" + infos[j].info.score) : "");
             if (sn.zhuang) sn.zhuang.active = !!infos[j].info.isBanker;
             if (sn.readyMark) sn.readyMark.active = !!infos[j].info.ready;
+            // 头像加载: icon 节点已在场景 fire 里挂了 ImageLoader, 这里只调 setUserID
+            if (sn.icon) {
+                var iconLoader = sn.icon.getComponent("ImageLoader");
+                if (!iconLoader) { try { iconLoader = sn.icon.addComponent("ImageLoader"); } catch (e) {} }
+                if (iconLoader && infos[j].info.userid) {
+                    iconLoader.setUserID(infos[j].info.userid);
+                }
+            }
         }
     },
 
@@ -971,7 +1031,8 @@ cc.Class({
                 }
             }
             for (var d2 = 0; d2 < 3; ++d2) this.setStr(seat.daoLabels[d2], labels[d2]);
-            this.setStr(seat.summary, summary);
+            // 免摆场景不再显示亮牌后的牌型文字(手摆的乌龙/自动摆牌提示保留)
+            this.setStr(seat.summary, this._gameType == "baobao_mian" ? "" : summary);
         }
         this._renderArrange();
     },
@@ -1009,11 +1070,22 @@ cc.Class({
         var nm = cc.vv.gameNetMgr;
         // 上一局有人点了洗牌(服务端统一标记): 全员确认后所有端同时播洗牌动画再发牌, 多人点也只播一次
         var playShuffle = (data && data.shuffle) || this._shufflePending;
+        // 定位"结算关闭后迟迟不发牌": 记录关窗到收到开局推送的耗时, 超过 1.5 秒会在控制台告警
+        if (this._settleClosedAt) {
+            var gap = Date.now() - this._settleClosedAt;
+            console.log("[BB][时序] 结算关闭→收到开局 " + gap + "ms" + (data && data.resend ? " (补发)" : "") + (playShuffle ? " +洗牌动画" : ""));
+            if (gap > 1500) console.warn("[BB][时序] 开局推送延迟 " + gap + "ms, 请对照服务端 [宝宝][时序] bb_start 时间");
+            this._settleClosedAt = 0;
+        }
         this._shufflePending = false;
         this._roundSeq = (this._roundSeq || 0) + 1;   // 局令牌: 用于丢弃上一局延迟到达的结算, 避免打断本局发牌
         this._started = true;
         this._watching = false;
         this._final = false;
+        this._roomEnd = false;
+        this._settle1Done = true;
+        this._summaryShown = false;
+        this._endDetail = null;
         this._arranging = false;
         this._myContinued = false;
         this._stopContinueRetry();
@@ -1049,6 +1121,7 @@ cc.Class({
             return;
         }
         function startDeal() {
+            console.log("[BB][时序] 开始发牌 距收到开局 " + (Date.now() - self._pushAt) + "ms");
             try {
                 self._dealSeq(function () {
                     self._animBusy = false;   // 洗牌+发牌动画全部结束, 解除阶段推送屏蔽
@@ -1313,7 +1386,7 @@ cc.Class({
                 var seat = self._seatNodes[layout[seatAt]];
                 if (seat && seat.root.active && seat.slots) {
                     //每发一家牌播一次发牌音效,避免逐张播放过于密集
-                    if (cardAt === 0 && cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("deal.mp3");
+                    if (cardAt === 0 && cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("deal.wav");
                     var sl = seat.slots[cardAt];
                     if (sl) {
                         var sp = sl.getComponent(cc.Sprite);
@@ -1434,7 +1507,7 @@ cc.Class({
                     }
                     self.renderCards();
                     //亮每一道时播放亮牌音效
-                    if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.mp3");
+                    if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.wav");
                     self.showTip("亮牌 " + DAO_NAMES[rr]);
                     console.log("[BB] 亮牌 " + DAO_NAMES[rr] + " 全部 " + ORDER + " 家");
                 }, rr * PER);
@@ -1825,7 +1898,7 @@ cc.Class({
             mid: this._daoSel[1].slice(),
             back: this._daoSel[2].slice()
         });
-        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("sort.mp3");   //确认摆牌音效
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("sort.wav");   //确认摆牌音效
         cc.vv.gameNetMgr.bbArranged = false;
         this._arranging = false;
         if (this._arrangeRoot) this._arrangeRoot.active = false;
@@ -2025,11 +2098,11 @@ cc.Class({
             if (results[m] && results[m].userid == meUid) { myDelta = results[m].delta || 0; break; }
         }
         if (cc.vv && cc.vv.audioMgr) {
-            cc.vv.audioMgr.playSFX(myDelta > 0 ? "win.mp3" : "lose.mp3");
+            cc.vv.audioMgr.playSFX(myDelta > 0 ? "win.wav" : "lose.wav");
             if (myDelta != 0) {
                 var selfCd = this;
                 this.scheduleOnce(function () {
-                    if (cc.isValid(selfCd.node) && cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("dropCoin.mp3");
+                    if (cc.isValid(selfCd.node) && cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("dropCoin.wav");
                 }, 0.5);
             }
         }
@@ -2081,9 +2154,15 @@ cc.Class({
             }
         }
 
-        var isFinal = !!(detail && detail.endinfo) ||
+        // 整场最后一局判定: game_over 载荷只有 results, 整场标记在 gameNetMgr.overData.endinfo 里
+        var overDataNow = nm.overData || {};
+        var isFinal = !!(detail && detail.endinfo) || !!overDataNow.endinfo ||
             (nm.maxNumOfGames > 0 && nm.numOfGames >= nm.maxNumOfGames);
+        // 房间剩余人数不足两人(其他玩家宝宝豆不足/主动退出): 本局结算后无法续局, 弹窗显示「退出房间」
+        var roomEnd = !!(detail && detail.roomEnd) || !!overDataNow.roomEnd;
+        if (isFinal) roomEnd = false;
         this._final = isFinal;
+        this._roomEnd = roomEnd;
         this._arranging = false;
         this.hideArrangeUI();
         this.hideConfirmUI();
@@ -2093,14 +2172,18 @@ cc.Class({
         this._ensureSettleBtnFrames();
         // 按钮激活放在明牌渲染之前: 渲染任何异常都不能影响按钮显示
         // 按钮文字已固化在场景里, 这里只控制显示/隐藏, 不改文字
-        if (this._n.resultCloseBtn) { this._n.resultCloseBtn.active = !isFinal; this._n.resultCloseBtn.opacity = 255; }
-        if (this._resultShuffleBtn) { this._resultShuffleBtn.active = !isFinal; this._resultShuffleBtn.opacity = 255; }
-        if (this._n.resultExitBtn) this._n.resultExitBtn.active = isFinal;
-        if (isFinal && this._resultShuffleBtn) this._resultShuffleBtn.active = false;
+        // 整场最后一局也先弹本局结算: 「确定」或倒计时结束后再弹总结算弹窗, 退出按钮只在总结算里出现
+        // 场景里没有独立的退出按钮节点, 两段结算复用 settleAgainBtn: 第一段文字「确定」, 第二段改成「退出」
+        // 房间无法续局时直接把按钮改成「退出房间」, 点击即离房
+        this._setSettleActionBtn(roomEnd ? "退出房间" : "确定", roomEnd);
+        if (this._resultShuffleBtn) { this._resultShuffleBtn.active = !isFinal && !roomEnd; this._resultShuffleBtn.opacity = 255; }
+        if (this._n.resultExitBtn) this._n.resultExitBtn.active = false;
+        this._settle1Done = !isFinal;   // 整场结束: 本局结算还没看完
         var title = nm.maxNumOfGames > 0
             ? ("第 " + nm.numOfGames + "/" + nm.maxNumOfGames + " 局结算")
             : ("第 " + nm.numOfGames + " 局结算");
         this.setStr(this._n.resultTitle, title);
+        this._setSettleContentStyle(this._settleFontSize, this._settleLineHeight, this._settleContentY);
         this.setStr(this._n.resultContent, lines.join("\n"));
         this._lastLines = lines.slice();
         // 结算明牌: 只显示与本人相关的行(明牌按牌型排列 + 牌型文字 + 分数)
@@ -2121,7 +2204,7 @@ cc.Class({
         if (this._n.dissolveBtn) this._n.dissolveBtn.active = false;
         if (this._n.readyBtn) this._n.readyBtn.active = false;
         this._started = false;
-        this.showTip("");
+        this.showTip(roomEnd ? "其他玩家已离开，房间无法继续" : "");
         // 本局进行中点过退出房间: 结算弹出后再清退, 玩家至少能看到本局结果
         if (this._exitPending) {
             this._exitPending = false;
@@ -2132,9 +2215,11 @@ cc.Class({
             }, 1.2);
         }
         // 单局结算: 倒计时结束前未点继续 → 自动进入下一把(服务端计时为准)
+        // 整场最后一局: 倒计时到点 → 弹总结算弹窗, 不自动退出房间
         this._stopCountdown();
         if (this._settleCd) this.setStr(this._settleCd, "");
-        if (this._settleCd && !isFinal) {
+        // 房间人数不足时不再自动续局(服务端也不会推进下一局), 不启动结算倒计时, 等玩家点「退出房间」
+        if (this._settleCd && !roomEnd) {
             // 倒计时全房统一: 锚点是收到结算推送的时刻(onGameOver已记录_overAt),
             // 秒数完全来自后台「结算倒计时(秒)」配置(服务端下发), 代码里不再兜底任何固定秒数
             var rem;
@@ -2143,19 +2228,35 @@ cc.Class({
             else rem = nm.bbResultRemain != null ? nm.bbResultRemain : (nm.bbResultTimeout || 0);
             var self = this;
             this._startCountdown(rem, this._settleCd, function () {
+                if (this._final) { this._showFinalSummary(); return; }
                 if (this._n.resultPanel) this._n.resultPanel.active = false;
+                this._settleClosedAt = Date.now();   // 计时起点: 结算关掉到收到下一局开局之间耗时
                 if (!this._myContinued) { this._myContinued = true; cc.vv.net.send("bb_continue"); this._startContinueRetry(); }
                 this.showTip("已准备，等待其他玩家…");
             });
         }
     },
 
+    // 结算弹窗动作按钮(场景里的 settleAgainBtn): 第一段显示「确定」, 第二段(整场结算)同一按钮改成「退出」并居中
+    _setSettleActionBtn: function (text, center) {
+        var btn = this._n.resultCloseBtn;
+        if (!btn || !cc.isValid(btn)) return;
+        if (!this._settleCloseHome) this._settleCloseHome = { x: btn.x, y: btn.y };
+        btn.active = true;
+        btn.opacity = 255;
+        btn.setPosition(center ? 0 : this._settleCloseHome.x, this._settleCloseHome.y);
+        // 场景里按钮文字 Label 挂在子节点上(settleAgainBtnLabel/New Label), 不能用 setStr 取节点自身组件
+        var lb = btn.getComponentInChildren(cc.Label);
+        if (lb) lb.string = text;
+    },
+
     // 结算弹窗两个按钮底图兜底: 首次弹出时贴图还没就绪会只剩文字。
     _ensureSettleBtnFrames: function () {
-        // 登录阶段已 loadDir 预载 resources/images, 这里优先同步从缓存取场景同款 SpriteFrame,
-        // 取不到再异步加载; 场景原贴图(按钮12绿/按钮11紫)始终兜底, 保证首次弹出也有底图
+        // 登录阶段已预载 resources/images, 这里优先用缓存里的 SpriteFrame;
+        // 纹理没就绪(宽高为0)时不能赋给 Sprite, 否则首帧就是空白按钮, 先保留场景自带底图等异步加载完成
         var self = this;
         if (!this._settleBtnFrames) this._settleBtnFrames = {};
+        if (!this._settleBtnSceneFrames) this._settleBtnSceneFrames = {};
         var pairs = [[this._n.resultCloseBtn, "images/other/按钮12", "ok"], [this._resultShuffleBtn, "images/other/按钮11", "shuffle"]];
         pairs.forEach(function (p) {
             var btn = p[0];
@@ -2163,20 +2264,25 @@ cc.Class({
             var sp = btn.getComponent(cc.Sprite);
             if (!sp) return;
             sp.enabled = true;
+            // 记住场景原始底图: 资源图没加载好时用它兜底, 保证第一次弹出就有底图
+            if (self._settleBtnSceneFrames[p[2]] === undefined) self._settleBtnSceneFrames[p[2]] = sp.spriteFrame;
             var cached = self._settleBtnFrames[p[2]];
             if (cached) { sp.spriteFrame = cached; return; }
             // 固定 CUSTOM 尺寸模式并记住场景尺寸: 赋值后恢复, 按钮大小仍由场景控制
             sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
             var w = btn.width, h = btn.height;
             var applyFrame = function (sf) {
+                if (!sf || !sf.texture || !sf.texture.width) return; //纹理未就绪不赋值
                 self._settleBtnFrames[p[2]] = sf;
                 if (cc.isValid(sp) && cc.isValid(btn)) {
                     sp.spriteFrame = sf;
                     btn.width = w; btn.height = h;
                 }
             };
-            var sf = cc.resources.get(p[1], cc.SpriteFrame); //预载命中: 同步赋值, 弹出即刻有底图
-            if (sf) { applyFrame(sf); return; }
+            var sf = cc.resources.get(p[1], cc.SpriteFrame);
+            if (sf && sf.texture && sf.texture.width > 0) { applyFrame(sf); return; }
+            var fallback = self._settleBtnSceneFrames[p[2]];
+            if (fallback) sp.spriteFrame = fallback;
             cc.resources.load(p[1], cc.SpriteFrame, function (err, sf2) {
                 if (err || !sf2) { console.log("[BB] 结算按钮贴图加载失败:", p[1], err && err.message); return; }
                 applyFrame(sf2);
@@ -2402,32 +2508,73 @@ cc.Class({
         return true;
     },
 
+    // 整场结束推送: 先缓存总分, 等本局结算关掉后再弹总结算弹窗
     onGameEnd: function (detail) {
         this._final = true;
         this._stopContinueRetry();
-        var nm = cc.vv.gameNetMgr;
-        var lines = (this._lastLines || []).slice();
+        this._endDetail = detail || {};
+        console.log("[BB] 收到 game_end, endinfo 人数=" + ((this._endDetail.endinfo || []).length) + ", 结算面板显示中=" + !!(this._n.resultPanel && this._n.resultPanel.active));
+        if (this._summaryShown) return;
+        // 结算还没真正弹出(亮牌/特效未播完, 结算被缓存在 _pendingOver): 等 applyGameOver 后再走本局结算
+        if (this._pendingOver) return;
+        // 第一段本局结算正在显示: 标记为"未看完", 由「确定」/倒计时结束时触发总结算
+        if (this._n.resultPanel && this._n.resultPanel.active) {
+            this._settle1Done = false;
+            return;
+        }
+        if (!this._settle1Done) return;   // 本局结算还开着(或亮牌未结束), 由它关闭时触发总结算
+        // game_over 与 game_end 在同一帧先后派发: 延后一帧再判定, 避免总结算抢在本局结算之前弹出
+        var self = this;
+        this.scheduleOnce(function () {
+            if (!cc.isValid(self.node) || self._summaryShown) return;
+            if (self._pendingOver || !self._settle1Done) return;
+            self._showFinalSummary();
+        }, 0);
+    },
+
+    // 总结算弹窗: 整场所有玩家的总积分, 停留120秒(可点「退出」立即离开)
+    _showFinalSummary: function () {
+        if (this._summaryShown) return;
+        this._summaryShown = true;
+        this._settle1Done = true;
+        this._stopCountdown();
+        var detail = this._endDetail || {};
         var totals = [];
-        var endinfo = detail && detail.endinfo ? detail.endinfo : [];
+        var endinfo = detail.endinfo || [];
         for (var i = 0; i < endinfo.length; ++i) {
             var e = endinfo[i];
             totals.push((e.name || "") + "  总分:" + (e.score != null ? e.score : 0));
         }
-        if (lines.length > 0 && totals.length > 0) lines.push("");
+        // endinfo 缺失时用房间座位上的积分兜底
+        if (totals.length == 0 && cc.vv.gameNetMgr && cc.vv.gameNetMgr.seats) {
+            var ss = cc.vv.gameNetMgr.seats;
+            for (var k = 0; k < ss.length; ++k) {
+                if (ss[k] && ss[k].userId > 0) totals.push((ss[k].name || "") + "  总分:" + (ss[k].score != null ? ss[k].score : 0));
+            }
+        }
+        // 只显示整场总分: 不再拼接上一局的明牌文字, 否则看起来和本局结算弹窗一样
+        var lines = [];
         if (totals.length > 0) { lines.push("— 整场总分 —"); lines = lines.concat(totals); }
+        console.log("[BB] 弹整场结算, 总分人数=" + totals.length + ", 倒计时=120s");
         if (this._n.resultPanel) this._n.resultPanel.active = true;
-        var title = nm.maxNumOfGames > 0
-            ? ("第 " + nm.numOfGames + "/" + nm.maxNumOfGames + " 局结算 · 整场结束")
-            : "整场结束";
-        this.setStr(this._n.resultTitle, title);
-        if (lines.length > 0) this.setStr(this._n.resultContent, lines.join("\n"));
-        // 整场结算用文字显示总分, 隐藏本局明牌行, 避免两层内容叠在一起
-        if (this._n.resultContent) this._n.resultContent.active = true;
+        this.setStr(this._n.resultTitle, "整场结算");
+        if (this._n.resultContent) {
+            this._n.resultContent.active = true;
+            this._setSettleContentStyle(24, 32, 60);
+            this.setStr(this._n.resultContent, lines.length > 0 ? lines.join("\n") : "");
+        }
+        if (this._n.resultList) this._n.resultList.active = false;
         if (this._settleCardsRoot && cc.isValid(this._settleCardsRoot)) this._settleCardsRoot.active = false;
-        if (this._n.resultCloseBtn) this._n.resultCloseBtn.active = false;
-        if (this._n.resultExitBtn) {
-            this._n.resultExitBtn.active = true;
-            if (this._n.resultExitLabel) this.setStr(this._n.resultExitLabel, "退出");
+        if (this._resultShuffleBtn) this._resultShuffleBtn.active = false;
+        this._ensureSettleBtnFrames();
+        // 总结算只保留一个按钮: 复用「确定」按钮, 文字改为「退出」, 点击立即离房
+        this._setSettleActionBtn("退出", true);
+        if (this._n.resultExitBtn) this._n.resultExitBtn.active = false;
+        if (this._settleCd) {
+            var self = this;
+            this._startCountdown(120, this._settleCd, function () {
+                if (cc.isValid(self.node)) self.onExitRoom();
+            });
         }
     },
 
@@ -2449,11 +2596,16 @@ cc.Class({
         if (this._continueRetryTimer) { clearInterval(this._continueRetryTimer); this._continueRetryTimer = null; }
     },
 
-    // 结算弹窗「确定」: 立即进入下一把
+    // 结算弹窗「确定」: 立即进入下一把; 整场结束则进入总结算弹窗
     onResultClose: function () {
         this._stopCountdown();
+        // 房间无法续局: 同一个按钮已改成「退出房间」, 点击立即离房
+        if (this._roomEnd) { this.onExitRoom(); return; }
+        // 总结算弹窗里同一个按钮已改成「退出」: 点击立即离房
+        if (this._summaryShown) { this.onExitRoom(); return; }
         if (this._n.resultPanel) this._n.resultPanel.active = false;
-        if (this._final) { this.onExit(); return; }
+        if (this._final) { this._showFinalSummary(); return; }
+        this._settleClosedAt = Date.now();   // 计时起点: 结算关掉到收到下一局开局之间耗时
         if (this._myContinued) return;
         this._myContinued = true;
         cc.vv.net.send("bb_continue");
@@ -2464,9 +2616,10 @@ cc.Class({
     // 结算弹窗「洗牌」: 等同确定(关闭弹窗)+ 标记下一局全员先播洗牌动画再发牌
     onResultShuffle: function () {
         this._stopCountdown();
-        if (this._final) return;
+        if (this._final || this._roomEnd) return;
         this._shufflePending = true;   // 先打标记: 即使已自动确认也要把洗牌意图发给服务端
         if (this._n.resultPanel) this._n.resultPanel.active = false;
+        this._settleClosedAt = Date.now();   // 计时起点: 结算关掉到收到下一局开局之间耗时
         if (this._myContinued) {
             // 已被倒计时自动确认过: 补发一次带洗牌标记的继续, 让下一局仍然播洗牌动画
             cc.vv.net.send("bb_continue", { shuffle: true });
@@ -2507,7 +2660,7 @@ cc.Class({
             this._clearCards();
             root.active = true;
             //洗牌动画音效
-            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("shuffle.mp3");
+            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("shuffle.wav");
             if (root.parent) root.setSiblingIndex(root.parent.children.length - 1);
             var OFF = 70;
             function shove(list, dir) {
@@ -2577,7 +2730,7 @@ cc.Class({
             var p = this._revealByGs[gs];
             lv[off] = p && p.typeKey != null ? p.typeKey : null;
             if (lv[off] == null) continue;
-            // 特效规则: 同花顺(11/12)播喷火, 炸弹(4条=10)播爆炸, 3对(3)/3组9(2)播场景动画, 其余牌型不播特效
+            // 特效规则: 同花顺(11/12)播喷火, 炸弹(4条=10)播爆炸, 3对(3)/3组9(2)播玩具枪, 其余牌型不播特效
             var fk = null;
             if (lv[off] >= 11) fk = "fire";
             else if (lv[off] == 10) fk = "bomb";
@@ -2610,7 +2763,7 @@ cc.Class({
             if (it.kind == "hand") self._fxHandFocus(it.off, it.type, next);
             else if (it.kind == "fire") self._fxFire(it.off, next);
             else if (it.kind == "bomb") self._fxBomb(it.off, lv, next);
-            else self._fxSceneAnim(it.kind, next);
+            else self._fxPairsFx(it.kind, next);
         }
         next();
     },
@@ -2701,11 +2854,41 @@ cc.Class({
         }, 1.9);
     },
 
+    // 3对 / 3组9 牌型特效: 玩具枪喷彩虹+爆炸帧动画(美术视频抠掉底色导出, 24fps)
+    _fxPairsFx: function (kind, done) {
+        var frames = this._pairsFrames;
+        // 帧图未导入时退回场景动画(场景里有 bbFxPairs3/bbFxNine 才有效果)
+        if (!frames || !frames.length) { this._fxSceneAnim(kind, done); return; }
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(BB_FX_SFX[kind]);
+        var center = this._tableCenter();
+        var node = this._fxNode(center, "bbFxPairsNine");
+        var sp = node.addComponent(cc.Sprite);
+        sp.spriteFrame = frames[0];
+        sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+        var fw = frames[0].getOriginalSize().width, fh = frames[0].getOriginalSize().height;
+        node.setContentSize(fw, fh);
+        node.setScale(Math.min(cc.winSize.width / fw, cc.winSize.height / fh));
+        var idx = 0, total = frames.length, FPS = 24;
+        var timer = setInterval(function () {
+            if (!cc.isValid(node)) { clearInterval(timer); return; }
+            if (++idx >= total) {
+                clearInterval(timer);
+                node.destroy();
+                if (done) done();
+                return;
+            }
+            sp.spriteFrame = frames[idx];
+        }, 1000 / FPS);
+    },
+
     // 3对 / 3组9 的场景动画: 直接播场景里预制好的节点动画(bbFxPairs3 / bbFxNine),
     // 节点由美术生成后在场景里放好即可生效; 节点不存在时直接跳过, 不阻塞结算流程
     _fxSceneAnim: function (kind, done) {
         var self = this;
         var NAMES = { pairs: "bbFxPairs3", nine: "bbFxNine" };
+        // 3对/3组9 特效音效(与是否放了场景动画节点无关, 声音照常播)
+        var sfx = BB_FX_SFX[kind];
+        if (sfx && cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(sfx);
         var node = this.findNode(this.node, NAMES[kind]);
         if (!node) { if (done) done(); return; }
         node.active = true;
@@ -2936,13 +3119,13 @@ cc.Class({
         var nm = cc.vv.gameNetMgr;
         if (nm) nm._ignoreDisconnectOnce = true; //服务端即将断 socket, 别让 disconnect 再切一次场景
         //按进房时记录的来源场景返回:俱乐部进桌回俱乐部详情页,大厅进桌回大厅
-        var backClub = (nm && nm.roomBackScene === "club") || cc.vv.fromClubId;
+        var backClub = (nm && nm.roomBackScene === "club") || cc.vv.fromClubId || (nm && nm.roomBackClubId);
         if (backClub) {
             cc.vv.fromClub = true;
             if (nm && nm.roomBackClubId && !cc.vv.fromClubId) cc.vv.fromClubId = nm.roomBackClubId;
-            cc.director.loadScene("club");
+            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
         } else {
-            cc.director.loadScene("hall"); //大厅进桌: 回大厅
+            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
         }
     },
 

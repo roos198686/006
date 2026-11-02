@@ -445,10 +445,10 @@ cc.Class({
         if(backClub){
             cc.vv.fromClub = true; //来自俱乐部:回独立俱乐部场景(club.fire),由clubScene根据fromClubId直达玩法详情页
             if(nm && nm.roomBackClubId && !cc.vv.fromClubId){ cc.vv.fromClubId = nm.roomBackClubId; }
-            cc.director.loadScene("club");
+            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
         }
         else{
-            cc.director.loadScene("hall"); //非俱乐部进桌(如大厅加入房间):回大厅
+            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
         }
     },
 

@@ -100,7 +100,16 @@ cc.Class({
                 cc.vv.bbExitHook();
                 return;
             }
-            cc.director.loadScene("login");
+            // 退出大厅回到登录:用 SceneMgr 过渡,防止 logout 过程中白闪
+            // 同时清掉本地登录态,否则下次打开APP/回到login会被自动登录直接带回大厅
+            cc.sys.localStorage.removeItem("login_account");
+            cc.sys.localStorage.removeItem("login_sign");
+            cc.sys.localStorage.removeItem("login_type");
+            if(cc.vv.sceneMgr){
+                cc.vv.sceneMgr.load("login");
+            }else{
+                cc.director.loadScene("login");
+            }
         }
         else if(event.target.name == "btn_yx_open"){
             cc.vv.audioMgr.setSFXVolume(1.0);

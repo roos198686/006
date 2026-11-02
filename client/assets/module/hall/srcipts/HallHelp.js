@@ -11,41 +11,38 @@ function displayName(g) {
 }
 var TEXTS = {
     zj: "2人诸暨麻将,开局翻出财神,财神可当任意牌使用。\n" +
-        "· 财神可吃、碰、杠(由后台开关控制)。\n" +
-        "· 按台数计分,需达到后台设置的起胡台数才能胡,台数越多分越高,超过封顶按封顶台数算。\n" +
-        "· 天胡、地胡、漏胡等由后台开关与台数配置决定。\n" +
-        "· 杠上开花、抢杠等按后台台数配置计分。",
+        "· 财神可吃、碰、杠。\n" +
+        "· 按台数计分,需达到起胡台数才能胡,台数越多分越高,超过封顶按封顶台数算。\n" +
+        "· 天胡、地胡、漏胡等参与计分。\n" +
+        "· 杠上开花、抢杠等按台数计分。",
     zj_bt: "2人玩法,开局先叫包:选择无财/独财/双财并报出包几台,叫台大的一方成为包家,由包家从手牌中定财神。\n" +
-           "· 包家胡牌必须达到自己所包的台数,闲家胡牌只需达到后台最低起胡台数。\n" +
+           "· 包家胡牌必须达到自己所包的台数,闲家胡牌只需达到最低起胡台数。\n" +
            "· 同台数时大小顺序:无财 > 独财 > 双财。\n" +
            "· 结算分两项:胡牌分按台数每台翻倍,包台分按所包台数每台翻倍。\n" +
            "· 老庄时包台分翻倍。\n" +
            "· 包家不包则推给闲家,闲家也不包时由庄家按所包台数硬包。",
     zj_lao: "2人推倒胡玩法,没有台数门槛,胡牌即算。\n" +
-            "· 不做台数结算,只有后台开启的翻倍项(财吊、天胡、地胡等)参与计分。\n" +
+            "· 不做台数结算,只有翻倍项(财吊、天胡、地胡等)参与计分。\n" +
             "· 吃、碰、杠、点炮等规则与诸暨麻将一致。",
     zj_zx: "2人玩法,开局不发财神。\n" +
            "· 胡牌时自选财神方案:无财、独财或双财(双财为相连的两张)。\n" +
            "· 选定方案后从手牌中选出对应的财神牌,定财神后即满足胡牌条件。\n" +
-           "· 仍需达到后台设置的起胡台数才能胡。\n" +
-           "· 无财、独财方案计分翻倍(后台配置)。",
+           "· 仍需达到起胡台数才能胡。\n" +
+           "· 无财、独财方案计分翻倍。",
     zj4_zx: "4人玩法,规则与2人自选麻将一致,开局不发财神,胡牌时自选财神方案。",
     guanpai2: "2人扑克玩法,先出完手牌的一方获胜。\n" +
-              "· 牌型:单张、对子、三张、顺子、炸弹(由后台开关控制)。\n" +
-              "· 2 不参与顺子;后台开启后 A 可作最小牌与 2 相连。\n" +
+              "· 牌型:单张、对子、三张、顺子、炸弹。\n" +
+              "· 2 不参与顺子;A 可作最小牌与 2 相连。\n" +
               "· 首局由持有最小黑桃的一方先出,之后由上一局赢家先出。\n" +
-              "· 记牌器(历史出牌辅助)由后台开关控制。",
+              "· 记牌器(历史出牌辅助)。",
     guanpai3: "3人扑克玩法,先出完手牌的一方获胜,规则与2人关牌一致。",
     baobao_mian: "6张免摆宝宝(最多6人)。每人发6张牌,系统自动遍历所有拆分,选出最大的一副牌型亮牌。\n" +
         "· 牌型从大到小:6同花顺 > 5同花顺带1 > 4条带2单 > 3条带3条 > 3条带对带1 > 6同花 > 6连顺 > 5同花带1 > 5连顺带1 > 3对 > 3组9 > 散牌。\n" +
-        "· 花色优先级:黑桃 > 红桃 > 梅花 > 方片。A在长顺里算最小(A23456的A当1)。\n" +
-        "· 有庄时闲家只与庄家比;无庄时六家两两互比(后台开关)。\n" +
-        "· 各牌型倍率由管理后台设置。",
+        "· 花色优先级:黑桃 > 红桃 > 梅花 > 方片。A在长顺里算最小(A23456的A当1)。",
     baobao_shou: "6张手动摆宝宝(最多6人)。每人发6张牌,自己摆成前2/中2/后2三道。\n" +
         "· 单道规则:对子为宝,宝>散点(两牌相加取个位,9最大0最小);宝排序 宝A>宝K/Q/J>宝10~2。\n" +
-        "· 强制 前道≤中道≤后道,摆错为乌龙,三道全输(后台可关校验)。\n" +
-        "· 三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍(后台可配)。\n" +
-        "· 有庄时闲家只与庄家比;无庄时六家两两互比(后台开关)。"
+        "· 强制 前道≤中道≤后道,摆错为乌龙,三道全输。\n" +
+        "· 三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍。"
 };
 
 cc.Class({
@@ -74,6 +71,9 @@ cc.Class({
         this._title = root.getChildByName("xzdd_title");
         this._body = root.getChildByName("xzdd_help");
         //标题/正文的锚点、尺寸、位置和字号全部在场景里设置,这里只取节点引用
+        //这三个节点在场景里默认是隐藏的(active=false),打开弹窗时必须显式激活,否则弹窗内一片空白
+        if(this._title){ this._title.active = true; }
+        if(this._body){ this._body.active = true; }
 
         //左侧列表容器:优先用场景里的 helpList 节点(列表项也放场景里,位置由编辑器控制)
         if(!cc.isValid(this._listRoot)){
@@ -83,6 +83,7 @@ cc.Class({
             this._listRoot = new cc.Node("helpList");   //场景没有时兜底
             this._listRoot.parent = root;
         }
+        this._listRoot.active = true;
 
         //按钮底图:大厅图集里的按钮-button1
         var self = this;
@@ -101,6 +102,9 @@ cc.Class({
             sign: cc.vv.userMgr.sign
         }, function (ret) {
             if (ret == null || ret.errcode != 0) {
+                //请求失败也要填文字,避免弹窗只有背景一片空白
+                if (self._title && self._title.getComponent(cc.Label)) { self._title.getComponent(cc.Label).string = "玩法介绍"; }
+                if (self._body && self._body.getComponent(cc.Label)) { self._body.getComponent(cc.Label).string = "玩法列表获取失败,请稍后重试。"; }
                 if (cc.vv.wc) { cc.vv.wc.showError("玩法列表获取失败"); }
                 return;
             }
@@ -119,6 +123,12 @@ cc.Class({
         //场景里的列表项按编辑器顺序依次对应各个玩法
         var slots = this._listRoot.children.slice();
         this._items = [];
+        if (this._games.length == 0) {
+            if (this._title && this._title.getComponent(cc.Label)) { this._title.getComponent(cc.Label).string = "玩法介绍"; }
+            if (this._body && this._body.getComponent(cc.Label)) { this._body.getComponent(cc.Label).string = "暂无可用玩法。"; }
+            this.refreshItems();
+            return;
+        }
         for (var i = 0; i < this._games.length; ++i) {
             var item = slots[i];
             if (item == null) {
@@ -189,10 +199,12 @@ cc.Class({
         cc.log("[help] select " + idx + " " + g.type);
         this._cur = idx;
         if (this._title) {
-            this._title.getComponent(cc.Label).string = displayName(g);
+            var tl = this._title.getComponent(cc.Label);
+            if (tl) { tl.string = displayName(g); }
         }
         if (this._body) {
-            this._body.getComponent(cc.Label).string = TEXTS[g.type] || "该玩法暂无说明。";
+            var bl = this._body.getComponent(cc.Label);
+            if (bl) { bl.string = TEXTS[g.type] || "该玩法暂无说明。"; }
         }
         this.highlight();
     },

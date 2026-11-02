@@ -1,5 +1,20 @@
 var Net = require("Net")  //长连接socket
 var Global = require("Global")  //mj所需方法
+
+//创建房间弹窗里展示的玩法简介(与 HallHelp 的玩法说明保持一致,按 game_type 取)
+var GAME_INTROS = {
+    baobao_mian: "6张免摆宝宝(最多6人)。每人发6张牌,系统自动遍历所有拆分,选出最大的一副牌型亮牌。\n" +
+        "· 牌型从大到小:6同花顺 > 5同花顺带1 > 4条带2单 > 3条带3条 > 3条带对带1 > 6同花 > 6连顺 > 5同花带1 > 5连顺带1 > 3对 > 3组9 > 散牌。\n" +
+        "· 花色优先级:黑桃 > 红桃 > 梅花 > 方片。A在长顺里算最小(A23456的A当1)。\n" +
+        "· 有庄时闲家只与庄家比;无庄时六家两两互比(后台开关)。\n" +
+        "· 各牌型倍率由管理后台设置。",
+    baobao_shou: "6张手动摆宝宝(最多6人)。每人发6张牌,自己摆成前2/中2/后2三道。\n" +
+        "· 单道规则:对子为宝,宝>散点(两牌相加取个位,9最大0最小);宝排序 宝A>宝K/Q/J>宝10~2。\n" +
+        "· 强制 前道≤中道≤后道,摆错为乌龙,三道全输(后台可关校验)。\n" +
+        "· 三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍(后台可配)。\n" +
+        "· 有庄时闲家只与庄家比;无庄时六家两两互比(后台开关)。"
+};
+
 cc.Class({
     extends: cc.Component,
 
@@ -99,7 +114,7 @@ cc.Class({
             cc.view.setResizeCallback(resizeHallBg);
         }
         if(!cc.vv){
-            cc.director.loadScene("loading");
+            cc.director.loadScene("login"); // cc.vv 未初始化时跳 login(login 自带初始化)
             return;
         }
         //加载用户信息
@@ -433,6 +448,7 @@ cc.Class({
                 self._bindAccount = ret.bound_account;
                 self._wxBound = !!ret.wx;
             }
+            self._bindStatusLoaded = true;
             if(cb){ cb(); }
         },cc.vv.http.master_url);
     },
@@ -450,15 +466,43 @@ cc.Class({
             var eb = n ? n.getComponent(cc.EditBox) : null;
             if(!eb){ continue; }
             eb.string = "";
+            // 场景里这几个输入框的 inputMode 是数字键盘, 会把字母过滤掉; 账号/密码都要字母+数字, 统一改成任意字符
+            eb.inputMode = cc.EditBox.InputMode.ANY;
             if(i >= 2){ eb.inputFlag = cc.EditBox.InputFlag.PASSWORD; eb.maxLength = 15; }
             else{ eb.inputFlag = cc.EditBox.InputFlag.DEFAULT; eb.maxLength = 11; }
+            this._autoHidePlaceholder(eb);
             this._bindInputs["input" + i] = eb;
+        }
+        // 已绑定账号时把账号回填到两个账号框: 玩家一眼能看到已绑定的账号, 且服务端已绑定后只允许改密码
+        var fillBound = function(acc){
+            if(!acc || !cc.isValid(win)){ return; }
+            for(var k = 0; k < 2; k++){
+                var box = self._bindInputs["input" + k];
+                if(box && String(box.string || "") === ""){ box.string = acc; }
+            }
+        };
+        if(this._bindAccount){
+            fillBound(this._bindAccount);
+        } else if(!this._bindStatusLoaded){
+            this._refreshBindStatus(function(){ fillBound(self._bindAccount); });
         }
         if(!win._bound){
             win._bound = true;
             this._winBind(win,"btnClose",function(){ self._closeWin("bindWin"); });
             this._winBind(win,"btnSave",function(){ self._submitBind(); });
         }
+    },
+
+    // 输入框点击(获得焦点)即隐藏占位提示, 失焦且没输入内容时再恢复;
+    // 场景里这四个输入框自带 placeholderLabel, 引擎只在内容变化时更新, 点一下不会消失
+    _autoHidePlaceholder:function(eb){
+        if(!eb || eb._phAutoHide || !eb.placeholderLabel || !eb.placeholderLabel.node){ return; }
+        eb._phAutoHide = true;
+        var phNode = eb.placeholderLabel.node;
+        var show = function(v){ if(cc.isValid(phNode)){ phNode.active = v; } };
+        eb.node.on('editing-did-began', function(){ show(false); });
+        eb.node.on('editing-did-ended', function(){ show((eb.string || "") === ""); });
+        eb.node.on('text-changed', function(){ show((eb.string || "") === ""); });
     },
 
     //提交绑定/修改密码
@@ -510,13 +554,23 @@ cc.Class({
         this._refreshAvatarGrid();
     },
 
-    //渲染头像网格:从18张池中随机取12张,6列x2行
+    //渲染头像网格:场景 grid 下只有一个 cellTemplate 节点(尺寸在编辑器里调), JS 克隆出12个 cell
     _refreshAvatarGrid:function(reshuffle){
         var self = this;
         var grid = this._avatarGridNode;
         if(!grid || !cc.isValid(grid)){ return; }
-        grid.removeAllChildren();
+        // 模板节点:优先 cellTemplate, 兼容旧命名(只用来取尺寸和默认头像帧,不再克隆)
+        var template = grid.getChildByName("cellTemplate") || grid.getChildByName("cell_0");
+        if(!template){
+            console.warn("[hall] avatarWin/grid 下缺少 cellTemplate, 使用默认尺寸建头像格");
+        }
+        // 清掉上一次克隆出来的 cell(保留模板)
+        var children = grid.children.slice();
+        for(var ci = 0; ci < children.length; ci++){
+            if(children[ci] && children[ci] !== template){ children[ci].destroy(); }
+        }
         this._avatarCells = [];
+        // 随机抽取12个头像key
         var pool = this._avatarPool().slice();
         if(reshuffle || !this._avatarShowKeys){
             for(var i = pool.length - 1; i > 0; i--){
@@ -526,24 +580,38 @@ cc.Class({
             this._avatarShowKeys = pool.slice(0,12);
         }
         var keys = this._avatarShowKeys;
+        // 尺寸/间距全部取自模板节点(编辑器里改模板即可)
+        var cellW = template ? template.width : 100;
+        var cellH = template ? template.height : 100;
+        var gapX = 24;
+        var gapY = 24;
+        var cols = 6;
+        var totalW = cols * cellW + (cols - 1) * gapX;
+        var startX = -totalW / 2 + cellW / 2;
+        var startY = (cellH + gapY) / 2;
+        var tplSp = template ? template.getComponent(cc.Sprite) : null;
         for(var idx = 0; idx < keys.length; idx++){
             (function(key,index){
-                var col = index % 6;
-                var row = Math.floor(index / 6);
+                // 直接新建头像格,不克隆隐藏模板(避免模板未激活导致克隆体不渲染)
                 var cell = new cc.Node("cell_" + index);
+                cell.setContentSize(cellW, cellH);
+                if(grid.layer !== undefined){ cell.layer = grid.layer; }
                 cell.parent = grid;
-                cell.setContentSize(120,120);
-                cell.setPosition(-335 + col * 134, 75 - row * 134);
-                var frame = cell.addComponent(cc.Graphics);
-                var imgN = new cc.Node("img");
-                imgN.parent = cell;
-                imgN.setContentSize(112,112);
-                imgN.addComponent(cc.Sprite);
+                cell.setPosition(startX + (index % cols) * (cellW + gapX), startY - Math.floor(index / cols) * (cellH + gapY));
+                var sp = cell.addComponent(cc.Sprite);
+                sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+                // 先把模板上的默认帧放上去,保证资源异常时也有图
+                if(tplSp && tplSp.spriteFrame){ sp.spriteFrame = tplSp.spriteFrame; }
                 cc.resources.load("images/avatars/" + key, cc.SpriteFrame, function(err,sf){
-                    if(cc.isValid(imgN) && sf){ imgN.getComponent(cc.Sprite).spriteFrame = sf; }
+                    if(cc.isValid(cell) && sf){ sp.spriteFrame = sf; }
                 });
+                // 选中框: Graphics 必须放子节点,同一节点再加渲染组件会把先加的 Sprite 禁用掉(头像就看不见了)
+                var frameN = new cc.Node("selFrame");
+                cell.addChild(frameN);
+                var frame = frameN.addComponent(cc.Graphics);
                 cell._key = key;
                 cell._frame = frame;
+                cell._cellSize = { w: cellW, h: cellH };
                 cell.on(cc.Node.EventType.TOUCH_END,function(){
                     self._avatarSel = key;
                     self._redrawAvatarSel();
@@ -554,7 +622,7 @@ cc.Class({
         this._redrawAvatarSel();
     },
 
-    //选中框重绘
+    //选中框重绘(尺寸从 cell 自己记录的 size 读, 不再写死 120)
     _redrawAvatarSel:function(){
         var cells = this._avatarCells || [];
         for(var i = 0; i < cells.length; i++){
@@ -563,9 +631,10 @@ cc.Class({
             var g = c._frame;
             g.clear();
             if(c._key === this._avatarSel){
+                var sz = c._cellSize || { w: 120, h: 120 };
                 g.lineWidth = 6;
                 g.strokeColor = new cc.Color(255,200,60,255);
-                g.rect(-60,-60,120,120);
+                g.rect(-sz.w / 2, -sz.h / 2, sz.w, sz.h);
                 g.stroke();
             }
         }
@@ -630,12 +699,42 @@ cc.Class({
         },cc.vv.http.master_url);
     },
 
-    //注销登录:清除本地登录态并回到登录场景
+    //注销账号:弹确认框→调服务端删除(含创建人俱乐部)→清本地登录态→回登录场景
     _logout:function(){
-        cc.sys.localStorage.removeItem("account");
-        cc.sys.localStorage.removeItem("wx_account");
-        cc.sys.localStorage.removeItem("wx_sign");
-        cc.director.loadScene("loading");
+        var self = this;
+        var doDelete = function(){
+            cc.vv.wc.show("正在注销账户...");
+            cc.vv.http.sendRequest("/delete_account",{
+                account:cc.vv.userMgr.account,
+                sign:cc.vv.userMgr.sign
+            },function(ret){
+                cc.vv.wc.hide();
+                if(!ret || ret.errcode !== 0){
+                    cc.vv.wc.showError((ret && ret.errmsg) ? ret.errmsg : "注销失败，请重试");
+                    return;
+                }
+                //注销成功:清除本地登录态
+                cc.sys.localStorage.removeItem("account");
+                cc.sys.localStorage.removeItem("wx_account");
+                cc.sys.localStorage.removeItem("wx_sign");
+                cc.sys.localStorage.removeItem("login_account");
+                cc.sys.localStorage.removeItem("login_sign");
+                cc.sys.localStorage.removeItem("login_type");
+                cc.vv.wc.showAlert("账户已注销");
+                //稍延迟回登录场景,让提示可见
+                setTimeout(function(){
+                    // 注销后跳 login(login 自带初始化)
+                    cc.director.loadScene("login");
+                },1000);
+            },cc.vv.http.master_url);
+        };
+        if(cc.vv.alert && cc.vv.alert.show){
+            cc.vv.alert.show("注销账户","确定要注销账户吗？\n此操作不可恢复，您的俱乐部和数据将被清空！",doDelete,true);
+        }
+        else{
+            //Alert组件未就绪时直接执行(兜底)
+            doDelete();
+        }
     },
 
    //获取用户信息 
@@ -674,7 +773,12 @@ cc.Class({
     
     //返回按钮显示（按当前玩法分流到对应游戏场景）
     onReturnGameClicked:function(){
-        cc.director.loadScene(cc.vv.gameNetMgr.getGameScene());
+        var name = cc.vv.gameNetMgr.getGameScene();
+        if(cc.vv.sceneMgr){
+            cc.vv.sceneMgr.load(name);
+        }else{
+            cc.director.loadScene(name);
+        }
     },
     
     //创建房间按钮点击
@@ -714,19 +818,24 @@ cc.Class({
                 self.onJoinGameClicked();
             });
         }
-        //first=创建房间(原clubEntryBtn逻辑),clubEntryBtn=进入俱乐部
+        //first=创建房间:暂不开放,点击只提示;建房统一在俱乐部的"添加牌桌"里做
         var firstBtn = cc.find("Canvas/content/first");
         if(firstBtn && !firstBtn._hallBound){
             firstBtn._hallBound = true;
             firstBtn.on(cc.Node.EventType.TOUCH_END,function(){
-                self._onCreateRoomEntry();
+                if(cc.vv.wc && cc.vv.wc.showAlert){ cc.vv.wc.showAlert("暂不能使用", "提示"); }
+                else if(cc.vv.wc && cc.vv.wc.showError){ cc.vv.wc.showError("暂不能使用"); }
             });
         }
         var btn = cc.find("Canvas/content/clubEntryBtn");
         if(btn && !btn._hallBound){
             btn._hallBound = true;
             btn.on(cc.Node.EventType.TOUCH_END,function(){
-                cc.director.loadScene("club");
+                if(cc.vv.sceneMgr){
+                    cc.vv.sceneMgr.load("club");
+                }else{
+                    cc.director.loadScene("club");
+                }
             });
         }
     },
@@ -878,23 +987,23 @@ cc.Class({
         this._createClub = club;
         this._createGames = games;
         this._createSelGame = games[0];
-        //面板
+        //面板(加高以容纳玩法简介)
         var panel = new cc.Node("panel");
         panel.parent = win;
-        panel.setContentSize(720,660);
+        panel.setContentSize(720,840);
         var pg = panel.addComponent(cc.Graphics);
-        this._drawRoundRect(pg,720,660,16,new cc.Color(30,34,44,245));
-        this._makeLabel(panel,"创建房间",36,0,280);
-        this._makeLabel(panel,"俱乐部：" + (club.name || ""),22,0,232,new cc.Color(180,180,180,255));
+        this._drawRoundRect(pg,720,840,16,new cc.Color(30,34,44,245));
+        this._makeLabel(panel,"创建房间",36,0,370);
+        this._makeLabel(panel,"俱乐部：" + (club.name || ""),22,0,322,new cc.Color(180,180,180,255));
         //玩法选择行
-        this._makeLabel(panel,"玩法：",26,-300,150);
+        this._makeLabel(panel,"玩法：",26,-300,240);
         this._createGameBtns = [];
         var startX = -300 + 90;
         for(var i = 0; i < games.length; i++){
             (function(idx){
                 var g = games[idx];
                 var bx = startX + idx * 180;
-                var b = self._makeTextButton(panel,"game_" + idx,g.name || g.game_type,bx,150,160,64,new cc.Color(70,76,92,255),function(){
+                var b = self._makeTextButton(panel,"game_" + idx,g.name || g.game_type,bx,240,160,64,new cc.Color(70,76,92,255),function(){
                     self._createSelGame = g;
                     self._refreshCreateGameBtns();
                     self._fillCreateDefaults();
@@ -903,26 +1012,42 @@ cc.Class({
                 self._createGameBtns.push(b);
             })(i);
         }
+        //玩法简介:标题+多行说明(随选中玩法切换)
+        this._makeLabel(panel,"玩法简介：",22,-290,165,new cc.Color(120,170,255,255));
+        var introNode = new cc.Node("createIntro");
+        introNode.parent = panel;
+        introNode.setAnchorPoint(0.5,1);
+        introNode.setPosition(0,140);
+        introNode.setContentSize(640,200);
+        var introLabel = introNode.addComponent(cc.Label);
+        introLabel.fontSize = 20;
+        introLabel.lineHeight = 28;
+        introLabel.enableWrapText = true;
+        introLabel.horizontalAlign = cc.Label.HorizontalAlign.LEFT;
+        introLabel.verticalAlign = cc.Label.VerticalAlign.TOP;
+        introLabel.color = new cc.Color(220,220,220,255);
+        introLabel.overflow = cc.Label.Overflow.NONE;
+        this._createIntroLabel = introLabel;
         //输入行:底分/局数/最低宝宝豆/请出阈值
         var rows = [["底分：","difenInput"],["局数：","jushuInput"],["最低宝宝豆：","minInput"],["请出阈值：","kickInput"]];
         this._createInputs = {};
         for(var r = 0; r < rows.length; r++){
-            var ry = 60 - r * 80;
+            var ry = -80 - r * 80;
             this._makeLabel(panel,rows[r][0],26,-210,ry);
             this._createInputs[rows[r][1]] = this._makeEditBox(panel,rows[r][1],100,ry,300,56,"0","");
         }
         //确定/取消
-        this._makeTextButton(panel,"btnOk","确定",-140,-270,200,72,new cc.Color(41,121,211,255),function(){
+        this._makeTextButton(panel,"btnOk","确定",-140,-380,200,72,new cc.Color(41,121,211,255),function(){
             self._submitCreateWin();
         });
-        this._makeTextButton(panel,"btnCancel","取消",140,-270,200,72,new cc.Color(90,94,106,255),function(){
+        this._makeTextButton(panel,"btnCancel","取消",140,-380,200,72,new cc.Color(90,94,106,255),function(){
             self._closeCreateWin();
         });
         this._refreshCreateGameBtns();
         this._fillCreateDefaults();
     },
 
-    //玩法按钮选中态刷新
+    //玩法按钮选中态刷新 + 玩法简介同步
     _refreshCreateGameBtns:function(){
         var btns = this._createGameBtns || [];
         for(var i = 0; i < btns.length; i++){
@@ -930,6 +1055,11 @@ cc.Class({
             var sel = (b._game === this._createSelGame);
             var g = b.getComponent(cc.Graphics);
             this._drawRoundRect(g,b.width,b.height,10,sel ? new cc.Color(41,121,211,255) : new cc.Color(70,76,92,255));
+        }
+        //刷新当前选中玩法的简介
+        if(this._createIntroLabel && this._createSelGame){
+            var t = this._createSelGame.game_type || this._createSelGame.type;
+            this._createIntroLabel.string = GAME_INTROS[t] || "该玩法暂无说明。";
         }
     },
 
@@ -953,6 +1083,7 @@ cc.Class({
         this._createWin = null;
         this._createGameBtns = null;
         this._createInputs = null;
+        this._createIntroLabel = null;
     },
 
     //提交创建:服务端校验创建人身份并按序号自动命名,成功后直接进入房间

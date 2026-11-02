@@ -7,6 +7,22 @@ var room_service = require("./room_service");
 var app = express();
 var config = null;
 
+//内置头像数量(客户端 resources/images/avatars/avatar_01~avatar_18)
+var AVATAR_COUNT = 18;
+//随机生成一个内置头像key, 用于新建档/老账号补头像
+function randomAvatarKey(){
+	var n = Math.floor(Math.random() * AVATAR_COUNT) + 1;
+	return "avatar_" + (n < 10 ? "0" + n : n);
+}
+//校验客户端传来的头像key(只允许 avatar_01~avatar_18)
+function normalizeAvatarKey(key){
+	var m = /^avatar_(\d{1,3})$/.exec(key || "");
+	if(!m){ return null; }
+	var n = Number(m[1]);
+	if(n < 1 || n > AVATAR_COUNT){ return null; }
+	return "avatar_" + (n < 10 ? "0" + n : n);
+}
+
 //判断账号密码都不为空
 function check_account(req,res){
 	var account = req.query.account;
@@ -57,6 +73,12 @@ app.get('/login',function(req,res){
 			http.send(res,0,"ok");
 			return;
 		}
+        //老账号(早期建档时headimg为空)补一个随机内置头像, 之后不再改动; 只补空值, 不影响已选头像
+		db.get_user_base_info(data.userid,function(info){
+			if(info && !info.headimg){
+				db.update_user_headimg(account, randomAvatarKey());
+			}
+		});
         //返回数据库查询信息
 		var ret = {
 			account:data.account,
@@ -101,6 +123,7 @@ app.get('/create_user',function(req,res){
 	}
 	var account = req.query.account; //账号
 	var name = req.query.name;  //获取名字
+	var headimg = normalizeAvatarKey(req.query.headimg); //首次建档随机头像(avatar_01~18), 非法值则用空
 	var coins = 1000;//初试金兵
 	var gems = 99;//初试房卡
 	console.log(name);
@@ -109,7 +132,7 @@ app.get('/create_user',function(req,res){
         //如果不存在
         if(!ret){
             //数据库创建该用户
-			db.create_user(account,name,coins,gems,0,null,function(ret){
+			db.create_user(account,name,coins,gems,0,headimg,function(ret){
                //返回为空 返回错误请求
                 if (ret == null) {
 					http.send(res,2,"system error.");
@@ -849,6 +872,9 @@ app.get('/club_add_table',function(req,res){
 				}
 				var difens = [];
 				try{ difens = JSON.parse(g ? g.difen_options : '[]') || []; }catch(e){}
+				//俱乐部自配的台数规则随牌桌conf下发,游戏服优先用它(空则由全局默认值兜底)
+				var clubTaiRules = null;
+				try{ clubTaiRules = (g && g.tai_rules) ? JSON.parse(g.tai_rules) : null; }catch(e2){ clubTaiRules = null; }
 				var difenVal = Number(req.query.difen_value);
 				if(!(difenVal > 0)){ difenVal = Number(difens[0]) || 1; }
 				//局数直接存实际局数值(jushu_value),不再依赖全局选项下标,避免俱乐部选项与全局配置不一致时局数错乱
@@ -861,7 +887,8 @@ app.get('/club_add_table',function(req,res){
 					jushu_value: (jushuVal > 0) ? jushuVal : null,
 					banker_mode: (parseInt(req.query.banker_mode) === 0) ? 0 : 1,
 					min_bean: parseInt(req.query.min_bean) || 0,
-					kick_bean: parseInt(req.query.kick_bean) || 0
+					kick_bean: parseInt(req.query.kick_bean) || 0,
+					tai_rules: clubTaiRules
 				};
 				db.club_tables(clubId,gameType,function(tables){
 					var maxNo = 0;
@@ -878,6 +905,86 @@ app.get('/club_add_table',function(req,res){
 						}
 						http.send(res,0,"ok",{tableid:tableId,name:name});
 					});
+				});
+			});
+		});
+	});
+});
+
+//俱乐部玩法配置(底分/局数/台数规则):读取,仅馆主
+app.get('/club_game_configs',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	var clubId = parseInt(req.query.clubid);
+	if(!(clubId > 0)){
+		http.send(res,-1,"parameters don't match api requirements.");
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){ http.send(res,-1,"system error"); return; }
+		db.club_get(clubId,function(club){
+			if(club == null){ http.send(res,3,"club not found."); return; }
+			if(club.owner_userid != data.userid){ http.send(res,4,"only club owner can edit game config."); return; }
+			db.club_games_with_count(clubId,function(games){
+				var src = games || [];
+				var list = [];
+				var pending = src.length;
+				if(pending === 0){ http.send(res,0,"ok",{list:[]}); return; }
+				src.forEach(function(g,idx){
+					var difen = [], jushu = [], tai = null;
+					try{ difen = JSON.parse(g.difen_options) || []; }catch(e1){}
+					try{ jushu = JSON.parse(g.jushu_options) || []; }catch(e2){}
+					try{ tai = g.tai_rules ? JSON.parse(g.tai_rules) : null; }catch(e3){ tai = null; }
+					//带上后台全局默认台数规则:客户端把留空项显示成实际默认数值
+					db.get_game_config(g.game_type,function(cfg){
+						list[idx] = {
+							game_type:g.game_type,
+							name:g.name,
+							difen_options:difen,
+							jushu_options:jushu,
+							tai_rules:tai,
+							default_tai_rules:(cfg && cfg.tai_rules) ? cfg.tai_rules : null
+						};
+						if(--pending === 0){ http.send(res,0,"ok",{list:list}); }
+					});
+				});
+			});
+		});
+	});
+});
+
+//俱乐部玩法配置:保存,仅馆主(台数规则留空=清空,按全局默认值)
+app.get('/club_game_config_save',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	var clubId = parseInt(req.query.clubid);
+	var gameType = req.query.game_type;
+	if(!(clubId > 0) || gameType == null || gameType === ''){
+		http.send(res,-1,"parameters don't match api requirements.");
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){ http.send(res,-1,"system error"); return; }
+		db.club_get(clubId,function(club){
+			if(club == null){ http.send(res,3,"club not found."); return; }
+			if(club.owner_userid != data.userid){ http.send(res,4,"only club owner can edit game config."); return; }
+			db.club_game_get_by_type(clubId,gameType,function(g){
+				if(g == null){ http.send(res,5,"club game not found."); return; }
+				var fields = {};
+				var difen = [];
+				try{ difen = JSON.parse(req.query.difen_options || '[]') || []; }catch(e1){}
+				var jushu = [];
+				try{ jushu = JSON.parse(req.query.jushu_options || '[]') || []; }catch(e2){}
+				var tai = null;
+				try{ tai = req.query.tai_rules ? JSON.parse(req.query.tai_rules) : null; }catch(e3){ tai = null; }
+				if(difen.length > 0){ fields.difen_options = difen; }
+				if(jushu.length > 0){ fields.jushu_options = jushu; }
+				fields.tai_rules = (tai && Object.keys(tai).length > 0) ? tai : null;
+				db.club_game_update(g.id,fields,function(ok){
+					if(!ok){ http.send(res,1,"save failed."); return; }
+					http.send(res,0,"ok");
 				});
 			});
 		});
