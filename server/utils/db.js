@@ -41,6 +41,8 @@ exports.init = function(config){
         password: config.PSWD,
         database: config.DB,
         port: config.PORT,
+        connectionLimit: 50,   //默认仅10,100在线时数据库操作会排队
+        queueLimit: 0,         //排队请求不限数量
     });
     //账号绑定表(游客账号<->微信账号),表不存在时自动创建,保证部署环境可直接跑
     var sql = 'CREATE TABLE IF NOT EXISTS `t_account_bind` (' +
