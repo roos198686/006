@@ -97,7 +97,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             HEADER_SEARCH_PATHS="\$(inherited) $OAL/include" \
-            OTHER_LDFLAGS="\$(inherited) -lwebp -L$OAL/build-ios -lopenal -framework CoreAudio -framework AudioUnit -Wl,-sectcreate,__TEXT,__entitlements,ios/SCMJ-mobile.entitlements" \
+            OTHER_LDFLAGS="\$(inherited) -lwebp -L$OAL/build-ios -lopenal -framework CoreAudio -Wl,-sectcreate,__TEXT,__entitlements,ios/SCMJ-mobile.entitlements" \
             build
 
       - name: Package unsigned IPA
