@@ -19,6 +19,7 @@ _tmp_backup/
 _unused_backup/
 _tools/backup/
 atlas_frames/
+backup/
 backup_*/
 client_backup_*/
 
@@ -60,6 +61,11 @@ _tools/
 _fx_frames/
 release/
 .trae-html-share-packages/
+scratch/
+cocos/
+unity/
+reference_assets/
+shunbaobao-download/
 
 # === 签名密钥(绝不进仓库) ===
 *.keystore

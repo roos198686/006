@@ -11,6 +11,7 @@
 var roomMgr = require("./roommgr");
 var userMgr = require("./usermgr");
 var db = require("../utils/db");
+var charge = require("./charge");
 
 var games = {};
 
@@ -295,25 +296,25 @@ function daoRate(dao, tr){
 function daoDesc(dao){
     if(dao.bao){
         var names = {11:"J", 12:"Q", 13:"K", 14:"A"};
-        return "宝" + (names[dao.rank] || dao.rank);
+        return "对" + (names[dao.rank] || dao.rank);
     }
     return dao.dian + "点";
 }
 
-// 校验 前<=中<=后; 返回 true=合法
+// 校验 前>=中>=后(前道最大,尾道最小); 返回 true=合法
 function daoOrderOk(daos, mode){
-    return cmpDao(daos[0], daos[1], mode) <= 0 && cmpDao(daos[1], daos[2], mode) <= 0;
+    return cmpDao(daos[0], daos[1], mode) >= 0 && cmpDao(daos[1], daos[2], mode) >= 0;
 }
 
-// 手摆自动最优摆法: 枚举90种 (2,2,2) 分法, 取满足 前<=中<=后 且 (后,中,前) 字典序最大
+// 手摆自动最优摆法: 枚举90种 (2,2,2) 分法, 取满足 前>=中>=后 且 (前,中,后) 字典序最大
 function autoArrange(cards, mode){
     var best = null;
     var idx = [0,1,2,3,4,5];
     var pairs = [];
     for(var a = 0; a < 6; ++a) for(var b = a+1; b < 6; ++b) pairs.push([a,b]);
-    function better(x, y){ // x 是否优于 y (按 后,中,前 字典序)
+    function better(x, y){ // x 是否优于 y (按 前,中,后 字典序)
         if(y == null) return true;
-        for(var d = 2; d >= 0; --d){
+        for(var d = 0; d <= 2; ++d){
             var c = cmpDao(x[d], y[d], mode);
             if(c != 0) return c > 0;
         }
@@ -361,7 +362,7 @@ function collectSeats(roomInfo, readyUids){
     for(var i = 0; i < roomInfo.seats.length; ++i){
         var rs = roomInfo.seats[i];
         if(rs.userId > 0 && (readyUids == null || readyUids.indexOf(rs.userId) >= 0)){
-            arr.push({roomSeatIndex:i, userId:rs.userId, name:rs.name, score:rs.score || 0});
+            arr.push({roomSeatIndex:i, userId:rs.userId, name:rs.name, score:rs.score || 0, roomWin:rs.roomWin || 0});
         }
     }
     return arr;
@@ -373,15 +374,18 @@ function sendToGameSeats(game, ev, data){
         userMgr.sendMsg(game.gameSeats[i].userId, ev, data);
     }
 }
-// 发给房间里本局未参与的玩家(后进入/排队等下一局): 只让他们观看亮牌过程
+// 发给房内但未参与本局的玩家(观战): 让他们能看到进行中的牌局, 但不收确认/结算等弹窗数据
 function sendToWatchers(game, ev, data){
     var roomInfo = roomMgr.getRoom(game.roomId);
-    if(roomInfo == null) return;
-    var parts = {};
-    for(var i = 0; i < game.gameSeats.length; ++i) parts[game.gameSeats[i].userId] = 1;
-    for(var j = 0; j < roomInfo.seats.length; ++j){
-        var rs = roomInfo.seats[j];
-        if(rs.userId > 0 && !parts[rs.userId]) userMgr.sendMsg(rs.userId, ev, data);
+    if(!roomInfo || !roomInfo.seats) return;
+    for(var i = 0; i < roomInfo.seats.length; ++i){
+        var uid = roomInfo.seats[i].userId;
+        if(uid <= 0) continue;
+        var inGame = false;
+        for(var j = 0; j < game.gameSeats.length; ++j){
+            if(game.gameSeats[j].userId == uid){ inGame = true; break; }
+        }
+        if(!inGame) userMgr.sendMsg(uid, ev, data);
     }
 }
 function getSeatsInfo(game){
@@ -391,10 +395,12 @@ function getSeatsInfo(game){
         info.push({
             userid: s.userId,
             name: s.name,
+            sex: s.sex || 0,
             seatindex: i,
             roomSeatIndex: s.roomSeatIndex,
             count: s.holds.length,
-            arranged: !!s.arranged
+            arranged: !!s.arranged,
+            mianFree: !!s.mianFree
         });
     }
     return info;
@@ -433,19 +439,32 @@ function confirmTimeout(game){
 }
 // 亮牌+特效总耗时(毫秒): 服务端等它全部播完再推 game_over_push,
 // 让结算倒计时起点=客户端结算弹窗真正弹出的时刻, 特效再长也不会吃掉倒计时
+// 牌型特效动画耗时(客户端 BBGame._playHandFx 的动画开关): 只有后台打开对应开关才播, 没开不能预留等待
+var FX_ANIM_KEYS = {12:"anim_sf6",11:"anim_sf5",10:"anim_4",9:"anim_33",8:"anim_3p1",7:"anim_f6",6:"anim_s6",5:"anim_f5",4:"anim_s5",3:"anim_p3",2:"anim_n9"};
+function handFxMs(level, tr){
+    if(!(level >= 2)) return 0;
+    var key = FX_ANIM_KEYS[level];
+    if(!(key && Number(tr[key]) > 0)) return 0;
+    if(level >= 11) return 1900 + 2450;   // 手牌聚焦1.9s + 喷火2.45s
+    if(level >= 10) return 1900 + 3450;   // 手牌聚焦1.9s + 爆炸3.45s
+    return 1900 + 1200;                    // 3对/3组9: 手牌聚焦 + 小特效
+}
 function revealFxMs(game){
-    var ms = 3000; // 亮牌3轮(每轮间隔1秒,第3轮在2秒亮出)+亮完停顿0.5秒
-    if(!isShou(game)){   // 手摆无牌型特效
-        for(var i = 0; i < game.gameSeats.length; ++i){
-            var s = game.gameSeats[i];
-            if(!s || !s.mian) continue;
-            // 正式规则: 同花顺(11/12)播喷火, 炸弹(4条=10)播爆炸, 其余牌型不播音效/特效
-            // 耗时 = 手牌聚焦1.9s + 喷火2.45s / 炸弹3.45s
-            if(s.mian.level >= 11) ms += 1900 + 2450;
-            else if(s.mian.level >= 10) ms += 1900 + 3450;
-        }
+    // 与客户端 onBbReveal 的真实节奏对齐: 3道 × 每家1.5秒(每步翻2张+报牌语音), 两种玩法一致。
+    // 之前手摆多算了打枪等待、免摆写死3秒, 都会造成"亮牌结束→结算弹窗"长时间空等。
+    var ms = game.gameSeats.length * 4500;
+    var tr = taiRules(game);
+    // 打枪/全垒打: 客户端只在后台开启动画开关时才播
+    var dq = calcDaqiang(game);
+    if(Number(tr.anim_dq) > 0) ms += dq.list.length * 1500;
+    if(Number(tr.anim_qld) > 0 && dq.quanleida.length) ms += 2000;
+    // 牌型特效: 同样按后台开关计
+    for(var i = 0; i < game.gameSeats.length; ++i){
+        var s = game.gameSeats[i];
+        if(s && s.mian) ms += handFxMs(s.mian.level, tr);
     }
-    return ms + 500; // 网络/帧率抖动余量
+    // 客户端亮完停留0.25秒后弹结算; 提前一点推送, 保证结算数据已到达客户端
+    return ms + 200;
 }
 // 结算弹窗倒计时(秒), 到点未点继续自动进入下一局
 function resultTimeout(game){ var tr = taiRules(game); var v = Number(tr.result_timeout); return v > 0 ? v : 30; }
@@ -507,15 +526,13 @@ function checkAllReady(game){
     if(n <= 0) return false;
     var i;
     // 已离线(掉线未回来)的玩家不可能再点击: 直接按当前阶段自动确认,
-    // 否则其他人全点了也会一直显示"还有玩家没点确认"卡住不发下一局
-    var tf = isShou(game) ? tongdianMode(game) : null;
+    // 否则其他人全点了也会一直显示"还有玩家没点确认"卡住不发下一局。
+    // 摆牌阶段例外: 不给离线玩家立刻自动摆牌(短暂断线就会被"自动摆好牌"),
+    // 统一等摆牌倒计时结束由 startReveal/buildRevealPayload 补齐。
     for(i = 0; i < n; ++i){
         var os = game.gameSeats[i];
         if(userMgr.isOnline(os.userId)) continue;
         if(game.phase == "confirm"){ os.confirmed = true; }
-        else if(game.phase == "arrange"){
-            if(!os.arranged){ os.daos = autoArrange(os.holds, tf); os.arranged = true; os.autoArranged = true; }
-        }
         else if(game.phase == "result"){ os.continued = true; }
     }
     if(game.phase == "confirm"){
@@ -571,32 +588,89 @@ function sendStart(game){
             arrangeRemain: remainSec(game.arrangeDeadline),
             confirmRemain: remainSec(game.confirmDeadline),
             confirmed: !!s.confirmed,
+            mianFree: !!s.mianFree,
             myMian: (s.mian ? { level: s.mian.level, typeName: MIAN_NAMES[s.mian.level], rate: s.mian.rate, cards: bestOrder(s.holds) } : null),
             shuffle: !!game.shuffle,
             conf: game.conf
         });
     }
+    // 房内观战者: 新一局开局同步桌面(不含任何手牌/弹窗数据), 上局明牌清掉重新盖牌
+    sendToWatchers(game, 'bb_start_push', {
+        maxPlayers: game.gameSeats.length,
+        seats: seatsInfo,
+        mySeat: -1,
+        myCards: [],
+        bankerSeat: game.bankerSeat,
+        bankerMode: game.bankerMode,
+        gameType: game.conf.type,
+        phase: game.phase,
+        watching: true,
+        shuffle: !!game.shuffle,
+        conf: game.conf
+    });
 }
 
-// 展示排序: 先按张数(成组)升序, 再按点数升序, 前道最小后道最大, 花色小的在前
+// 展示排序: 成组(对子)的在前, 再按点数降序, 前道最大尾道最小
 function bestOrder(cards){
     var cnt = {};
     cards.forEach(function(id){ var r = rankOf(id); cnt[r] = (cnt[r] || 0) + 1; });
     return cards.slice().sort(function(a, b){
         var ra = rankOf(a), rb = rankOf(b);
-        if(cnt[ra] != cnt[rb]) return cnt[ra] - cnt[rb];
-        if(ra != rb) return ra - rb;
+        if(cnt[ra] != cnt[rb]) return cnt[rb] - cnt[ra];
+        if(ra != rb) return rb - ra;
         return suitOf(a) - suitOf(b);
     });
+}
+
+// 打枪统计(手摆对局): A 对 B 三道全赢 → A 打枪 B; 对所有对手都打枪 = 全垒打
+// 免摆参与的对比是整手比大小, 不算打枪; 亮牌阶段(daos 已齐)与结算阶段共用
+function calcDaqiang(game){
+    var out = { list: [], quanleida: [] };
+    if(!isShou(game)) return out;
+    var n = game.gameSeats.length;
+    var tf = tongdianMode(game);
+    var pairs = [];
+    if(game.bankerMode){
+        for(var i = 0; i < n; ++i){ if(i != game.bankerSeat) pairs.push([i, game.bankerSeat]); }
+    } else {
+        for(var a = 0; a < n; ++a) for(var b = a + 1; b < n; ++b) pairs.push([a, b]);
+    }
+    var winCnt = {};  // "a>b" => a 赢 b 的道数
+    pairs.forEach(function(pr){
+        var A = game.gameSeats[pr[0]], B = game.gameSeats[pr[1]];
+        if(A.mianFree || B.mianFree) return;   // 免摆整手比, 不打枪
+        if(!A.daos || !B.daos) return;
+        for(var d = 0; d < 3; ++d){
+            var win = 0;
+            if(A.wulong && B.wulong){ win = 0; }
+            else if(A.wulong){ win = -1; }
+            else if(B.wulong){ win = 1; }
+            else { var c = cmpDao(A.daos[d], B.daos[d], tf); win = c > 0 ? 1 : (c < 0 ? -1 : 0); }
+            if(win > 0){ var k = pr[0] + ">" + pr[1]; winCnt[k] = (winCnt[k] || 0) + 1; }
+            else if(win < 0){ var k2 = pr[1] + ">" + pr[0]; winCnt[k2] = (winCnt[k2] || 0) + 1; }
+        }
+    });
+    var dqMap = {};
+    for(var key in winCnt){
+        if(winCnt[key] >= 3){
+            var se = key.split(">");
+            var from = Number(se[0]), to = Number(se[1]);
+            out.list.push({ from: from, to: to });
+            (dqMap[from] = dqMap[from] || []).push(to);
+        }
+    }
+    for(var f in dqMap){ if(dqMap[f].length >= n - 1) out.quanleida.push(Number(f)); }
+    return out;
 }
 
 // 亮牌数据(免摆/手摆共用): 重连补发 verify 阶段也要用到
 function buildRevealPayload(game){
     if(isShou(game)){
-        // 手摆: 全部摆完(或超时补齐)后亮牌
+        // 手摆: 全部摆完(或超时补齐)后亮牌; 免摆玩家整手比, 无需摆牌
         var tf = tongdianMode(game);
         for(var i = 0; i < game.gameSeats.length; ++i){
             var s = game.gameSeats[i];
+            if(s.mianFree) continue;
             if(!s.arranged){
                 s.daos = autoArrange(s.holds, tf);
                 s.arranged = true;
@@ -606,14 +680,30 @@ function buildRevealPayload(game){
             s.wulong = wulongCheck(game) ? !daoOrderOk(s.daos, tf) : false;
         }
         var shouPlayers = game.gameSeats.map(function(s, idx){
+            if(s.mianFree){
+                // 免摆玩家也要逐道显示牌型点数: 用系统最优摆法切三道(不参与乌龙判定)
+                var fd = autoArrange(s.holds, tf);
+                return {
+                    seat: idx,
+                    sex: s.sex || 0,
+                    mianFree: true,
+                    cards: bestOrder(s.holds),
+                    daos: fd.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; }),
+                    typeKey: s.mian.level,
+                    typeName: MIAN_NAMES[s.mian.level],
+                    rate: s.mian.rate
+                };
+            }
             return {
                 seat: idx,
+                sex: s.sex || 0,
                 daos: s.daos.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; }),
                 wulong: !!s.wulong,
                 auto: !!s.autoArranged
             };
         });
-        return { players: shouPlayers, gameType: game.conf.type, seats: getSeatsInfo(game) };
+        var dq = calcDaqiang(game);
+        return { players: shouPlayers, gameType: game.conf.type, seats: getSeatsInfo(game), daqiang: dq.list, quanleida: dq.quanleida, bankerSeat: game.bankerSeat };
     }
     // 免摆: 计算各家最优牌型
     for(var j = 0; j < game.gameSeats.length; ++j){
@@ -622,10 +712,11 @@ function buildRevealPayload(game){
         ms.mian.rate = mianRate(ms.mian.level, taiRules(game));
     }
     var players = game.gameSeats.map(function(s, idx){
-        // 亮牌分组: 按点数升序, 前道最小后道最大, 切成 前2/中2/后2 供展示
-        var ordered = s.holds.slice().sort(function(a,b){ return rankOf(a) - rankOf(b) || suitOf(a) - suitOf(b); });
+        // 亮牌分组: 按点数降序, 前道最大尾道最小, 切成 前2/中2/后2 供展示
+        var ordered = s.holds.slice().sort(function(a,b){ return rankOf(b) - rankOf(a) || suitOf(a) - suitOf(b); });
         return {
             seat: idx,
+            sex: s.sex || 0,
             cards: ordered,
             groups: [ordered.slice(0,2), ordered.slice(2,4), ordered.slice(4,6)],
             typeKey: s.mian.level,
@@ -633,19 +724,20 @@ function buildRevealPayload(game){
             rate: s.mian.rate
         };
     });
-    return { players: players, gameType: game.conf.type, seats: getSeatsInfo(game) };
+    return { players: players, gameType: game.conf.type, seats: getSeatsInfo(game), bankerSeat: game.bankerSeat };
 }
 
 function revealMian(game){
+    // 参与者正常亮牌; 房内观战者也收到亮牌数据(客户端按观战渲染, 不弹任何弹窗)
     var payload = buildRevealPayload(game);
     sendToGameSeats(game, 'bb_reveal_push', payload);
-    sendToWatchers(game, 'bb_reveal_push', payload);   // 观战者同步看亮牌
+    sendToWatchers(game, 'bb_reveal_push', payload);
 }
 
 function revealShou(game){
     var payload = buildRevealPayload(game);
     sendToGameSeats(game, 'bb_reveal_push', payload);
-    sendToWatchers(game, 'bb_reveal_push', payload);   // 观战者同步看亮牌
+    sendToWatchers(game, 'bb_reveal_push', payload);
 }
 
 // ============ 结算 ============
@@ -673,8 +765,27 @@ function doGameOver(game){
     var details = []; // 每场/每道明细(结算弹窗展示)
     if(isShou(game)){
         var tf = tongdianMode(game);
+        // 第一遍: 先算免摆整手对比(免摆只与免摆布, 与手摆玩家不交叉结算)
         pairs.forEach(function(pr){
             var A = game.gameSeats[pr[0]], B = game.gameSeats[pr[1]];
+            if(!A.mianFree || !B.mianFree) return;
+            var mc = compareMian(A.mian, B.mian);
+            if(mc == 0) return;
+            var mWin = mc > 0 ? 1 : -1;
+            var wM = mc > 0 ? A.mian : B.mian;
+            var mRate = wM.rate;
+            var mDesc = MIAN_NAMES[wM.level];
+            var mwSeat = mWin > 0 ? pr[0] : pr[1];
+            var mlSeat = mWin > 0 ? pr[1] : pr[0];
+            var mScore = base * mRate;
+            deltas[mwSeat] += mScore;
+            deltas[mlSeat] -= mScore;
+            details.push({ a: pr[0], b: pr[1], mian: true, winner: mwSeat, rate: mRate, score: mScore, wDesc: mDesc });
+        });
+        // 第二遍: 再算手摆玩家的前/中/后三道(每道二张)对比
+        pairs.forEach(function(pr){
+            var A = game.gameSeats[pr[0]], B = game.gameSeats[pr[1]];
+            if(A.mianFree || B.mianFree) return;   // 免摆已在第一遍算完
             for(var d = 0; d < 3; ++d){
                 var da = A.daos[d], dbb = B.daos[d];
                 var win = 0; // 1=A胜 -1=B胜 0=和
@@ -731,8 +842,19 @@ function doGameOver(game){
                 isWinner: deltas[i] > 0
             };
             if(isShou(game)){
-                r.daos = s.daos.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; });
-                r.wulong = !!s.wulong;
+                if(s.mianFree){
+                    r.mianFree = true;
+                    // 免摆玩家: 补三道(系统最优摆法)供结算行显示牌型点数
+                    r.daos = autoArrange(s.holds, tongdianMode(game)).map(function(d){
+                        return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) };
+                    });
+                    r.typeKey = s.mian.level;
+                    r.typeName = MIAN_NAMES[s.mian.level];
+                    r.rate = s.mian.rate;
+                } else {
+                    r.daos = s.daos.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; });
+                    r.wulong = !!s.wulong;
+                }
             } else {
                 r.typeKey = s.mian.level;
                 r.typeName = MIAN_NAMES[s.mian.level];
@@ -750,6 +872,8 @@ function doGameOver(game){
             bankerMode: game.bankerMode,
             gameType: game.conf.type,
             details: details,
+            daqiang: isShou(game) ? calcDaqiang(game).list : [],
+            quanleida: isShou(game) ? calcDaqiang(game).quanleida : [],
             resultDeadline: game.resultEndAt,
             resultRemain: totalRemain,
             resultRemainTotal: totalRemain,
@@ -762,7 +886,7 @@ function doGameOver(game){
             for(var i = 0; i < roomInfo.seats.length; ++i){
                 var rs = roomInfo.seats[i];
                 if(rs.userId > 0){
-                    endinfo.push({userid: rs.userId, name: rs.name, score: rs.score});
+                    endinfo.push({userid: rs.userId, name: rs.name, score: rs.roomWin || 0});   // 房间累计输赢, 不是余额
                 }
             }
             overData.endinfo = endinfo;
@@ -800,31 +924,30 @@ function doGameOver(game){
         game.phase = "result";
         sendToGameSeats(game, 'game_over_push', overData);
 
+        // 单局结算: 只有"整场打完"才清退并销毁房间; 否则等玩家在结算弹窗点继续/倒计时结束, 自动进下一局
         if(isFinalRound){
-            //整场结束: 不立即踢人/散桌, 客户端先弹本局结算, 再弹120秒总结算弹窗;
-            //125秒(120秒倒计时+5秒缓冲)后仍未离开的玩家才统一清退并销毁房间
-            console.log("[宝宝] 整场结束, 125秒后自动清退 room=" + game.roomId + " t=" + Date.now());
+            // 整场结束: 结算倒计时一到立刻清退所有玩家并销毁房间(不再停留120秒)
+            console.log("[宝宝] 整场结束, 结算倒计时结束即清退 room=" + game.roomId + " t=" + Date.now());
             setTimeout(function(){
                 userMgr.brocastInRoom(game.roomId, 'dispress_push', {});
                 setTimeout(function(){
                     var endRoomId = game.roomId;
                     userMgr.kickAllInRoom(endRoomId);
-                    roomMgr.destroy(endRoomId);   //销毁内部会在牌桌解绑落库后广播座位清空
+                    roomMgr.destroy(endRoomId);
                     delete games[endRoomId];
                 }, 500);
-            }, 125000);
+            }, totalRemain * 1000 + 3000);
         } else if(overData.roomEnd){
-            // 人数不足: 不自动续局也不设置结算倒计时推进, 等剩余玩家在结算弹窗点「退出房间」;
-            // 房间由退房/自动解散定时器兜底回收
+            // 人数不足: 不自动续局, 等剩余玩家在结算弹窗点「退出房间」; 房间由退房/自动解散定时器兜底
             console.log("[宝宝] 结算后不续局(人数不足), 等待玩家退出 room=" + game.roomId);
         } else {
-            // 非整场结束: 结算倒计时到点只把没点的玩家自动确认, 仍然必须全员确认后才发下一局的牌
+            // 单局结束: 结算倒计时到点把没点的玩家自动确认, 全员确认后才发下一局
             game.resultTimer = setTimeout(function(){
                 game.resultTimer = null;
                 console.log("[宝宝] 结算倒计时结束, 未点击的玩家自动确认 room=" + game.roomId);
                 for(var j = 0; j < game.gameSeats.length; ++j) game.gameSeats[j].continued = true;
-                if(!checkAllReady(game)) nextRound(game);   // 兜底: 任何情况下都必须进下一局
-            }, totalRemain * 1000 + 1000);   // 仅多留1秒兜底(不参与界面倒计时): 客户端倒计时归零自动确认后服务端才推进下一局
+                if(!checkAllReady(game)) nextRound(game);
+            }, totalRemain * 1000 + 1000);
         }
     };
 
@@ -839,14 +962,23 @@ function doGameOver(game){
                 db.get_user_data_by_userid(uid, function(ud){
                     if(ud && ud.gems != null){ gs.score = ud.gems; }
                     else { gs.score += delta; }
+                    // 房间累计输赢: 总结算弹窗显示本房间所有牌局的加减总和
+                    gs.roomWin = (gs.roomWin || 0) + (delta || 0);
                     var rs = roomInfo.seats[gs.roomSeatIndex];
-                    if(rs) rs.score = gs.score;
+                    if(rs){ rs.score = gs.score; rs.roomWin = gs.roomWin; }
                     if(kickBean > 0 && gs.score < kickBean) kickForBeans(game.roomId, uid, gs.score, kickBean);
                     if(--pending === 0) finish();
                 });
             };
-            // 分不为0才动账, 也减少无意义的DB写
-            if(delta != 0) db.add_user_gems(uid, delta, after);
+            // 分不为0才动账, 也减少无意义的DB写; extra 用于写乐豆流水(房间/玩法/类型)
+            if(delta != 0){
+                var gt = "";
+                try {
+                    var cf = roomInfo && roomInfo.conf ? roomInfo.conf : null;
+                    if(cf){ gt = cf.game_type || cf.gametype || cf.wanfa || cf.type || ""; }
+                } catch(e){ gt = ""; }
+                db.add_user_gems(uid, delta, after, { roomid: game.roomId, gameType: gt, changeType: "对局结算", roomUuid: roomInfo.uuid, gameIndex: roomInfo.numOfGames });
+            }
             else after();
         })(game.gameSeats[ci], deltas[ci]);
     }
@@ -904,6 +1036,26 @@ exports.start = function(roomInfo, readyUids){
 };
 
 function doStart(roomInfo, seatedPlayers){
+    //进房后第一局开局扣豆: 每人只扣一次, 出房再进重新算(座位上的 entryCharged 在入座时清空)
+    seatedPlayers.forEach(function(sp){
+        var se = roomInfo.seats[sp.roomSeatIndex];
+        if(!se || se.entryCharged) return;
+        se.entryCharged = true;
+        charge.charge(roomInfo.conf.type, sp.userId, "enter", roomInfo.id);
+    });
+    // 先批量查每家性别(报牌语音分男/女), 查完再发牌开局
+    var sexMap = {};
+    var pendingSex = seatedPlayers.length;
+    if(pendingSex <= 0) return;
+    seatedPlayers.forEach(function(sp){
+        db.get_user_base_info(sp.userId, function(info){
+            sexMap[sp.userId] = (info && info.sex != null) ? Number(info.sex) : 0;
+            if(--pendingSex <= 0) doStartDeal(roomInfo, seatedPlayers, sexMap);
+        });
+    });
+}
+
+function doStartDeal(roomInfo, seatedPlayers, sexMap){
     var game = {
         roomId: roomInfo.id,
         deck: buildDeck(),
@@ -919,11 +1071,15 @@ function doStart(roomInfo, seatedPlayers){
 
     shuffle(game.deck);
 
+    // ===== DEBUG: 明确打印 type =====
+    console.log("[宝宝] doStartDeal room=" + roomInfo.id + " conf.type=" + (game.conf && game.conf.type) + " conf.game_type=" + (game.conf && game.conf.game_type) + " isShou=" + isShou(game));
+
     for(var i = 0; i < seatedPlayers.length; ++i){
         var sp = seatedPlayers[i];
         game.gameSeats.push({
             userId: sp.userId,
             name: sp.name,
+            sex: sexMap[sp.userId] || 0,
             seatIndex: i,
             roomSeatIndex: sp.roomSeatIndex,
             holds: [],
@@ -933,7 +1089,9 @@ function doStart(roomInfo, seatedPlayers){
             wulong: false,
             daos: null,
             mian: null,
-            score: sp.score
+            mianFree: false,
+            score: sp.score,
+            roomWin: sp.roomWin || 0   // 本房间内累计输赢(总结算弹窗显示这个, 不是宝宝豆余额)
         });
     }
 
@@ -955,6 +1113,14 @@ function doStart(roomInfo, seatedPlayers){
     games[roomInfo.id] = game;
 
     if(isShou(game)){
+        // 手摆: 发牌后先算整手牌型, 非散牌(level>=2)=免摆, 免摆玩家不用手动摆牌直接等亮牌
+        for(var i = 0; i < game.gameSeats.length; ++i){
+            var ms = game.gameSeats[i];
+            ms.mian = identMian(ms.holds);
+            ms.mian.rate = mianRate(ms.mian.level, taiRules(game));
+            ms.mianFree = ms.mian.level >= 2;   // 非散牌即免摆(散牌才手动摆)
+            // 免摆也要点确认按钮: 不再自动 arranged, 和手摆一样进摆牌阶段等确认/超时自动补
+        }
         // 手摆: 进入摆牌阶段, 倒计时结束自动补齐未摆的
         game.phase = "arrange";
         game.arrangeDeadline = Date.now() + arrangeTimeout(game) * 1000;
@@ -968,8 +1134,11 @@ function doStart(roomInfo, seatedPlayers){
             console.log("[宝宝] 摆牌超时, 自动补齐 room=" + game.roomId);
             startReveal(game);
         }, (arrangeTimeout(game) + 1) * 1000);
+        // 全员免摆(或开局即全部就绪): 不必等摆牌倒计时, 直接亮牌
+        checkAllReady(game);
     } else {
-        // 免摆: 发牌后弹窗展示系统最大牌型, 全部玩家确认后再亮牌对比
+        // 免摆玩法(baobao_mian): 与手摆里的"免摆玩家"走同样的 confirm 流程
+        // 发牌后弹窗展示系统最大牌型, 全部玩家确认后再亮牌对比
         game.phase = "confirm";
         for(var i = 0; i < game.gameSeats.length; ++i){
             var ms = game.gameSeats[i];
@@ -1032,6 +1201,8 @@ exports.continueRound = function(userId, data){
         var ri0 = roomMgr.getRoom(game.roomId);
         if(ri0) ri0._shuffleNext = true;
         game.shuffleNext = true;
+        //点了洗牌就扣豆(谁点扣谁)
+        charge.charge(game.conf.type, userId, "shuffle", game.roomId);
     }
     if(s.continued){
         // 重复点击/客户端丢包重发: 只回执当前进度, 让各端提示跟上
@@ -1205,9 +1376,26 @@ exports.resendGameState = function(roomId, userId){
     for(var i = 0; i < game.gameSeats.length; ++i){
         if(game.gameSeats[i].userId == userId){ seatIdx = i; break; }
     }
-    // 本局未参与(观战/排队等下一局): 亮牌阶段补发亮牌, 继续观看
+    // 本局未参与(新进房/排队等下一局): 按观战补发 —— 能看到进行中的牌局桌面,
+    // 但不发结算/确认等会触发弹窗的数据; 已亮牌阶段附带亮牌数据, 进去即可看到明牌
     if(seatIdx < 0){
-        if(game.phase == "reveal") userMgr.sendMsg(userId, 'bb_reveal_push', buildRevealPayload(game));
+        var wdata = {
+            resend: true,
+            watching: true,
+            maxPlayers: game.gameSeats.length,
+            seats: getSeatsInfo(game),
+            mySeat: -1,
+            myCards: [],
+            bankerSeat: game.bankerSeat,
+            bankerMode: game.bankerMode,
+            gameType: game.conf.type,
+            phase: game.phase,
+            conf: game.conf
+        };
+        if(game.phase == "reveal" || game.phase == "result" || game.gameOver){
+            wdata.reveal = buildRevealPayload(game);
+        }
+        userMgr.sendMsg(userId, 'bb_resend_push', wdata);
         return;
     }
     var s = game.gameSeats[seatIdx];
@@ -1228,6 +1416,7 @@ exports.resendGameState = function(roomId, userId){
         confirmRemain: over ? 0 : remainSec(game.confirmDeadline),
         confirmed: !!s.confirmed,
         continued: !!s.continued,
+        mianFree: !!s.mianFree,
         myMian: (s.mian ? { level: s.mian.level, typeName: MIAN_NAMES[s.mian.level], rate: s.mian.rate } : null),
         arranged: !!s.arranged,
         myDaos: s.arranged && s.daos ? s.daos.map(function(d){ return d.cards.slice(); }) : null,

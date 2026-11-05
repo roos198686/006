@@ -1,3 +1,16 @@
+// 全局兜底: 之前没有 uncaughtException/unhandledRejection 处理, 任何一处未捕获异常都会让
+// node 进程直接退出(表现为"后端又崩了"), 且控制台一闪而过抓不到堆栈。这里统一落盘到 logs/crash.log
+var fs = require('fs');
+var path = require('path');
+var CRASH_LOG = path.join(__dirname, '../logs/crash.log');
+function logCrash(tag, e) {
+    var s = '[' + new Date().toISOString() + '] ' + tag + '\n' + ((e && e.stack) || e) + '\n\n';
+    try { fs.appendFileSync(CRASH_LOG, s); } catch (_) { }
+    console.error(s);
+}
+process.on('uncaughtException', function (e) { logCrash('uncaughtException', e); });
+process.on('unhandledRejection', function (e) { logCrash('unhandledRejection', e); });
+
 var http_service = require("./http_service");
 var socket_service = require("./socket_service");
 

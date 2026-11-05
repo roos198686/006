@@ -1,0 +1,38 @@
+{
+  "ver": "2.3.7",
+  "uuid": "1294889c-9d3a-4f9f-a1c0-a2f54c7492e2",
+  "importer": "texture",
+  "type": "sprite",
+  "wrapMode": "clamp",
+  "filterMode": "bilinear",
+  "premultiplyAlpha": false,
+  "genMipmaps": false,
+  "packable": true,
+  "width": 111,
+  "height": 56,
+  "platformSettings": {},
+  "subMetas": {
+    "thirteen_game_settlement_type_pin": {
+      "ver": "1.0.6",
+      "uuid": "fd2bc2c3-1253-4048-b186-24d948db6c91",
+      "importer": "sprite-frame",
+      "rawTextureUuid": "1294889c-9d3a-4f9f-a1c0-a2f54c7492e2",
+      "trimType": "auto",
+      "trimThreshold": 1,
+      "rotated": false,
+      "offsetX": 0,
+      "offsetY": 0,
+      "trimX": 0,
+      "trimY": 0,
+      "width": 111,
+      "height": 56,
+      "rawWidth": 111,
+      "rawHeight": 56,
+      "borderTop": 0,
+      "borderBottom": 0,
+      "borderLeft": 0,
+      "borderRight": 0,
+      "subMetas": {}
+    }
+  }
+}

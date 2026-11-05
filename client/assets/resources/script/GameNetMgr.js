@@ -104,6 +104,8 @@ cc.Class({
         this.bbArrangeDeadline = 0;
         this.bbMyDaos = null;
         this.bbArranged = false;
+        this.bbWatching = false;
+        this.bbReveal = null;
         this.bbOverDetails = null;
         this._pendingEvents = [];    //清事件队列:防止上一房间残留事件重放进新房间场景
     },
@@ -292,6 +294,16 @@ cc.Class({
                 self.seats = data.seats;
                 self.seatIndex = self.getSeatIndexByID(cc.vv.userMgr.userId);
                 self.isOver = false;
+                // 新进房间先清掉上一房间残留的宝宝对局/结算缓存:
+                // 否则场景加载时会把上一局(或别人)的结算弹窗重放到新玩家屏幕上。
+                // 本局真实状态由服务端 login_finished 之后的 resendGameState 重新补发
+                self.overData = null;
+                self.bbOverDetails = null;
+                self.bbMyCards = null;
+                self.bbMyDaos = null;
+                self.bbPhase = null;
+                self.bbArranged = false;
+                self.bbMyMian = null;
                 //记录本局玩法类型:退出/结算回俱乐部时用于直达该玩法的牌桌页,而不是默认玩法列表
                 if(data.conf && data.conf.type){ cc.vv.lastGameType = data.conf.type; }
             }
@@ -754,6 +766,8 @@ cc.Class({
             self.gamestate = "begin";
             self.bbMyCards = (data && data.myCards ? data.myCards : []).slice();
             self.bbMySeat = (data && data.mySeat != null) ? data.mySeat : self.seatIndex;
+            self.bbWatching = !!(data && (data.watching || data.mySeat < 0));   // 本局未参与: 观战模式, 不弹任何阶段弹窗
+            self.bbReveal = (data && data.reveal) ? data.reveal : null;          // 观战/重连补发的已亮牌数据
             self.bbSeats = data ? data.seats : null;
             self.bbBankerSeat = data ? data.bankerSeat : 0;
             self.bbBankerMode = data ? !!data.bankerMode : true;
@@ -941,8 +955,13 @@ cc.Class({
         this.dissoveData = null;
         //进房间前记下来源场景与俱乐部id:退出时按来源页返回(从俱乐部进桌回俱乐部详情,大厅进桌回大厅)
         var _bs = cc.director.getScene ? cc.director.getScene() : null;
-        this.roomBackScene = (_bs && _bs.name) ? _bs.name : "";
-        this.roomBackClubId = cc.vv.fromClubId || null;
+        //断线重连时当前场景可能是 hall/loading:若已有俱乐部来源标记,保持俱乐部来源不被覆盖
+        if(cc.vv.fromClub || cc.vv.fromClubId){
+            this.roomBackScene = "club";
+        }else{
+            this.roomBackScene = (_bs && _bs.name) ? _bs.name : "";
+        }
+        this.roomBackClubId = cc.vv.fromClubId || this.roomBackClubId || null;
         cc.vv.net.ip = (window.__rewriteHost ? window.__rewriteHost(data.ip) : data.ip) + ":" + data.port;
         console.log(cc.vv.net.ip);
         var self = this;

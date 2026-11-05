@@ -57,6 +57,11 @@ cc.Class({
         if(cc.vv){
             cc.vv.fromClub = false;
             cc.vv.fromClubId = null;
+            //游戏服记录的返回来源一并清掉:留旧值会让无房断线兜底把人又带回俱乐部页
+            if(cc.vv.gameNetMgr){
+                cc.vv.gameNetMgr.roomBackScene = "";
+                cc.vv.gameNetMgr.roomBackClubId = null;
+            }
         }
         var cvs = this.node.getComponent(cc.Canvas);
         cvs.fitHeight = true;
@@ -150,6 +155,8 @@ cc.Class({
         this.initButtonHandler("Canvas/global/main/menu/btn_zhanji");
         //原商城入口改为加入房间入口:与其他菜单按钮走同一绑定机制
         this.initButtonHandler("Canvas/global/main/menu/菜单-商城");
+        //分享按钮:复制APP链接,好友点开链接直接拉起/下载APP
+        this.initButtonHandler("Canvas/global/main/menu/菜单-分享");
         //用户头像点击:打开个人信息弹窗
         this.initButtonHandler("Canvas/global/main/user/用户栏-默认头像");
         //大厅用户栏头像:加载当前登录用户真实头像(否则一直显示场景默认占位图)
@@ -309,9 +316,20 @@ cc.Class({
         else if(event.target.name == "菜单-商城"){
             this.onJoinGameClicked(); //商城入口已改为加入房间:打开输入房号弹窗
         }
+        else if(event.target.name == "菜单-分享"){
+            this.onShareLinkClicked();
+        }
         else if(event.target.name == "用户栏-默认头像"){
             this._showUserInfoPanel();
         }
+    },
+
+    //分享:复制APP链接到剪贴板,好友点开链接即可拉起/下载APP
+    onShareLinkClicked:function(){
+        var ok = cc.vv.anysdkMgr && cc.vv.anysdkMgr.copyShareLink ? cc.vv.anysdkMgr.copyShareLink() : false;
+        var msg = ok ? "链接已复制，粘贴发送给好友，好友点开链接即可进入游戏" : "链接复制失败，请稍后重试";
+        if(cc.vv.wc && cc.vv.wc.showAlert){ cc.vv.wc.showAlert(msg, "分享"); }
+        else if(cc.vv.wc && cc.vv.wc.showError){ cc.vv.wc.showError(msg); }
     },
 
     //==================== 个人信息/绑定账号/修改头像(窗口骨架固化在hall.fire,JS只绑事件/填数据) ====================
@@ -1123,12 +1141,12 @@ cc.Class({
                 return;
             }
             self._closeCreateWin();
-            self._enterCreatedTable(ret.tableid);
+            self._enterCreatedTable(ret.tableid, club.id);
         });
     },
 
     //创建成功后直接进入新房间(服务端复用/建房并绑定牌桌,含宝宝豆门槛校验)
-    _enterCreatedTable:function(tableId){
+    _enterCreatedTable:function(tableId, clubId){
         var wc = cc.vv.wc;
         wc.show("正在进入房间");
         var guard = setTimeout(function(){
@@ -1150,6 +1168,9 @@ cc.Class({
                 }
                 return;
             }
+            //从大厅俱乐部页进的桌:记住来源俱乐部,牌局结束回俱乐部详情页而不是大厅首页
+            cc.vv.fromClub = true;
+            cc.vv.fromClubId = clubId || null;
             cc.vv.gameNetMgr.connectGameServer(ret);
         });
     },

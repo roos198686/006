@@ -82,6 +82,73 @@ exports.init = function(config){
             if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_club_games.tai_rules failed:" + err.message); }
         });
     }, 900);
+
+    //俱乐部上级(子俱乐部记录所属社长俱乐部;0=顶级,由代理/管理员创建)
+    setTimeout(function(){
+        query('ALTER TABLE `t_clubs` ADD COLUMN `parent_clubid` INT(10) UNSIGNED NOT NULL DEFAULT 0 COMMENT "上级俱乐部ID,0=顶级"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_clubs.parent_clubid failed:" + err.message); }
+        });
+    }, 1200);
+
+    //乐豆(宝宝豆)变动流水,用于俱乐部"我的乐豆详情"记录页
+    var sql3 = 'CREATE TABLE IF NOT EXISTS `t_bean_logs` (' +
+        '`id` int(11) unsigned NOT NULL AUTO_INCREMENT,' +
+        '`userid` int(11) NOT NULL DEFAULT 0,' +
+        '`roomid` int(11) NOT NULL DEFAULT 0,' +
+        '`room_uuid` char(20) NOT NULL DEFAULT "",' +
+        '`game_index` smallint(6) NOT NULL DEFAULT 0,' +
+        '`game_type` varchar(32) NOT NULL DEFAULT "",' +
+        '`change_type` varchar(32) NOT NULL DEFAULT "",' +
+        '`amount` int(11) NOT NULL DEFAULT 0,' +
+        '`create_time` int(11) NOT NULL DEFAULT 0,' +
+        'PRIMARY KEY (`id`),KEY `userid_time` (`userid`,`create_time`)' +
+        ') ENGINE=InnoDB DEFAULT CHARSET=utf8';
+    setTimeout(function(){
+        query(sql3, function(err){
+            if(err){ console.log("create t_bean_logs failed:" + err.message); }
+        });
+    }, 1500);
+
+    //老库补列:乐豆流水关联到具体一局(room_uuid+game_index),用于「详情」按钮进回放
+    setTimeout(function(){
+        query('ALTER TABLE `t_bean_logs` ADD COLUMN `room_uuid` CHAR(20) NOT NULL DEFAULT "" COMMENT "房间uuid(回放用)"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_bean_logs.room_uuid failed:" + err.message); }
+        });
+    }, 1800);
+    setTimeout(function(){
+        query('ALTER TABLE `t_bean_logs` ADD COLUMN `game_index` SMALLINT(6) NOT NULL DEFAULT 0 COMMENT "第几局(回放用)"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_bean_logs.game_index failed:" + err.message); }
+        });
+    }, 2100);
+};
+
+//写入一条乐豆流水(对局结算/保险柜存取等),失败不影响主流程
+//roomUuid/gameIndex 用于「详情」按钮直接打开该局回放(取不到时为空,按钮不可点)
+exports.add_bean_log = function(userid,roomid,gameType,changeType,amount,callback,roomUuid,gameIndex){
+    callback = callback == null? nop:callback;
+    if(userid == null || amount == null || amount === 0){ callback(false); return; }
+    var t = Math.ceil(Date.now()/1000);
+    var sql = 'INSERT INTO t_bean_logs(userid,roomid,room_uuid,game_index,game_type,change_type,amount,create_time) VALUES(' +
+        parseInt(userid) + ',' + (parseInt(roomid) || 0) + ',"' + (roomUuid || '') + '",' + (parseInt(gameIndex) || 0) + ',"' +
+        (gameType || '') + '","' + (changeType || '') + '",' +
+        parseInt(amount) + ',' + t + ')';
+    query(sql,function(err,rows){
+        if(err){ console.log("add_bean_log failed:" + err.message); callback(false); return; }
+        callback(true);
+    });
+};
+
+//查询乐豆流水(按时间倒序,可传起始时间戳)
+exports.get_bean_logs = function(userid,fromTime,callback){
+    callback = callback == null? nop:callback;
+    if(userid == null){ callback([]); return; }
+    var sql = 'SELECT roomid,room_uuid,game_index,game_type,change_type,amount,create_time FROM t_bean_logs WHERE userid = ' + parseInt(userid);
+    if(fromTime > 0){ sql += ' AND create_time >= ' + parseInt(fromTime); }
+    sql += ' ORDER BY create_time DESC,id DESC LIMIT 60';
+    query(sql,function(err,rows){
+        if(err){ console.log("get_bean_logs failed:" + err.message); callback([]); return; }
+        callback(rows || []);
+    });
 };
 
 exports.is_account_exist = function(account,callback){
@@ -233,7 +300,7 @@ exports.get_user_data_by_userid = function(userid,callback){
 };
 
 /**增加玩家房卡 */
-exports.add_user_gems = function(userid,gems,callback){
+exports.add_user_gems = function(userid,gems,callback,extra){
     callback = callback == null? nop:callback;
     if(userid == null){
         callback(false);
@@ -249,6 +316,10 @@ exports.add_user_gems = function(userid,gems,callback){
             return;
         }
         else{
+            //extra={roomid,gameType,changeType,roomUuid,gameIndex}:记录一条乐豆流水(有额外信息时才写)
+            if(extra){
+                exports.add_bean_log(userid,extra.roomid,extra.gameType,extra.changeType,gems,null,extra.roomUuid,extra.gameIndex);
+            }
             callback(rows.affectedRows > 0);
             return; 
         } 
@@ -280,6 +351,7 @@ exports.safe_transfer = function(userid,amount,callback){
             if(bal.gems < amount){ callback(false,'宝宝豆不足'); return; }
             query('UPDATE t_users SET gems = gems - ' + amount + ', safe_beans = safe_beans + ' + amount + ' WHERE userid = ' + userid, function(err, rows){
                 if(err){ console.log(err); callback(false); return; }
+                exports.add_bean_log(userid,0,'','存入保险柜',-amount); //存保险柜:宝宝豆减少
                 callback({gems: bal.gems - amount, safe_beans: bal.safe_beans + amount});
             });
         }
@@ -289,6 +361,7 @@ exports.safe_transfer = function(userid,amount,callback){
             if(bal.safe_beans < wd){ callback(false,'保险柜余额不足'); return; }
             query('UPDATE t_users SET gems = gems + ' + wd + ', safe_beans = safe_beans - ' + wd + ' WHERE userid = ' + userid, function(err, rows){
                 if(err){ console.log(err); callback(false); return; }
+                exports.add_bean_log(userid,0,'','从保险柜取出',wd); //取保险柜:宝宝豆增加
                 callback({gems: bal.gems + wd, safe_beans: bal.safe_beans - wd});
             });
         }
@@ -1118,15 +1191,21 @@ exports.is_agent = function(userid,callback){
     });
 };
 
-//创建俱乐部(仅代理),俱乐部ID为6位数字(客户端加入俱乐部弹窗输入6位)
-exports.club_create = function(name,ownerUserid,callback){
+//创建俱乐部:parentClubId>0 表示社长开的子俱乐部,t_clubs 记录上级俱乐部
+exports.club_create = function(name,ownerUserid,parentClubId,callback){
+    if(typeof parentClubId === "function"){ //兼容旧调用(不传上级)
+        callback = parentClubId;
+        parentClubId = 0;
+    }
     callback = callback == null? nop:callback;
+    var pid = parseInt(parentClubId);
+    if(!(pid > 0)){ pid = 0; }
     var createTime = Math.ceil(Date.now()/1000);
     var tries = 0;
     var attempt = function(){
         tries++;
         var clubId = 100000 + Math.floor(Math.random()*900000); //6位俱乐部ID
-        var sql = 'INSERT INTO t_clubs(id,name,owner_userid,create_time) VALUES(' + clubId + ',"' + name + '",' + ownerUserid + ',' + createTime + ')';
+        var sql = 'INSERT INTO t_clubs(id,name,owner_userid,create_time,parent_clubid) VALUES(' + clubId + ',"' + name + '",' + ownerUserid + ',' + createTime + ',' + pid + ')';
         query(sql, function(err, rows){
             if(err){
                 if(err.code == 'ER_DUP_ENTRY' && tries < 20){ attempt(); return; } //ID冲突重试
@@ -1201,10 +1280,34 @@ exports.club_quit = function(clubId,userid,callback){
     });
 };
 
+//查用户所属俱乐部(取最新一个)的社长, 用于扣豆分成给代理; 无俱乐部或社长就是自己时返回 null
+exports.get_user_agent = function(userid,callback){
+    callback = callback == null ? nop : callback;
+    if(userid == null){
+        callback(null);
+        return;
+    }
+    var sql = 'SELECT c.owner_userid FROM t_clubs c '
+        + 'JOIN t_club_members m ON m.club_id = c.id AND m.userid = ' + userid
+        + ' ORDER BY c.id DESC LIMIT 1';
+    query(sql, function(err, rows){
+        if(err || !rows || rows.length == 0){
+            callback(null);
+            return;
+        }
+        var owner = rows[0].owner_userid;
+        if(owner == null || owner == userid){
+            callback(null);
+            return;
+        }
+        callback(owner);
+    });
+};
+
 //我的俱乐部列表(含成员数)
 exports.club_list_of_user = function(userid,callback){
     callback = callback == null? nop:callback;
-    var sql = 'SELECT c.id,c.name,c.owner_userid,c.create_time,'
+    var sql = 'SELECT c.id,c.name,c.owner_userid,c.parent_clubid,c.create_time,'
         + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count '
         + 'FROM t_clubs c JOIN t_club_members m2 ON m2.club_id = c.id AND m2.userid = ' + userid
         + ' ORDER BY c.id DESC';
@@ -1223,6 +1326,47 @@ exports.clubs_by_owner = function(userid,callback){
     callback = callback == null? nop:callback;
     if(userid == null){ callback([]); return; }
     query('SELECT id,name FROM t_clubs WHERE owner_userid = ' + userid, function(err, rows){
+        if(err){ console.log(err); callback([]); return; }
+        callback(rows || []);
+    });
+};
+
+//成员管理页:俱乐部成员详情(昵称/余额/头像key),按加入时间排序
+exports.club_members_detail = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    if(!(clubId > 0)){ callback([]); return; }
+    var sql = 'SELECT m.userid,u.name,u.gems,u.headimg FROM t_club_members m JOIN t_users u ON u.userid = m.userid WHERE m.club_id = ' + parseInt(clubId) + ' ORDER BY m.join_time';
+    query(sql, function(err, rows){
+        if(err){ console.log(err); callback([]); return; }
+        (rows || []).forEach(function(r){ try{ r.name = crypto.fromBase64(r.name); }catch(e){} });
+        callback(rows || []);
+    });
+};
+
+//豆豆管理页:俱乐部豆豆流水(本俱乐部成员的全部变动,按时间倒序)
+exports.club_bean_logs = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    if(!(clubId > 0)){ callback([]); return; }
+    var sql = 'SELECT l.userid,u.name,l.roomid,l.game_type,l.change_type,l.amount,l.create_time FROM t_bean_logs l'
+        + ' JOIN t_club_members m ON m.club_id = ' + parseInt(clubId) + ' AND m.userid = l.userid'
+        + ' LEFT JOIN t_users u ON u.userid = l.userid'
+        + ' ORDER BY l.create_time DESC,l.id DESC LIMIT 200';
+    query(sql, function(err, rows){
+        if(err){ console.log(err); callback([]); return; }
+        (rows || []).forEach(function(r){ try{ r.name = crypto.fromBase64(r.name); }catch(e){ r.name = ''; } });
+        callback(rows || []);
+    });
+};
+
+//子俱乐部页:某俱乐部下的子俱乐部列表(名称/ID/人数/成员总豆豆)
+exports.club_sub_list = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    if(!(clubId > 0)){ callback([]); return; }
+    var sql = 'SELECT c.id,c.name,'
+        + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count,'
+        + '(SELECT IFNULL(SUM(u.gems),0) FROM t_club_members m2 JOIN t_users u ON u.userid = m2.userid WHERE m2.club_id = c.id) AS total_gems'
+        + ' FROM t_clubs c WHERE c.parent_clubid = ' + parseInt(clubId) + ' ORDER BY c.id DESC';
+    query(sql, function(err, rows){
         if(err){ console.log(err); callback([]); return; }
         callback(rows || []);
     });
@@ -1303,16 +1447,20 @@ exports.club_game_types = function(clubId,callback){
     });
 };
 
-//俱乐部某玩法的桌面列表(带当前人数)
+//俱乐部某玩法的桌面列表(带当前人数);gameType为空时返回该俱乐部全部玩法的桌面
 exports.club_tables = function(clubId,gameType,callback){
     callback = callback == null? nop:callback;
-    var sql = 'SELECT t.id,t.name,t.roomid,t.conf,c.max_players AS max_players,'
+    var where = 'WHERE t.club_id = ' + clubId;
+    if(gameType){
+        where += ' AND t.game_type = "' + gameType + '"';
+    }
+    var sql = 'SELECT t.id,t.name,t.game_type,t.roomid,t.conf,c.max_players AS max_players,'
         + 'IF(r.id IS NULL,0,(r.user_id0 > 0) + (r.user_id1 > 0) + (r.user_id2 > 0) + (r.user_id3 > 0)'
         + ' + (r.user_id4 > 0) + (r.user_id5 > 0)) AS player_count,'
         + 'r.num_of_turns,r.user_id0,r.user_id1,r.user_id2,r.user_id3,r.user_id4,r.user_id5 '
         + 'FROM t_club_tables t LEFT JOIN t_rooms r ON r.id = t.roomid '
         + 'LEFT JOIN t_game_config c ON c.type = t.game_type '
-        + 'WHERE t.club_id = ' + clubId + ' AND t.game_type = "' + gameType + '" ORDER BY t.id';
+        + where + ' ORDER BY t.id';
     query(sql, function(err, rows){
         if(err){
             console.log(err);

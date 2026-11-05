@@ -25,6 +25,13 @@ cc.Class({
         //等待提示文字统一深色
         if(this.lblContent){
             this.lblContent.node.color = cc.color(90,50,20);
+            // 记录场景原始布局: 加载态(转圈)用, 错误态要改黑框尺寸包住文字
+            this._frame = this.lblContent.node.parent;
+            if(this._frame){ this._origFrameW = this._frame.width; this._origFrameH = this._frame.height; }
+            this._origLblX = this.lblContent.node.x;
+            this._origLblY = this.lblContent.node.y;
+            this._origLblW = this.lblContent.node.width;
+            this._origOverflow = this.lblContent.overflow;
         }
         this.node.active = this._isShow;
     },
@@ -48,6 +55,7 @@ cc.Class({
             }
         }
         if(this.target){ this.target.active = true; } //加载等待时显示转圈
+        this._restoreLayout();   // 上一次错误提示改过黑框/文字, 先还原
         if(this.lblContent){
             if(content == null){
                 content = "";
@@ -95,14 +103,36 @@ cc.Class({
     },
     //失败提示:直接复用等待遮罩显示错误原因,不依赖恒为undefined的cc.vv.alert,3秒后自动隐藏
     //错误提示是纯文字消息,不显示转圈(转圈仅用于加载等待)
+    //黑框自适应: 文字全部收进框内(自动换行), 框随文字尺寸缩放, 不再出现文字挂在框外
     showError:function(msg){
         var self = this;
         this.show(msg == null ? "操作失败,请重试" : String(msg));
         if(this.target){ this.target.active = false; }
+        if(this.lblContent && this._frame){
+            var lb = this.lblContent;
+            var lbNode = lb.node;
+            lb.overflow = cc.Label.Overflow.RESIZE_HEIGHT;   // 超宽自动换行, 高度随行数撑开
+            lbNode.width = 520;
+            lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+            lbNode.setPosition(0, 0);
+            // 等 Label 渲染一帧算出真实高度, 再把黑框缩放到包住文字
+            this.scheduleOnce(function(){
+                if(!cc.isValid(lbNode) || !cc.isValid(self._frame)) return;
+                self._frame.setContentSize(lbNode.width + 60, lbNode.height + 56);
+            }, 0.03);
+        }
         if(this._errTimer){ clearTimeout(this._errTimer); }
         this._errTimer = setTimeout(function(){
             self._errTimer = null;
             self.hide();
         },3000);
+    },
+    // 还原加载态布局(转圈时黑框/文字回场景原位)
+    _restoreLayout: function(){
+        if(!this.lblContent || !this._frame) return;
+        this._frame.setContentSize(this._origFrameW, this._origFrameH);
+        this.lblContent.overflow = this._origOverflow;
+        this.lblContent.node.width = this._origLblW;
+        this.lblContent.node.setPosition(this._origLblX, this._origLblY);
     }
 });

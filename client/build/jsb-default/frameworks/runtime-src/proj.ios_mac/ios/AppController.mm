@@ -146,4 +146,11 @@ Application* app = nullptr;
      */
 }
 
+//复制文本到系统剪贴板(供 jsb.reflection 调用)
++ (BOOL)copyText:(NSString *)text {
+    if (text == nil) { return NO; }
+    [UIPasteboard generalPasteboard].string = text;
+    return YES;
+}
+
 @end

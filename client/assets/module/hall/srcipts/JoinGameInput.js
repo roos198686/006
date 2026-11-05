@@ -43,6 +43,12 @@ cc.Class({
                     this.onResetClicked();
                     return;
                 }
+                else if(ret.errcode == 3333){
+                    //非本俱乐部房间(或未加入任何俱乐部):弹窗提示,需点击确定关闭
+                    cc.vv.wc.showAlert(ret.errmsg || "该房间属于其他俱乐部，无法进入");
+                    this.onResetClicked();
+                    return;
+                }
                 cc.vv.wc.showError(content);
                 this.onResetClicked();
             }

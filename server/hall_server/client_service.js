@@ -237,23 +237,52 @@ app.get('/enter_private_room',function(req,res){
 
 		//验证玩家状态
 		//todo
-		//进入房间
-		room_service.enterRoom(userId,name,roomId,function(errcode,enterInfo,errmsg){
-			if(enterInfo){
-				var ret = {
-					roomid:roomId,
-					ip:enterInfo.ip,
-					port:enterInfo.port,
-					token:enterInfo.token,
-					time:Date.now()
-				};
-				ret.sign = crypto.md5(roomId + ret.token + ret.time + config.ROOM_PRI_KEY);
-				http.send(res,0,"ok",ret);
+		//进入房间前:若目标房间属于某俱乐部,校验当前用户是否为该俱乐部成员(未加入任何俱乐部或非本俱乐部则拒绝)
+		var doEnterRoom = function(){
+			room_service.enterRoom(userId,name,roomId,function(errcode,enterInfo,errmsg){
+				if(enterInfo){
+					var ret = {
+						roomid:roomId,
+						ip:enterInfo.ip,
+						port:enterInfo.port,
+						token:enterInfo.token,
+						time:Date.now()
+					};
+					ret.sign = crypto.md5(roomId + ret.token + ret.time + config.ROOM_PRI_KEY);
+					http.send(res,0,"ok",ret);
+				}
+				else{
+					//透传游戏服errmsg(如"宝宝豆不足，无法进入房间"),客户端2222分支据此弹窗提示
+					http.send(res,errcode,errmsg || "enter room failed.");
+				}
+			});
+		};
+		//查房间 conf,取出 clubid(俱乐部建房时写入)
+		db.get_room_data(roomId,function(roomData){
+			if(roomData == null){
+				//房间不存在,交给后续 enterRoom 返回原"房间不存在"错误
+				doEnterRoom();
+				return;
 			}
-			else{
-				//透传游戏服errmsg(如"宝宝豆不足，无法进入房间"),客户端2222分支据此弹窗提示
-				http.send(res,errcode,errmsg || "enter room failed.");
+			var clubId = 0;
+			try{
+				var confObj = JSON.parse(roomData.base_info) || {};
+				clubId = parseInt(confObj.clubid) || 0;
+			}catch(e){ clubId = 0; }
+			if(!(clubId > 0)){
+				//普通房间(不属于任何俱乐部),放行
+				doEnterRoom();
+				return;
 			}
+			//俱乐部房间:校验用户是否为该俱乐部成员(未加入任何俱乐部 isMember=false)
+			db.club_is_member(clubId,userId,function(isMember){
+				if(!isMember){
+					console.log('[enter_private_room] reject: userId=' + userId + ' not member of club ' + clubId + ' for room ' + roomId);
+					http.send(res,3333,"该房间属于其他俱乐部，无法进入");
+					return;
+				}
+				doEnterRoom();
+			});
 		});
 	});
 });
@@ -458,7 +487,7 @@ app.get('/club_list',function(req,res){
 	});
 });
 
-//创建俱乐部(仅代理可用)
+//创建俱乐部:代理可开顶级俱乐部;社长可在自己的俱乐部下开子俱乐部(parentclid)
 app.get('/club_create',function(req,res){
 	if(!check_account(req,res)){
 		return;
@@ -468,23 +497,83 @@ app.get('/club_create',function(req,res){
 		http.send(res,-1,"club name required.");
 		return;
 	}
+	//上级俱乐部ID(可选,传了就是开子俱乐部)
+	var parentClubId = parseInt(req.query.parentclid);
+	if(!(parentClubId > 0)){
+		parentClubId = 0;
+	}
+	//指定归属玩家ID(可选):开了就归到这个玩家名下,传了就校验该玩家是否存在
+	var ownerUserid = parseInt(req.query.owneruserid);
+	if(!(ownerUserid > 0)){
+		ownerUserid = 0;
+	}
 	db.get_user_data(req.query.account,function(data){
 		if(data == null){
 			http.send(res,-1,"system error");
 			return;
 		}
-		db.is_agent(data.userid,function(isAgent){
-			if(!isAgent){
-				http.send(res,2,"only agent can create club.");
+		var userId = data.userid;
+		//校验归属玩家:必须真实存在,否则返回错误码5
+		var checkOwner = function(cb){
+			if(!(ownerUserid > 0) || ownerUserid === userId){
+				cb(userId);
 				return;
 			}
-			db.club_create(cleanClubStr(name),data.userid,function(clubId){
+			db.get_user_data_by_userid(ownerUserid,function(u){
+				if(u == null){
+					http.send(res,5,"user not found.");
+					return;
+				}
+				cb(ownerUserid);
+			});
+		};
+		var doCreate = function(pid, ownerId){
+			db.club_create(cleanClubStr(name),ownerId,pid,function(clubId){
 				if(clubId == null){
 					http.send(res,1,"create failed.");
 					return;
 				}
 				http.send(res,0,"ok",{clubid:clubId});
 			});
+		};
+		if(parentClubId > 0){
+			//子俱乐部:只有上级俱乐部的社长本人可以开
+			db.club_get(parentClubId,function(club){
+				if(club == null){
+					http.send(res,3,"club not found.");
+					return;
+				}
+				if(club.owner_userid != userId){
+					http.send(res,4,"only club owner can create sub club.");
+					return;
+				}
+				checkOwner(function(ownerId){ doCreate(parentClubId, ownerId); });
+			});
+			return;
+		}
+		db.is_agent(userId,function(isAgent){
+			if(!isAgent){
+				http.send(res,2,"only agent can create club.");
+				return;
+			}
+			checkOwner(function(ownerId){ doCreate(0, ownerId); });
+		});
+	});
+});
+
+//我的乐豆流水(俱乐部"我的乐豆详情"记录页):from=起始时间戳,0表示全部
+app.get('/my_bean_logs',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){
+			http.send(res,-1,"system error");
+			return;
+		}
+		var from = parseInt(req.query.from) || 0;
+		db.get_bean_logs(data.userid, from, function(rows){
+			http.send(res,0,"ok",{logs:rows || []});
 		});
 	});
 });
@@ -609,6 +698,8 @@ app.get('/club_member_info',function(req,res){
 });
 
 //豆豆管理:给玩家增减宝宝豆(gems为增量,可为负;仅社长)
+//加分(delta>0): 社长必须同步扣自己豆豆, 不足则拒绝; 扣分(delta<0): 仅扣目标玩家, 社长不涉及
+//管理后台 /admin/user/gems 与 /admin/club_member/gems 不受此限制
 app.get('/club_member_gems',function(req,res){
 	if(!check_account(req,res)){
 		return;
@@ -644,21 +735,178 @@ app.get('/club_member_gems',function(req,res){
 					http.send(res,8,"宝宝豆不足，最多可扣减" + cur);
 					return;
 				}
-				db.add_user_gems(targetId,delta,function(ok){
+				var ownerCur = Number(data.gems)||0;
+				// 加分: 社长必须同步扣豆豆, 余额不足拒绝
+				if(delta > 0){
+					if(ownerCur < delta){
+						http.send(res,9,"社长豆豆不足，自己只有" + ownerCur + "，无法给成员加" + delta);
+						return;
+					}
+					// 先扣社长再给目标加; 目标加失败时回滚社长
+					db.add_user_gems(data.userid, -delta, function(okOwner){
+						if(!okOwner){
+							http.send(res,1,"扣社长豆豆失败");
+							return;
+						}
+						db.add_user_gems(targetId, delta, function(okTarget){
+							if(!okTarget){
+								// 补回社长
+								db.add_user_gems(data.userid, delta, null,
+									{roomid:0,gameType:"",changeType:"上分失败退还"});
+								http.send(res,1,"给成员加分失败,已退还社长豆豆");
+								return;
+							}
+							http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
+						},{roomid:0,gameType:"",changeType:"社长给成员上分"});
+					},{roomid:0,gameType:"",changeType:"社长上分扣款"});
+					return;
+				}
+				// 扣分: 仅扣目标玩家, 社长不加不减
+				db.add_user_gems(targetId, delta, function(ok){
 					if(!ok){
 						http.send(res,1,"修改宝宝豆失败");
 						return;
 					}
 					http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
+				},{roomid:0,gameType:"",changeType:"社长调整"});
+			});
+		});
+	});
+});
+
+//成员管理页:俱乐部成员详情列表(仅社长)
+app.get('/club_members_detail',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	var clubId = parseInt(req.query.clubid);
+	if(!(clubId > 0)){
+		http.send(res,-1,"parameters don't match api requirements.");
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){
+			http.send(res,-1,"system error");
+			return;
+		}
+		db.club_get(clubId,function(club){
+			if(club == null){
+				http.send(res,3,"club not found.");
+				return;
+			}
+			if(club.owner_userid != data.userid){
+				http.send(res,4,"仅俱乐部管理员可操作");
+				return;
+			}
+			db.club_members_detail(clubId,function(list){
+				http.send(res,0,"ok",{members:list});
+			});
+		});
+	});
+});
+
+//成员管理页:查看某成员的豆豆交易明细(仅社长,目标必须是本俱乐部成员)
+app.get('/club_member_logs',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	var clubId = parseInt(req.query.clubid);
+	var targetId = parseInt(req.query.userid);
+	if(!(clubId > 0) || !(targetId > 0)){
+		http.send(res,-1,"parameters don't match api requirements.");
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){
+			http.send(res,-1,"system error");
+			return;
+		}
+		db.club_get(clubId,function(club){
+			if(club == null){
+				http.send(res,3,"club not found.");
+				return;
+			}
+			if(club.owner_userid != data.userid){
+				http.send(res,4,"仅俱乐部管理员可操作");
+				return;
+			}
+			db.club_is_member(clubId,targetId,function(isMember){
+				if(!isMember){
+					http.send(res,6,"该玩家不是本俱乐部成员");
+					return;
+				}
+				db.get_bean_logs(targetId,0,function(logs){
+					http.send(res,0,"ok",{logs:logs});
 				});
 			});
 		});
 	});
 });
 
-//退出俱乐部(社长不可退)
-app.get('/club_quit',function(req,res){
+//豆豆管理页:俱乐部豆豆流水(仅社长)
+app.get('/club_bean_logs',function(req,res){
 	if(!check_account(req,res)){
+		return;
+	}
+	var clubId = parseInt(req.query.clubid);
+	if(!(clubId > 0)){
+		http.send(res,-1,"parameters don't match api requirements.");
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){
+			http.send(res,-1,"system error");
+			return;
+		}
+		db.club_get(clubId,function(club){
+			if(club == null){
+				http.send(res,3,"club not found.");
+				return;
+			}
+			if(club.owner_userid != data.userid){
+				http.send(res,4,"仅俱乐部管理员可操作");
+				return;
+			}
+			db.club_bean_logs(clubId,function(list){
+				http.send(res,0,"ok",{logs:list});
+			});
+		});
+	});
+});
+
+//子俱乐部页:子俱乐部列表(仅社长)
+app.get('/club_sub_list',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	var clubId = parseInt(req.query.clubid);
+	if(!(clubId > 0)){
+		http.send(res,-1,"parameters don't match api requirements.");
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){
+			http.send(res,-1,"system error");
+			return;
+		}
+		db.club_get(clubId,function(club){
+			if(club == null){
+				http.send(res,3,"club not found.");
+				return;
+			}
+			if(club.owner_userid != data.userid){
+				http.send(res,4,"仅俱乐部管理员可操作");
+				return;
+			}
+			db.club_sub_list(clubId,function(list){
+				http.send(res,0,"ok",{subs:list});
+			});
+		});
+	});
+});
+
+//退出俱乐部(社长不可退)
+app.get('/club_quit',function(req,res){	if(!check_account(req,res)){
 		return;
 	}
 	var clubId = parseInt(req.query.clubid);
@@ -743,14 +991,14 @@ app.get('/game_list',function(req,res){
 	});
 });
 
-//俱乐部某玩法的桌面列表(右侧列表,带人数)
+//俱乐部某玩法的桌面列表(右侧列表,带人数);game_type缺省=返回全部玩法的桌面
 app.get('/club_tables',function(req,res){
 	if(!check_account(req,res)){
 		return;
 	}
 	var clubId = parseInt(req.query.clubid);
-	var gameType = req.query.game_type;
-	if(!(clubId > 0) || gameType == null){
+	var gameType = req.query.game_type; //可空:空=全部玩法
+	if(!(clubId > 0)){
 		http.send(res,-1,"parameters don't match api requirements.");
 		return;
 	}

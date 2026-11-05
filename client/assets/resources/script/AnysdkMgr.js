@@ -52,6 +52,43 @@ cc.Class({
             console.log("platform:" + cc.sys.os + " dosn't implement share.");
         }
     },
+
+    //复制文本到剪贴板: 原生走 AppActivity.copyText(Android) / AppController.copyText:(iOS),
+    //Web/预览用隐藏输入框兜底; 返回是否复制成功
+    copyText:function(text){
+        text = "" + (text == null ? "" : text);
+        if(cc.sys.isNative && typeof jsb != "undefined" && jsb.reflection){
+            try{
+                if(cc.sys.os == cc.sys.OS_ANDROID){
+                    return !!jsb.reflection.callStaticMethod("org/cocos2dx/javascript/AppActivity", "copyText", "(Ljava/lang/String;)Z", text);
+                }
+                if(cc.sys.os == cc.sys.OS_IOS){
+                    return !!jsb.reflection.callStaticMethod(this.IOS_API, "copyText:", text);
+                }
+            }catch(e){ console.log("[anysdk] copyText native fail", e); }
+        }
+        try{
+            var ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            ta.style.top = "0";
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            var ok = document.execCommand("copy");
+            document.body.removeChild(ta);
+            return !!ok;
+        }catch(e2){ console.log("[anysdk] copyText dom fail", e2); }
+        return false;
+    },
+
+    //复制APP链接(好友点开链接可直接拉起/下载APP); 返回是否复制成功
+    copyShareLink:function(){
+        var url = (cc.vv.SI && cc.vv.SI.appweb) ? ("" + cc.vv.SI.appweb) : "";
+        if(!url){ return false; }
+        return this.copyText(url);
+    },
     
     shareResult:function(){
         if(this._isCapturing){

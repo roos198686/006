@@ -103,6 +103,7 @@ function buildPayload(rec){
         uuid: rec.uuid,
         index: rec.index,
         type: rec.type,
+        roomid: rec.roomid,
         startTime: Math.ceil(rec.startTime / 1000),
         start: rec.start || {},
         players: players,
@@ -148,8 +149,22 @@ exports.onSend = function(roomId, userId, event, data){
     if(roomId == null || event == null || SKIP_EVENTS[event]){
         return;
     }
-    if(event == 'game_start_push'){
+    //宝宝(六宝)开局推送事件名为 bb_start_push,同样作为一局的起点
+    if(event == 'game_start_push' || event == 'bb_start_push'){
         startRecord(roomId, data);
+        //宝宝开局推送是每人一份(带各自的 myCards),回放端要按座位/庄家/配置还原牌桌,
+        //所以它也要留在时间轴里;麻将的 game_start_push 仍只做手牌合并,不进时间轴
+        if(event == 'bb_start_push'){
+            var rec0 = rooms[roomId];
+            if(rec0 != null && rec0.events.length < MAX_EVENTS){
+                rec0.events.push({
+                    t: Date.now() - rec0.startTime,
+                    e: event,
+                    u: userId || 0,
+                    d: data
+                });
+            }
+        }
         return;
     }
     var rec = rooms[roomId];

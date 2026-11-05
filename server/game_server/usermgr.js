@@ -70,6 +70,28 @@ exports.sendMsg = function(userId,event,msgdata){
     socket.emit(event,msgdata);
 };
 
+//房间里所有玩家(含坐下和只在房里没入座的)的 userId 列表
+function roomAllUserIds(roomId, roomInfo){
+    var uids = [];
+    var mark = {};
+    if(roomInfo){
+        for(var i = 0; i < roomInfo.seats.length; ++i){
+            var uid = roomInfo.seats[i].userId;
+            if(uid > 0 && !mark[uid]){ mark[uid] = 1; uids.push(uid); }
+        }
+    }
+    //进了房间但没占座的玩家: userLocation 里有记录但不在座位上
+    var locs = roomMgr.getUserLocations ? roomMgr.getUserLocations() : null;
+    if(locs){
+        for(var k in locs){
+            var loc = locs[k];
+            var u = Number(k);
+            if(loc && loc.roomId == roomId && u > 0 && !mark[u]){ mark[u] = 1; uids.push(u); }
+        }
+    }
+    return uids;
+}
+
 exports.kickAllInRoom = function(roomId){
     if(roomId == null){
         return;
@@ -79,16 +101,12 @@ exports.kickAllInRoom = function(roomId){
         return;
     }
 
-    for(var i = 0; i < roomInfo.seats.length; ++i){
-        var rs = roomInfo.seats[i];
-
-        //如果不需要发给发送方，则跳过
-        if(rs.userId > 0){
-            var socket = userList[rs.userId];
-            if(socket != null){
-                exports.del(rs.userId);
-                socket.disconnect();
-            }
+    var uids = roomAllUserIds(roomId, roomInfo);
+    for(var i = 0; i < uids.length; ++i){
+        var socket = userList[uids[i]];
+        if(socket != null){
+            exports.del(uids[i]);
+            socket.disconnect();
         }
     }
 };
@@ -104,9 +122,10 @@ exports.brocastInRoom = function(roomId,event,data){
     if(roomInfo == null){
         return;
     }
-    for(var i = 0; i < roomInfo.seats.length; ++i){
-        var rs = roomInfo.seats[i];
-        var socket = userList[rs.userId];
+    //座位上 + 只进房没入座的玩家都要收到(结算清退/散场广播等)
+    var uids = roomAllUserIds(roomId, roomInfo);
+    for(var i = 0; i < uids.length; ++i){
+        var socket = userList[uids[i]];
         if(socket != null){
             socket.emit(event,data);
         }

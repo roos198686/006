@@ -21,6 +21,11 @@ cc.Class({
         }
         //场景加载瞬间树必定完整:立刻缓存牌桌卡片模板,之后任何容器清空/查找失败都不影响
         this._clubTpl = this._clubFind(canvas, "sampleCard0");
+        //编辑器里查看弹窗时可能忘了勾回隐藏:进场景统一强制隐藏,避免常驻遮挡
+        ["admin","zhanjiWin","recordWin","memLogWin","alert"].forEach(function(n){
+            var w = canvas.getChildByName(n);
+            if(w){ w.active = false; }
+        });
         var clubPage = canvas.getChildByName("clubPage");
         var wfPage = canvas.getChildByName("wfPage");
         if(cc.vv.fromClubId){
@@ -31,10 +36,10 @@ cc.Class({
             this._clubBackToDetail(cc.vv.fromClubId);
         }
         else{
-            if(clubPage){ clubPage.active = true; } //进入场景默认显示俱乐部页
-            if(wfPage){ wfPage.active = false; } //玩法详情页初始隐藏
-            //顶部三按钮(我的俱乐部/创建/加入)贴图已固化在场景文件中(俱乐部-我的/创建/加入),JS不再动态加载或替换
-            this.openClubPanel(); //打开俱乐部页(列表默认收起)
+            //先拉我的俱乐部列表:未加入任何俱乐部→显示clubPage(列表页);已加入→直接进第一个俱乐部的wfPage(玩法详情页)
+            if(clubPage){ clubPage.active = false; }
+            if(wfPage){ wfPage.active = false; }
+            this._clubAutoEnter();
         }
         //注意:fromClubId在这里只读不清——解散/断线可能触发多次club场景加载(dispress_push与disconnect兜底),
         //若第一次加载就清掉,第二次加载会落到俱乐部列表页;清除只发生在用户主动返回列表(_wfBack)或回大厅(hall.onLoad)
@@ -410,13 +415,15 @@ cc.Class({
             if(this._clubListArea){
                 var games = this._clubFind(this._clubListArea,"games");
                 if(games){
-                    //保留gameRowTpl模板、emptyTip提示、samptext标题图(场景固化,按钮上方的"玩法列表"标签),只清动态克隆的行
+                    //保留gameRowTpl/allRow/emptyTip/samptext固化节点,只清动态克隆的行
                     var grt = games.getChildByName("gameRowTpl");
+                    var alr = games.getChildByName("allRow");
                     var get = games.getChildByName("emptyTip");
                     var gst = games.getChildByName("samptext");
                     games.removeAllChildren();
                     if(gst){ games.addChild(gst); }
                     if(grt){ games.addChild(grt); }
+                    if(alr){ games.addChild(alr); }
                     if(get){ games.addChild(get); get.active = false; }
                 }
                 var tv = this._clubFind(this._clubListArea,"tablesView");
@@ -444,6 +451,35 @@ cc.Class({
         if(this._clubListArea){
             this._clubListArea.removeAllChildren();
         }
+    },
+
+    //进场景自动选页:未加入任何俱乐部→clubPage(列表页);已加入→直接进第一个俱乐部的wfPage(玩法详情页)
+    _clubAutoEnter:function(){
+        var self = this;
+        cc.vv.http.sendRequest("/club_list",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign
+        },function(ret){
+            if(!cc.isValid(self.node)){ return; }
+            if(ret.errcode !== 0){
+                //拉取失败兜底:回俱乐部列表页
+                var cp = cc.find("Canvas/clubPage");
+                if(cp){ cp.active = true; }
+                self.openClubPanel();
+                return;
+            }
+            var clubs = ret.clubs || [];
+            self._myClubs = clubs;
+            if(clubs.length === 0){
+                //没有加入任何俱乐部:显示俱乐部列表页
+                var cp2 = cc.find("Canvas/clubPage");
+                if(cp2){ cp2.active = true; }
+                self.openClubPanel();
+            } else {
+                //已加入俱乐部:直接进第一个俱乐部的玩法详情页
+                self._wfOpenDetail(clubs[0]);
+            }
+        });
     },
 
     //请求我的俱乐部列表
@@ -664,6 +700,12 @@ cc.Class({
     _wfClose:function(){
         this._clubStopTableWatch();
         this._admHideWins();
+        //离开详情页时收起战绩/乐豆弹窗,避免回到大厅后残留
+        var canvas = cc.find("Canvas");
+        if(canvas){
+            var zw = canvas.getChildByName("zhanjiWin"); if(zw){ zw.active = false; }
+            var rw = canvas.getChildByName("recordWin"); if(rw){ rw.active = false; }
+        }
         if(this._admPanel && cc.isValid(this._admPanel)){ this._admPanel.active = false; }
         var saved = this._wfSaved;
         if(this._wfPanel && cc.isValid(this._wfPanel)){
@@ -695,7 +737,9 @@ cc.Class({
         //仅俱乐部创建者可看见/打开管理面板(服务端同样校验);用户ID可能number/string混用,统一转字符串比较
         var isOwner = !!(club && cc.vv.userMgr && cc.vv.userMgr.userId && String(club.owner_userid) === String(cc.vv.userMgr.userId));
         this._admGame = null; //玩法选择不跨俱乐部残留
-        var mgr = page.getChildByName("glSprite");
+        //管理按钮在 boot 栏内部,不能只查wfPage直接子节点
+        var boot = page.getChildByName("boot");
+        var mgr = (boot ? boot.getChildByName("glSprite") : null) || page.getChildByName("glSprite") || this._clubFind(page,"glSprite");
         if(mgr){
             mgr.active = isOwner;
             if(!mgr._admBound){
@@ -709,6 +753,329 @@ cc.Class({
             ks._wfBound = true;
             ks.on(cc.Node.EventType.TOUCH_END,function(){ self._wfQuickJoin(); });
         }
+        //刷新牌桌列表:强制忽略签名比对,重新拉取并重建
+        var refresh = page.getChildByName("KsSprite01") || this._clubFind(page,"KsSprite01");
+        if(refresh && !refresh._wfRefreshBound){
+            refresh._wfRefreshBound = true;
+            refresh.active = true;
+            refresh.on(cc.Node.EventType.TOUCH_END,function(){
+                self._clubTablesSig = null;
+                self._clubLoadTables();
+            });
+        }
+        //记录 / 战绩 弹窗(场景固化,JS只绑事件和填数据)
+        var recBtn = page.getChildByName("Sprite1") || (boot ? boot.getChildByName("Sprite1") : null) || this._clubFind(page,"Sprite1");
+        if(recBtn && !recBtn._wfRecBound){
+            recBtn._wfRecBound = true;
+            recBtn.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenBeanLog(); });
+        }
+        var zjBtn = page.getChildByName("Sprite2") || (boot ? boot.getChildByName("Sprite2") : null) || this._clubFind(page,"Sprite2");
+        if(zjBtn && !zjBtn._wfZjBound){
+            zjBtn._wfZjBound = true;
+            zjBtn.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenZhanji(); });
+        }
+    },
+
+    //弹窗节点固化在 club.fire(Canvas/zhanjiWin、recordWin),这里只负责显示/置顶/绑关闭,不建节点不排位
+    _wfPopupOpen:function(name){
+        var canvas = cc.find("Canvas");
+        if(!canvas){ return null; }
+        var win = canvas.getChildByName(name);
+        if(!win){ console.log("[俱乐部]场景缺少弹窗:" + name); return null; }
+        win.active = true;
+        win.setSiblingIndex(canvas.children.length - 1); //盖在wfPage/管理面板之上
+        var alertNode = canvas.getChildByName("alert");
+        if(alertNode){ alertNode.setSiblingIndex(canvas.children.length - 1); } //提示层仍在弹窗之上
+        //等待/错误提示层也要压过弹窗:详情回放失败等提示用wc.showError弹在WaitingConnection上,不提层会被弹窗挡住,看着像按钮没反应
+        var wcNode = canvas.getChildByName("WaitingConnection");
+        if(wcNode){ wcNode.setSiblingIndex(canvas.children.length - 1); }
+        if(!win._wfPopupBound){
+            win._wfPopupBound = true;
+            //吞掉空白区触摸,避免点穿到下层按钮
+            win.on(cc.Node.EventType.TOUCH_START,function(){});
+            var cancel = this._clubFind(win,"btn_cancel");
+            if(cancel){
+                cancel.on(cc.Node.EventType.TOUCH_END,function(){ win.active = false; });
+            }
+        }
+        this._wfPopupMakeScrollable(win); //list无滚动组件的弹窗在这里补上,行数超出可拖动
+        return win;
+    },
+
+    //取列表容器与行模板(模板隐藏,行内容全部克隆它,列位置来自场景)
+    //list=滚动可视节点(场景固化ScrollView+Mask),content=滚动内容节点(行都放这里)
+    _wfPopupList:function(win){
+        var list = this._clubFind(win,"list");
+        var content = list ? list.getChildByName("content") : null;
+        var tpl = content ? content.getChildByName("rowTpl") : (list ? this._clubFind(list,"rowTpl") : null);
+        return {list:list,content:content,tpl:tpl};
+    },
+
+    //弹窗列表滚动初始化:场景里 list 已固化 ScrollView+Mask+content 时只记录可视高度;
+    //老场景(光板list)兜底运行时包一层 sv>view>list。幂等,三个弹窗共用
+    _wfPopupMakeScrollable:function(win){
+        var ref = this._wfPopupList(win);
+        var list = ref.list;
+        var tpl = ref.tpl;
+        if(!list || list._wfScrolled){ return; }
+        list._wfViewH = list.height; //可视高度固定,content高度之后按行数撑
+        if(ref.content){
+            list._wfScrolled = true;
+            list._wfScroll = list.getComponent(cc.ScrollView);
+            return;
+        }
+        list._wfScrolled = true;
+        var pos = list.getPosition();
+        var sibIdx = list.getSiblingIndex();
+        var size = list.getContentSize();
+        //行模板(1100)比list(1000)宽:原无遮罩时整行可见,遮罩宽度按行宽取,保持原视觉不裁列
+        var viewW = Math.max(size.width, tpl ? tpl.width : 0);
+        list._wfViewH = size.height; //可视高度固定,content高度之后按行数撑
+        var sv = new cc.Node("sv");
+        sv.setContentSize(viewW, size.height);
+        sv.setPosition(pos);
+        p.addChild(sv);
+        sv.setSiblingIndex(sibIdx);
+        var view = new cc.Node("view");
+        view.setContentSize(viewW, size.height);
+        sv.addChild(view);
+        var mask = view.addComponent(cc.Mask);
+        mask.type = cc.Mask.Type.RECT;
+        var scroll = sv.addComponent(cc.ScrollView);
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.inertia = true;
+        scroll.brake = 0.75;
+        list.parent = view;
+        list.setAnchorPoint(0.5, 1); //content锚点定到顶边中心,行从0向下排,撑高不影响可视锚定
+        list.setPosition(0, size.height / 2);
+        scroll.content = list;
+        list._wfScroll = scroll;
+    },
+
+    _wfPopupClearRows:function(list,tpl){
+        if(!list){ return; }
+        var content = list.getChildByName("content") || list; //行容器:场景固化content,否则是兜底包装后的list自身
+        var cs = content.children.slice();
+        for(var i = 0; i < cs.length; ++i){
+            if(cs[i] !== tpl){ cs[i].removeFromParent(); cs[i].destroy(); }
+        }
+        if(tpl){ tpl.active = false; }
+        if(list._wfViewH){
+            //重填前回顶并收回可视高度:最新行显示在可视区顶部
+            if(list._wfScroll){ list._wfScroll.stopAutoScroll(); list._wfScroll.scrollToTop(0); }
+            content.height = list._wfViewH;
+            content.setPosition(0, list._wfViewH / 2);
+        }
+    },
+    _wfPopupAddRow:function(list,tpl,idx,vals){
+        if(!list || !tpl){ return null; }
+        var content = list.getChildByName("content") || list;
+        var ROW_H = tpl.height || 36;
+        var ROW_GAP = ROW_H + 2;
+        var rowY;
+        if(list._wfViewH){
+            //已接ScrollView:content锚点在顶边,行从0向下排,高度按行数撑开,不再截断
+            var needH = (idx + 1) * ROW_GAP;
+            if(content.height < needH){ content.height = needH; }
+            rowY = -ROW_H / 2 - idx * ROW_GAP;
+        }
+        else{
+            //兜底:结构异常没接上滚动时维持旧的8行截断,避免画出弹窗外
+            if(idx >= 8){ return null; }
+            var listH = content.height || 330;
+            rowY = listH / 2 - ROW_H / 2 - idx * ROW_GAP;
+        }
+        var row = cc.instantiate(tpl);
+        row.active = true;
+        row.setPosition(0, rowY);
+        content.addChild(row);
+        for(var i = 0; i < vals.length; ++i){
+            var c = row.getChildByName("c" + i);
+            var lb = c ? c.getComponent(cc.Label) : null;
+            if(lb){ lb.string = vals[i] == null ? "-" : String(vals[i]); }
+        }
+        return row;
+    },
+    //给列表行最后一列的「详情」按钮绑事件: 点了进这一局的宝宝回放(录像不存在时提示, 不改样式)
+    _wfBindDetail:function(row,uuid,index){
+        var self = this;
+        var btn = row ? row.getChildByName("detailBtn") : null;
+        if(!btn){ return; }
+        btn.off(cc.Node.EventType.TOUCH_END);
+        btn.on(cc.Node.EventType.TOUCH_END,function(ev){
+            if(ev && ev.stopPropagation){ ev.stopPropagation(); } //别让点击冒泡到弹窗底板的Button
+            self._wfOpenReplay(uuid,index);
+        });
+    },
+
+    //拉取该局录像 → 交给宝宝牌桌场景做回放(不再进房间, 全程不发牌局包)
+    _wfOpenReplay:function(uuid,index){
+        var self = this;
+        if(!uuid || !index){
+            cc.vv.wc.showError("该局没有录像，无法回放");
+            return;
+        }
+        if(this._wfReplayLoading){ return; }
+        this._wfReplayLoading = true;
+        cc.vv.http.sendRequest("/get_replay",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            uuid:uuid,
+            index:index
+        },function(ret){
+            self._wfReplayLoading = false;
+            if(ret.errcode !== 0){
+                var msg = ret.errcode === 1 ? "该局录像已过期" : (ret.errcode === 2 ? "没有该局回放权限" : (ret.errmsg || "获取回放失败"));
+                cc.vv.wc.showError(msg);
+                return;
+            }
+            var rp = ret.replay;
+            if(!rp || !rp.events || !rp.events.length){
+                cc.vv.wc.showError("该局没有录像，无法回放");
+                return;
+            }
+            cc.vv.bbReplayData = rp;
+            //按录像里的玩法类型进对应牌桌场景(免摆/手摆)
+            var t = String(rp.type || "");
+            var scene = (t.indexOf("baobao_shou") === 0) ? "mjgame_bb_shou" : "mjgame_bb_mian";
+            cc.director.loadScene(scene);
+        });
+    },
+
+    _wfPopupSetLabel:function(win,name,str){
+        var n = this._clubFind(win,name);
+        var lb = n ? n.getComponent(cc.Label) : null;
+        if(lb){ lb.string = str; }
+    },
+    _wfPopupTime:function(sec){
+        var d = new Date((sec || 0) * 1000);
+        function p(n){ return n < 10 ? "0" + n : "" + n; }
+        return p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+    },
+    _wfGameName:function(t){
+        var s = String(t || "");
+        if(s.indexOf("baobao_mian") === 0){ return "六宝免摆"; }
+        if(s.indexOf("baobao_shou") === 0){ return "六宝手动"; }
+        if(s.indexOf("baobao") === 0){ return "六宝"; }
+        return s ? s : "-";
+    },
+
+    //打开「我的战绩」(boot/Sprite2):数据源 /get_replay_list(3天内房间->局两级)
+    _wfOpenZhanji:function(){
+        var self = this;
+        var win = this._wfPopupOpen("zhanjiWin");
+        if(!win){ return; }
+        var seq = win._wfSeq = (win._wfSeq || 0) + 1; //丢弃上一次未返回的回包
+        var ls = this._wfPopupList(win);
+        this._wfPopupClearRows(ls.list,ls.tpl);
+        this._wfPopupSetLabel(win,"sum1","牌局数：0");
+        this._wfPopupSetLabel(win,"sum2","大赢家：-");
+        this._wfPopupSetLabel(win,"sum3","分数：-");
+        var tip = this._clubFind(win,"emptyTip");
+        if(tip){ tip.active = false; }
+        cc.vv.http.sendRequest("/get_replay_list",{account:cc.vv.userMgr.account,sign:cc.vv.userMgr.sign},function(ret){
+            if(!cc.isValid(win) || !win.active || win._wfSeq !== seq){ return; }
+            if(ret.errcode !== 0){
+                cc.vv.wc.showError(ret.errmsg || "获取战绩失败");
+                return;
+            }
+            var rooms = ret.list || [];
+            var total = 0;
+            for(var r = 0; r < rooms.length; ++r){ total += (rooms[r].games || []).length; }
+            self._wfPopupSetLabel(win,"sum1","牌局数：" + total);
+            var idx = 0;
+            for(var i = 0; i < rooms.length; ++i){
+                var rm = rooms[i];
+                var games = rm.games || [];
+                for(var g = 0; g < games.length; ++g){
+                    var gm = games[g];
+                    var row = self._wfPopupAddRow(ls.list,ls.tpl,idx,[
+                        idx + 1,
+                        self._wfGameName(rm.type),
+                        "-",
+                        self._wfPopupTime(gm.create_time),
+                        "-",
+                        rm.roomid,
+                        gm.index,
+                        "-",
+                        "-"
+                    ]);
+                    //详情按钮: 录像存在(房间uuid+局号)才可点, 否则点了直接提示
+                    var isBB = String(rm.type || "").indexOf("baobao") === 0;
+                    if(row){ self._wfBindDetail(row, isBB ? (rm.uuid || "") : "", isBB ? (gm.index || 0) : 0); }
+                    idx++;
+                }
+            }
+            if(tip && cc.isValid(tip)){ tip.active = (idx == 0); }
+        });
+    },
+
+    //打开「我的乐豆详情」(boot/Sprite1):数据源 /my_bean_logs(可切换今天/全部)
+    _wfOpenBeanLog:function(){
+        var self = this;
+        var win = this._wfPopupOpen("recordWin");
+        if(!win){ return; }
+        var todayBtn = this._clubFind(win,"todayBtn");
+        var allBtn = this._clubFind(win,"allBtn");
+        if(todayBtn && !todayBtn._wfBound){
+            todayBtn._wfBound = true;
+            todayBtn.on(cc.Node.EventType.TOUCH_END,function(){ self._wfLoadBeanLog(win,true); });
+        }
+        if(allBtn && !allBtn._wfBound){
+            allBtn._wfBound = true;
+            allBtn.on(cc.Node.EventType.TOUCH_END,function(){ self._wfLoadBeanLog(win,false); });
+        }
+        this._wfLoadBeanLog(win,true); //默认今天
+    },
+
+    //today=true只查今天0点之后;标签用颜色区分当前筛选
+    _wfLoadBeanLog:function(win,today){
+        var self = this;
+        if(!win || !cc.isValid(win)){ return; }
+        var ls = this._wfPopupList(win);
+        this._wfPopupClearRows(ls.list,ls.tpl);
+        var todayBtn = this._clubFind(win,"todayBtn");
+        var allBtn = this._clubFind(win,"allBtn");
+        if(todayBtn){ todayBtn.color = cc.color(today ? 255 : 245,today ? 200 : 240,today ? 90 : 230); }
+        if(allBtn){ allBtn.color = cc.color(today ? 245 : 255,today ? 240 : 200,today ? 230 : 90); }
+        var tip = this._clubFind(win,"emptyTip");
+        if(tip){ tip.active = false; }
+        var from = 0;
+        if(today){
+            var d = new Date();
+            d.setHours(0,0,0,0);
+            from = Math.floor(d.getTime() / 1000);
+        }
+        var seq = win._wfLogSeq = (win._wfLogSeq || 0) + 1; //切换今天/全部时丢弃旧回包
+        cc.vv.http.sendRequest("/my_bean_logs",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            from:from
+        },function(ret){
+            if(!cc.isValid(win) || !win.active || win._wfLogSeq !== seq){ return; }
+            if(ret.errcode !== 0){
+                cc.vv.wc.showError(ret.errmsg || "获取乐豆记录失败");
+                return;
+            }
+            var logs = ret.logs || [];
+            for(var i = 0; i < logs.length; ++i){
+                var lg = logs[i];
+                var amt = parseInt(lg.amount) || 0;
+                var row = self._wfPopupAddRow(ls.list,ls.tpl,i,[
+                    self._wfPopupTime(lg.create_time),
+                    lg.roomid || "-",
+                    self._wfGameName(lg.game_type),
+                    lg.change_type || "-",
+                    (amt > 0 ? "+" + amt : String(amt)),
+                    "-"
+                ]);
+                //详情按钮: 只有对局结算的流水带房间uuid/局号, 其他流水点了提示没有录像
+                var isBB = String(lg.game_type || "").indexOf("baobao") === 0;
+                if(row){ self._wfBindDetail(row, isBB ? (lg.room_uuid || "") : "", isBB ? (parseInt(lg.game_index) || 0) : 0); }
+            }
+            if(tip && cc.isValid(tip)){ tip.active = (logs.length == 0); }
+        });
     },
 
     //管理面板内节点查找:先按层级找,找不到再在admin子树里递归兜底(编辑器里拖到别的位置也不会失效)
@@ -746,16 +1113,60 @@ cc.Class({
             }
         }
         adm.active = true;
+        //左上角俱乐部名称/ID(场景固化标签 JLBname/JLBid 下的 -a 子节点)
+        var setAdmLbl = function(nn, cn, t){
+            var n = self._admNode(nn);
+            var c = n ? n.getChildByName(cn) : null;
+            var l = c ? c.getComponent(cc.Label) : null;
+            console.log("[adm]fill", nn, "clubCur=" + !!self._clubCur, "node=" + !!n, "child=" + !!c, "label=" + !!l, "value=" + t);
+            if(l){ l.string = String(t); }
+        };
+        if(self._clubCur){
+            setAdmLbl("JLBname", "JLBname-a", self._clubCur.name || "");
+            setAdmLbl("JLBid", "JLBid-a", self._clubCur.id);
+        }
+        //每次打开默认显示成员管理页
+        self._admShowPage("member");
         if(adm._admBound){ return; }
         adm._admBound = true;
-        var btnTable = self._admNode("btnAddTable"); //添加牌桌
-        var btnMember = self._admNode("addTablePz"); //添加成员
+        //左侧菜单:切换右侧分页(成员管理/牌桌管理/豆豆管理/子俱乐部)
+        var btnTable = self._admNode("btnAddTable"); //牌桌管理
+        var btnMember = self._admNode("adminuser") || self._admNode("addTablePz"); //成员管理(场景节点名adminuser)
         var btnBean = self._admNode("btnBean"); //豆豆管理
         var btnClose = self._admNode("btnAdmClose"); //关闭
-        if(btnTable){ btnTable.active = true; btnTable.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenAddTable(); }); }
-        if(btnMember){ btnMember.active = true; btnMember.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenPull(); }); }
-        if(btnBean){ btnBean.active = true; btnBean.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenBean(); }); }
+        if(btnTable){ btnTable.active = true; btnTable.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("table"); }); }
+        if(btnMember){ btnMember.active = true; btnMember.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("member"); }); }
+        if(btnBean){ btnBean.active = true; btnBean.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("bean"); }); }
         if(btnClose){ btnClose.active = true; btnClose.on(cc.Node.EventType.TOUCH_END,function(){ self._admClose(); }); }
+        //分页右上侧操作按钮(场景固化节点)
+        var rop = self._admNode("ropSprite");
+        var pageOf = function(pn){ return rop ? rop.getChildByName(pn) : null; };
+        var mPage = pageOf("memberPage");
+        if(mPage){
+            var b1 = mPage.getChildByName("btnAddMember");
+            if(b1){ b1.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenPull(); }); }
+            var b2 = mPage.getChildByName("btnSearch");
+            if(b2){ b2.on(cc.Node.EventType.TOUCH_END,function(){ self._admRenderMembers(); }); }
+            //搜索框强制明文(场景保存可能把 inputFlag 覆盖回0=密码,这里运行时兜底)
+            var si = mPage.getChildByName("searchInput");
+            var seb = si ? si.getComponent(cc.EditBox) : null;
+            if(seb){ seb.inputFlag = 3; }
+        }
+        var tPage = pageOf("tablePage");
+        if(tPage){
+            var b3 = tPage.getChildByName("btnAddTable2");
+            if(b3){ b3.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenAddTable(); }); }
+        }
+        var bPage = pageOf("beanPage");
+        if(bPage){
+            var b4 = bPage.getChildByName("btnBean2");
+            if(b4){ b4.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenBean(); }); }
+        }
+        var sPage = pageOf("subPage");
+        if(sPage){
+            var b5 = sPage.getChildByName("btnSubAdd");
+            if(b5){ b5.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenNewClub(); }); }
+        }
         //添加牌桌弹窗
         var addWin = self._admNode("addTableWin");
         this._admAddWin = addWin;
@@ -779,6 +1190,12 @@ cc.Class({
         var cfgWin = self._admNode("gameCfgWin");
         this._admCfgWin = cfgWin;
         if(cfgWin){ self._admBindOkCancel(cfgWin,function(){ self._admCfgSave(); },function(){ self._admCfgClose(); }); }
+        //子俱乐部页(左侧菜单切换到子俱乐部分页)
+        var btnNew = self._admNode("btnNewClub");
+        if(btnNew){ btnNew.active = true; btnNew.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("sub"); }); }
+        var newWin = self._admNode("newClubWin");
+        this._admNewClubWin = newWin;
+        if(newWin){ self._admBindOkCancel(newWin,function(){ self._admSubmitNewClub(); },function(){ self._admCloseNewClub(); }); }
     },
 
     _admClose:function(){
@@ -791,6 +1208,323 @@ cc.Class({
         if(this._admMemberWin && cc.isValid(this._admMemberWin)){ this._admMemberWin.active = false; }
         if(this._admBeanWin && cc.isValid(this._admBeanWin)){ this._admBeanWin.active = false; }
         if(this._admCfgWin && cc.isValid(this._admCfgWin)){ this._admCfgWin.active = false; }
+        if(this._admNewClubWin && cc.isValid(this._admNewClubWin)){ this._admNewClubWin.active = false; }
+    },
+
+    //=========== 管理面板四分页(节点全部场景固化在 ropSprite 下,JS只填数据/绑事件) ===========
+    _admPageNode:function(name){
+        var rop = this._admNode("ropSprite");
+        return rop ? rop.getChildByName(name) : null;
+    },
+    _admShowPage:function(name){
+        var pages = ["member","table","bean","sub"];
+        for(var i = 0; i < pages.length; ++i){
+            var p = this._admPageNode(pages[i] + "Page");
+            if(p){ p.active = (pages[i] === name); }
+        }
+        this._admPage = name;
+        if(name === "member"){ this._admLoadMembers(); }
+        else if(name === "table"){ this._admLoadTablesAdm(); }
+        else if(name === "bean"){ this._admLoadBeanLogs(); }
+        else if(name === "sub"){ this._admLoadSubs(); }
+    },
+    //分页的滚动列表引用(scroll/view/content/rowTpl/emptyTip,全部是场景节点)
+    _admPageList:function(pageName){
+        var page = this._admPageNode(pageName);
+        var sc = page ? page.getChildByName("scroll") : null;
+        var view = sc ? sc.getChildByName("view") : null;
+        var content = view ? view.getChildByName("content") : null;
+        var tpl = content ? content.getChildByName("rowTpl") : null;
+        var tip = page ? page.getChildByName("emptyTip") : null;
+        return {page:page, scroll:sc, view:view, content:content, tpl:tpl, tip:tip};
+    },
+    _admClearRows:function(content,tpl){
+        if(!content){ return; }
+        var cs = content.children.slice();
+        for(var i = 0; i < cs.length; ++i){
+            if(cs[i] !== tpl){ cs[i].removeFromParent(); cs[i].destroy(); }
+        }
+        if(tpl){ tpl.active = false; }
+    },
+    //竖排滚动列表加一行(行位置由行号推出,容器高度按行数撑开,超出由ScrollView滚动)
+    _admAddRow:function(ls,idx,rowH){
+        var content = ls.content, tpl = ls.tpl;
+        if(!content || !tpl){ return null; }
+        var viewH = ls.view ? ls.view.height : 500;
+        content.height = Math.max(viewH, (idx + 1) * rowH);
+        var row = cc.instantiate(tpl);
+        row.active = true;
+        row.setPosition(0, -(idx * rowH + rowH / 2));
+        content.addChild(row);
+        return row;
+    },
+    _admSetRowText:function(row,name,str){
+        var n = row.getChildByName(name);
+        var lb = n ? n.getComponent(cc.Label) : null;
+        if(lb){ lb.string = (str == null || str === "") ? "-" : String(str); }
+    },
+    _admScrollTop:function(ls){
+        var svc = ls.scroll ? ls.scroll.getComponent(cc.ScrollView) : null;
+        if(svc){ svc.scrollToTop(); }
+    },
+
+    //--- 成员管理页:成员列表(头像/昵称/ID/余额/豆豆管理/交易明细),支持按ID过滤 ---
+    _admLoadMembers:function(){
+        var self = this;
+        if(!this._clubCur || !this._clubCur.id){ return; }
+        cc.vv.http.sendRequest("/club_members_detail",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            clubid:this._clubCur.id
+        },function(ret){
+            if(!ret || ret.errcode !== 0){ cc.vv.wc.showError((ret && ret.errmsg) || "获取成员失败"); return; }
+            self._admMembers = ret.members || [];
+            self._admRenderMembers();
+        });
+    },
+    _admRenderMembers:function(){
+        var self = this;
+        var ls = this._admPageList("memberPage");
+        if(!ls.content || !ls.tpl){ return; }
+        var kw = "";
+        var si = ls.page ? ls.page.getChildByName("searchInput") : null;
+        var eb = si ? si.getComponent(cc.EditBox) : null;
+        if(eb){ kw = String(eb.string || "").replace(/[^0-9]/g,""); }
+        var list = this._admMembers || [];
+        if(kw){ list = list.filter(function(m){ return String(m.userid).indexOf(kw) >= 0; }); }
+        this._admClearRows(ls.content, ls.tpl);
+        if(ls.tip){ ls.tip.active = (list.length === 0); }
+        var ROW_H = ls.tpl.height || 70;
+        list.forEach(function(m, i){
+            var row = self._admAddRow(ls, i, ROW_H + 4);
+            if(!row){ return; }
+            self._admSetRowText(row, "lName", m.name);
+            self._admSetRowText(row, "lId", m.userid);
+            self._admSetRowText(row, "lGems", m.gems);
+            //头像:先显示默认头像,再用ImageLoader按userid加载真实头像
+            var av = row.getChildByName("avatar");
+            if(av){
+                var spr = av.getComponent(cc.Sprite);
+                if(spr){
+                    if(self._clubHeadFrame){ spr.spriteFrame = self._clubHeadFrame; }
+                    else{
+                        cc.resources.load("images/other/head", cc.SpriteFrame, function(err, f){
+                            if(!err && f){ self._clubHeadFrame = f; if(cc.isValid(spr)){ spr.spriteFrame = f; } }
+                        });
+                    }
+                }
+                var il = av.getComponent("ImageLoader");
+                if(!il){ il = av.addComponent("ImageLoader"); }
+                if(il && il.setUserID){ il.setUserID(m.userid); }
+            }
+            var uid = m.userid;
+            var bb = row.getChildByName("btnBeanM");
+            if(bb){ bb.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenBeanFor(uid); }); }
+            var bl = row.getChildByName("btnLogsM");
+            if(bl){ bl.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenMemLogs(uid); }); }
+        });
+        this._admScrollTop(ls);
+    },
+    //成员行「豆豆管理」:打开上下豆豆弹窗并预填该玩家ID自动查询
+    _admOpenBeanFor:function(uid){
+        this._admOpenBean();
+        var win = this._admBeanWin;
+        var bg = win ? win.getChildByName("bg") : null;
+        var n = bg ? bg.getChildByName("difenInput") : null;
+        var eb = n ? n.getComponent(cc.EditBox) : null;
+        if(eb){ eb.string = String(uid); this._admQueryBean(); }
+    },
+    //成员行「交易明细」:弹窗显示该玩家的豆豆流水(memLogWin 场景固化,克隆自recordWin)
+    _admOpenMemLogs:function(uid){
+        var self = this;
+        var win = this._wfPopupOpen("memLogWin");
+        if(!win){ return; }
+        this._wfPopupSetLabel(win,"title","交易明细(ID:" + uid + ")");
+        var ls = this._wfPopupList(win);
+        this._wfPopupClearRows(ls.list,ls.tpl);
+        var tip = this._clubFind(win,"emptyTip");
+        if(tip){ tip.active = false; }
+        //今天/全部按钮在交易明细里不生效,隐藏掉
+        var todayBtn = this._clubFind(win,"todayBtn");
+        if(todayBtn){ todayBtn.active = false; }
+        var allBtn = this._clubFind(win,"allBtn");
+        if(allBtn){ allBtn.active = false; }
+        var seq = win._wfLogSeq = (win._wfLogSeq || 0) + 1;
+        cc.vv.http.sendRequest("/club_member_logs",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            clubid:this._clubCur.id,
+            userid:uid
+        },function(ret){
+            if(!cc.isValid(win) || !win.active || win._wfLogSeq !== seq){ return; }
+            if(ret.errcode !== 0){ cc.vv.wc.showError(ret.errmsg || "获取交易明细失败"); return; }
+            var logs = ret.logs || [];
+            for(var i = 0; i < logs.length; ++i){
+                var lg = logs[i];
+                var amt = parseInt(lg.amount) || 0;
+                self._wfPopupAddRow(ls.list,ls.tpl,i,[
+                    self._wfPopupTime(lg.create_time),
+                    lg.roomid || "-",
+                    self._wfGameName(lg.game_type),
+                    lg.change_type || "-",
+                    (amt > 0 ? "+" + amt : String(amt)),
+                    "-"
+                ]);
+            }
+            if(tip && cc.isValid(tip)){ tip.active = (logs.length == 0); }
+        });
+    },
+
+    //--- 牌桌管理页:复用牌桌卡片,两列竖排,超出上下滚动 ---
+    _admLoadTablesAdm:function(){
+        var self = this;
+        if(!this._clubCur || !this._clubCur.id){ return; }
+        cc.vv.http.sendRequest("/club_tables",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            clubid:this._clubCur.id
+        },function(ret){
+            if(!ret || ret.errcode !== 0){ return; }
+            var ls = self._admPageList("tablePage");
+            if(!ls.content){ return; }
+            self._admClearRows(ls.content, null);
+            var tables = ret.tables || [];
+            if(ls.tip){ ls.tip.active = (tables.length === 0); }
+            var tpl = self._clubCardTpl();
+            if(tpl){ tpl.active = false; }
+            if(tables.length && !tpl){ return; }
+            //_clubAddTableCard会写长连接卡片映射,这里用临时映射避免覆盖玩法页正在用的
+            var savedMap = self._clubTableCardMap;
+            self._clubTableCardMap = {};
+            var CW = tpl ? tpl.width : 360, CH = tpl ? tpl.height : 200;
+            var GAP = 5; //牌桌间距
+            var viewW = ls.view ? ls.view.width : 980;
+            var viewH = ls.view ? ls.view.height : 500;
+            ls.content.height = viewH; //两行固定高度,不竖向滚动
+            //两行靠左对齐:先排满上下两行再往右换列,超出后横向滚动;content锚点(0,1)原点即左上
+            var cols = Math.ceil(tables.length / 2);
+            ls.content.width = Math.max(viewW, cols * (CW + GAP) + GAP);
+            tables.forEach(function(t, i){
+                var before = ls.content.childrenCount;
+                self._clubAddTableCard(ls.content, i, t);
+                if(ls.content.childrenCount > before){
+                    var card = ls.content.children[ls.content.childrenCount - 1];
+                    var col = Math.floor(i / 2), r = i % 2;
+                    card.setPosition(GAP + CW / 2 + col * (CW + GAP), -(GAP + CH / 2 + r * (CH + GAP)));
+                }
+            });
+            self._clubTableCardMap = savedMap;
+            var svc = ls.scroll ? ls.scroll.getComponent(cc.ScrollView) : null;
+            if(svc){ svc.scrollToLeft(); }
+        });
+    },
+
+    //--- 豆豆管理页:俱乐部豆豆流水(时间/玩家ID/昵称/房间号/类型/数量) ---
+    _admLoadBeanLogs:function(){
+        var self = this;
+        if(!this._clubCur || !this._clubCur.id){ return; }
+        cc.vv.http.sendRequest("/club_bean_logs",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            clubid:this._clubCur.id
+        },function(ret){
+            if(!ret || ret.errcode !== 0){ return; }
+            var ls = self._admPageList("beanPage");
+            if(!ls.content || !ls.tpl){ return; }
+            self._admClearRows(ls.content, ls.tpl);
+            var logs = ret.logs || [];
+            if(ls.tip){ ls.tip.active = (logs.length === 0); }
+            var ROW_H = (ls.tpl.height || 36) + 2;
+            logs.forEach(function(l, i){
+                var row = self._admAddRow(ls, i, ROW_H);
+                if(!row){ return; }
+                var amt = parseInt(l.amount) || 0;
+                var vals = [self._wfPopupTime(l.create_time), l.userid, l.name, l.roomid, l.change_type, amt > 0 ? "+" + amt : String(amt)];
+                for(var c = 0; c < 6; ++c){ self._admSetRowText(row, "c" + c, vals[c]); }
+            });
+            self._admScrollTop(ls);
+        });
+    },
+
+    //--- 子俱乐部页:子俱乐部列表(名称/ID/现有人数/总豆豆数) ---
+    _admLoadSubs:function(){
+        var self = this;
+        if(!this._clubCur || !this._clubCur.id){ return; }
+        cc.vv.http.sendRequest("/club_sub_list",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            clubid:this._clubCur.id
+        },function(ret){
+            if(!ret || ret.errcode !== 0){ return; }
+            var ls = self._admPageList("subPage");
+            if(!ls.content || !ls.tpl){ return; }
+            self._admClearRows(ls.content, ls.tpl);
+            var subs = ret.subs || [];
+            if(ls.tip){ ls.tip.active = (subs.length === 0); }
+            var ROW_H = (ls.tpl.height || 44) + 2;
+            subs.forEach(function(s, i){
+                var row = self._admAddRow(ls, i, ROW_H);
+                if(!row){ return; }
+                var vals = [s.name, s.id, s.member_count, s.total_gems];
+                for(var c = 0; c < 4; ++c){ self._admSetRowText(row, "c" + c, vals[c]); }
+            });
+            self._admScrollTop(ls);
+        });
+    },
+
+    //开子俱乐部:社长在自己当前俱乐部下创建子俱乐部(上级=当前俱乐部)
+    _admOpenNewClub:function(){
+        var win = this._admNewClubWin;
+        if(!win){ cc.vv.wc.showError("缺少开子俱乐部弹窗"); return; }
+        var bg = win.getChildByName("bg");
+        var inp = bg ? bg.getChildByName("difenInput") : null;
+        if(inp && inp.getComponent(cc.EditBox)){ var e1 = inp.getComponent(cc.EditBox); e1.string = ""; e1.inputFlag = 3; }
+        var uid = bg ? bg.getChildByName("jushuInput") : null;
+        if(uid && uid.getComponent(cc.EditBox)){ var e2 = uid.getComponent(cc.EditBox); e2.string = ""; e2.inputFlag = 3; }
+        this._admHideWins();
+        win.active = true;
+    },
+    _admCloseNewClub:function(){
+        if(this._admNewClubWin && cc.isValid(this._admNewClubWin)){ this._admNewClubWin.active = false; }
+    },
+    _admSubmitNewClub:function(){
+        var self = this;
+        var win = this._admNewClubWin;
+        var club = this._clubCur;
+        if(!win || !club || !club.id){ return; }
+        var bg = win.getChildByName("bg");
+        var inp = bg ? bg.getChildByName("difenInput") : null;
+        var eb = inp ? inp.getComponent(cc.EditBox) : null;
+        var name = eb ? String(eb.string || "").replace(/^\s+|\s+$/g, "") : "";
+        if(!name){ cc.vv.wc.showError("请输入俱乐部名称"); return; }
+        //归属玩家ID:必填,校验纯数字后交给服务端确认该玩家存在
+        var uidNode = bg ? bg.getChildByName("jushuInput") : null;
+        var uidEb = uidNode ? uidNode.getComponent(cc.EditBox) : null;
+        var uidStr = uidEb ? String(uidEb.string || "").replace(/^\s+|\s+$/g, "") : "";
+        if(!uidStr){ cc.vv.wc.showError("请输入玩家ID"); return; }
+        if(!/^\d{1,9}$/.test(uidStr)){ cc.vv.wc.showError("玩家ID只能是数字"); return; }
+        cc.vv.wc.show("正在创建");
+        cc.vv.http.sendRequest("/club_create",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            name:name,
+            parentclid:club.id,
+            owneruserid:uidStr
+        },function(ret){
+            cc.vv.wc.hide();
+            if(!ret || ret.errcode !== 0){
+                var msg = (ret && ret.errmsg) ? ret.errmsg : "创建失败";
+                if(ret && ret.errcode === 3){ msg = "上级俱乐部不存在"; }
+                if(ret && ret.errcode === 4){ msg = "只有社长可以开子俱乐部"; }
+                if(ret && ret.errcode === 5){ msg = "玩家ID不存在"; }
+                cc.vv.wc.showAlert(msg, "提示");
+                return;
+            }
+            self._admCloseNewClub();
+            cc.vv.wc.showAlert("子俱乐部创建成功，ID：" + ret.clubid, "提示");
+            self._clubRefreshList();
+            if(self._admPage === "sub"){ self._admLoadSubs(); } //子俱乐部页同步刷新
+        });
     },
 
     // ===== 管理面板:玩法配置(底分/局数/台数规则) =====
@@ -1180,6 +1914,7 @@ cc.Class({
             self._wfCloseAddTable();
             self._clubTablesSig = null; //强制按最新数据重建牌桌列表
             self._clubLoadTables();
+            if(self._admPage === "table"){ self._admLoadTablesAdm(); } //管理面板牌桌管理页同步刷新
         });
     },
 
@@ -1247,6 +1982,7 @@ cc.Class({
             }
             self._wfClosePull();
             cc.vv.wc.showAlert("添加成功", "提示");
+            if(self._admPage === "member"){ self._admLoadMembers(); } //成员管理页同步刷新
         });
     },
 
@@ -1347,6 +2083,9 @@ cc.Class({
             //成功后关闭弹窗,再弹成功提示(提示层已提到管理面板之上,可见)
             self._wfCloseBean();
             cc.vv.wc.showAlert("修改成功", "提示");
+            //成员余额/俱乐部流水同步刷新
+            if(self._admPage === "member"){ self._admLoadMembers(); }
+            if(self._admPage === "bean"){ self._admLoadBeanLogs(); }
         });
     },
 
@@ -1382,10 +2121,12 @@ cc.Class({
         var existBg = this._clubPanel.getChildByName("detailBgImg");
         this._clubDetailBgNode = existBg;
         //左侧底色/顶部通栏不再由JS绘制:全部背景交给场景节点(编辑器里控制),JS只清掉残留
-        var fullBg = this._clubPanel.getChildByName("detailFullBg"); //固化场景节点(Graphics组件已挂)
+        var fullBg = this._clubPanel.getChildByName("detailFullBg"); //固化场景节点(Graphics组件已挂),可能已被编辑器删除
         this._clubDetailFullBg = fullBg;
-        var fbg = fullBg.getComponent(cc.Graphics);
-        fbg.clear();
+        if(fullBg){
+            var fbg = fullBg.getComponent(cc.Graphics);
+            if(fbg){ fbg.clear(); }
+        }
         //详情页右上角退出按钮禁用,离开详情用左上角返回按钮
         if(this._clubCloseBtn){ this._clubCloseBtn.active = false; }
         //左上角返回按钮(固化节点 btnBack,贴图 club_btn_back 自带文字已配置,文字Label在场景中隐藏)
@@ -1395,7 +2136,10 @@ cc.Class({
         backBtn._clubW = backBtn.width; backBtn._clubH = backBtn.height;
         if(!backBtn._clubBound){
             backBtn._clubBound = true;
-            backBtn.on(cc.Node.EventType.TOUCH_END,function(){ self._wfBack(); }); //独立页返回:回俱乐部页
+            backBtn.on(cc.Node.EventType.TOUCH_END,function(){
+                //wfPage返回按钮:直接回大厅场景(不再回clubPage列表)
+                if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
+            });
         }
         this._clubBackBtn = backBtn;
         }
@@ -1449,61 +2193,67 @@ cc.Class({
         //左侧玩法列表:行结构(gameRowTpl含bgimg背景图+l名称Label)固化在场景games下,JS只克隆填文字+赋图
         var gamesNode = this._clubFind(area,"games");
         if(!gamesNode){ return; }
-        //保留gameRowTpl模板、emptyTip提示、samptext标题图(场景固化,按钮上方的"玩法列表"标签),只清动态克隆的行
+        //保留gameRowTpl/allRow/emptyTip/samptext固化节点,只清动态克隆的行
         var grTpl = gamesNode.getChildByName("gameRowTpl");
+        var allRow = gamesNode.getChildByName("allRow"); //场景固化的「全部」按钮
         var etNode = gamesNode.getChildByName("emptyTip");
         var tiNode = gamesNode.getChildByName("samptext");
         gamesNode.removeAllChildren();
         if(tiNode){ gamesNode.addChild(tiNode); }
         if(grTpl){ gamesNode.addChild(grTpl); grTpl.active = false; }
+        if(allRow){ gamesNode.addChild(allRow); allRow.active = true; }
         if(etNode){ gamesNode.addChild(etNode); }
         this._clubGameRows = [];
-        var games = this._clubGames || [];
+        //「全部」伪玩法行:置于列表首位,选中时右侧显示本俱乐部所有玩法的牌桌
+        var ALL_GAME = {_all:true, game_type:"", name:"全部", difen_options:[], jushu_options:[]};
+        var games = [ALL_GAME].concat(this._clubGames || []);
+        this._clubGamesWithAll = games; //供行渲染/命中查找统一使用
         var ROW_H = grTpl ? grTpl.height : 68;
-        var ROW_GAP = ROW_H + 5;
-        //行组在games容器内从顶部往下排列(容器尺寸/位置由场景Widget控制,JS不碰)
-        var topY = gamesNode.height / 2 - ROW_H / 2 - 130; //按钮自身再下移130,容器保持原位
+        //位置规则:allRow(「全部」按钮)坐标完全由场景控制,JS不改;克隆的玩法行接在allRow右侧依次排开,缝隙0
+        var ROW_GAPX = 0; //按钮与按钮之间的缝隙=0
+        var cursorX = null; //allRow右缘x(games容器坐标系),由场景里allRow的位置决定
+        var baseY = 0;
         //暂无玩法提示:固化在场景games下的emptyTip节点(文案/样式在编辑器调),JS只控制显隐
         var et = gamesNode.getChildByName("emptyTip");
-        if(et){ et.active = (games.length == 0); }
+        if(et){ et.active = ((this._clubGames || []).length == 0); }
         games.forEach(function(gm,i){
-            var row = grTpl ? cc.instantiate(grTpl) : new cc.Node("row"+i);
-            row.active = true;
+            //第0行用场景固化的allRow(不再克隆),位置不动(场景控制);其他玩法行克隆gameRowTpl,接在allRow右侧
+            var row = null;
+            if(i === 0 && allRow){
+                row = allRow;
+                row.active = true;
+                cursorX = allRow.x + allRow.width / 2; //allRow右缘(锚点0.5)
+                baseY = allRow.y;
+            } else {
+                row = grTpl ? cc.instantiate(grTpl) : new cc.Node("row"+i);
+                row.active = true;
+                if(cursorX != null){
+                    row.setPosition(cursorX + ROW_GAPX + row.width / 2, baseY);
+                    cursorX += ROW_GAPX + row.width;
+                }
+                gamesNode.addChild(row);
+            }
             row._gm = gm; //行绑定的玩法(添加牌桌按高亮行取类型)
-            row.setPosition(0, topY - i * ROW_GAP);
-            gamesNode.addChild(row);
             var lNode = row.getChildByName("l");
             if(lNode){
-                //文字布局运行时强制:占满整行+居中+白字+自动缩放
-                //(场景文件会被编辑器保存冲掉,关键排版以JS为准,编辑器里仍可改颜色/字号)
-                lNode.setContentSize(row.width, row.height);
-                lNode.setPosition(0, 0);
+                //JS只填文字内容;字号/颜色/对齐/尺寸全由场景gameRowTpl/allRow的l节点控制
                 var ll = lNode.getComponent(cc.Label);
-                if(ll){
-                    ll.string = gm.name || "";
-                    ll.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-                    ll.verticalAlign = cc.Label.VerticalAlign.CENTER;
-                    ll.overflow = cc.Label.Overflow.SHRINK;
-                }
+                if(ll){ ll.string = gm.name || ""; }
             }
             var bgimg = row.getChildByName("bgimg");
             if(bgimg){
-                //按钮底图:默认态=game_btn_normal.png(场景gameRowTpl>bgimg已固化),点击态=game_btn_pressed.png
+                //按钮底图:未选中态直接用场景固化的图(bgimg上已配好),选中态=button_yellow.png
                 var bsp = bgimg.getComponent(cc.Sprite);
                 row._iconSp = bsp;
-                row._iconNormal = bsp ? bsp.spriteFrame : null;
+                row._iconNormal = bsp ? bsp.spriteFrame : null; //场景固化的未选中底图,JS不覆盖
                 row._iconSel = null;
-                cc.resources.load("images/club/game_btn_normal", cc.SpriteFrame, function(err,sf){
-                    if(err || !sf || !cc.isValid(bgimg)){ return; }
-                    row._iconNormal = sf;
-                    if(!row._selected){ bsp.spriteFrame = sf; } //默认态显示按钮图
-                });
-                cc.resources.load("images/club/game_btn_pressed", cc.SpriteFrame, function(err,sf){
+                cc.resources.load("images/other/button_yellow", cc.SpriteFrame, function(err,sf){
                     if(err || !sf || !cc.isValid(bgimg)){ return; }
                     row._iconSel = sf;
-                    if(row._selected){ bsp.spriteFrame = sf; } //点击态换图
+                    if(row._selected){ bsp.spriteFrame = sf; } //点击态换button_yellow
                 });
             }
+            row.off(cc.Node.EventType.TOUCH_END); //allRow为场景固化节点会被反复复用,先清掉历次渲染叠加的旧监听,否则点一次触发多次
             row.on(cc.Node.EventType.TOUCH_END,function(){
                 if(self._clubScrollMoved){ self._clubScrollMoved = false; return; }
                 self._clubSelectGame(gm,row);
@@ -1537,25 +2287,25 @@ cc.Class({
                 var dx = e.getLocation().x - svStartX;
                 if(Math.abs(dx) > 6){ self._clubTablesScrollMoved = true; }
                 var restX = self._clubTablesRestX || 0;
-                var half = (cW - vw) / 2; //锚点0.5:可左右偏移半个溢出量
-                self._clubTablesNode.x = Math.max(restX - half,Math.min(restX + half,svBaseX + dx));
+                var over = cW - vw; //锚点(0,1):x为内容左缘,可向左拖出溢出量,右界回到restX
+                self._clubTablesNode.x = Math.max(restX - over,Math.min(restX,svBaseX + dx));
             });
             svView.on(cc.Node.EventType.TOUCH_CANCEL,function(){ self._clubTablesScrollMoved = false; });
         }
         if(this._clubTablesRestY == null){ this._clubTablesRestY = this._clubTablesNode.y; } //记录场景里配置的初始位置,重建时回到这里
         if(this._clubTablesRestX == null){ this._clubTablesRestX = this._clubTablesNode.x; }
         //默认选中玩法:从牌桌退出/结算返回时优先回到刚玩过的那个玩法(直达它的牌桌页),
-        //没有记录或该玩法不在本俱乐部时才选第一个
+        //没有记录或该玩法不在本俱乐部时默认选「全部」(显示所有玩法的牌桌)
         if(!this._clubCurGame && games.length > 0){
             var wanted = cc.vv.lastGameType;
             var picked = null;
             if(wanted){
                 for(var gi = 0; gi < games.length; ++gi){
                     var gt = games[gi].game_type || games[gi].type;
-                    if(gt == wanted){ picked = games[gi]; break; }
+                    if(gt && gt == wanted){ picked = games[gi]; break; }
                 }
             }
-            this._clubCurGame = picked || games[0];
+            this._clubCurGame = picked || games[0]; //games[0]即「全部」伪玩法行
         }
         for(var k = 0; k < this._clubGameRows.length; ++k){
             this._clubPaintRow(this._clubGameRows[k],games[k] === this._clubCurGame);
@@ -1587,13 +2337,14 @@ cc.Class({
         return t || null;
     },
 
-    //当前玩法的实际人数:牌桌数据带max_players时以它为准(最多6),否则4人玩法按zj4/zp4/wujin判定,其余为2人
+    //当前玩法的实际人数:牌桌数据带max_players时以它为准(最多6),否则按牌桌自身的game_type判定(「全部」模式下_clubCurGame无类型,必须从牌桌取)
     _clubMaxPlayers:function(t){
         if(t){
             var mp = t.max_players || t.maxPlayers;
             if(mp) { mp = parseInt(mp); return mp > 6 ? 6 : mp; }
         }
-        var gt = (this._clubCurGame && this._clubCurGame.game_type) ? this._clubCurGame.game_type : "";
+        var gt = (t && t.game_type) ? t.game_type
+            : ((this._clubCurGame && this._clubCurGame.game_type) ? this._clubCurGame.game_type : "");
         if(gt.indexOf("baobao") === 0){ return 6; } //宝宝牌固定6座
         return (gt.indexOf("zj4") === 0 || gt.indexOf("zp4") === 0 || gt == "wujin") ? 4 : 2;
     },
@@ -1601,21 +2352,18 @@ cc.Class({
     //创建牌桌卡片(绿色桌面+按玩法人数画座位+名称+人数),返回卡片节点
     _clubAddTableCard:function(parent,idx,t){
         var self = this;
-        var PAD = 10, GAP = 8; //页边距/卡片间距(横向排列常量)
         var pf = this._clubCardTpl();
         if(!pf){ console.log("[俱乐部]场景缺少sampleCard0模板,无法建牌桌卡片"); return; }
-        //卡片尺寸/内部布局完全来自场景模板,JS只克隆+摆到排位、填数据
+        //两行显示、靠左对齐:先排满上下两行,多了往右扩列;tables锚点(0,1)原点即左上,超出tablesView后左右拖动
+        var GAPX = 5, GAPY = 5, PAD = 5; //卡片间距/边距
         var CW = pf.width, CH = pf.height;
-        //两行显示:row-major排列(第一行排满再排第二行),列数由渲染时桌数算好存在_clubTableCols
-        var cols = this._clubTableCols || (idx + 1);
-        var col = idx % cols;
-        var row = Math.floor(idx / cols);
-        //从左到右左靠齐排列(内容节点锚点(0.5,1),x=-width/2为内容左缘)
-        var x = -parent.width / 2 + PAD + CW / 2 + col * (CW + GAP);
-        var y = -PAD - CH / 2 - row * (CH + GAP);
+        var col = Math.floor(idx / 2);
+        var row = idx % 2;
+        var x = PAD + CW / 2 + col * (CW + GAPX);
+        var y = -(PAD + CH / 2 + row * (CH + GAPY));
         var card = cc.instantiate(pf);
         card.active = true; //模板节点是隐藏的,克隆出来要显式打开
-        card.setPosition(x,y);
+        card.setPosition(x, y);
         parent.addChild(card);
         //座位:六座牌桌图(下左/左/上左/上右/右/下右),按实际人数取对称的子集;座位内人物/位置由场景模板决定
         var sides = ["下左","左","上左","上右","右","下右"];
@@ -1665,13 +2413,15 @@ cc.Class({
         if(cn){
             var cl = cn.getComponent(cc.Label);
             if(cl){
-                //Label为NONE时节点宽度被文字接管,编辑器里改不了宽度也不会换行;改成CLAMP由场景宽度控制换行
-                if(cl.overflow === cc.Label.Overflow.NONE){
-                    cl.overflow = cc.Label.Overflow.CLAMP;
-                    cl.enableWrapText = true;
-                }
-                cl.string = "底分" + (df != null ? df : "-") + "  " + bankerTxt + "  最低豆" + minBean + "  " + (js != null ? js : "-") + "局";
+                //格式跟场景模板一致:"底分-  局数-",只填数值,样式全由场景控制
+                cl.string = "底分" + (df != null ? df : "-") + "  局数" + (js != null ? js : "-");
             }
+        }
+        //入场/离场豆豆:ca节点(场景模板sampleCard0直子节点,Label样式由场景控制),取桌conf的min_bean/kick_bean
+        var caN = card.getChildByName("ca");
+        if(caN){
+            var caLab = caN.getComponent(cc.Label);
+            if(caLab){ caLab.string = "入场：" + minBean + "，离场：" + (Number(confObj.kick_bean) || 0); }
         }
         //清空按钮(仅俱乐部创建者可见,服务端club_tables下发can_clear标记):解散牌桌绑定房间并踢出所有玩家
         var btnClear = card.getChildByName("btnClear");
@@ -2003,15 +2753,35 @@ cc.Class({
         },cc.vv.http.master_url);
     },
 
-    //牌桌列表改为「打开时拉一次 + 游戏服长连接推送」,取消3秒轮询
+    //牌桌列表: 打开时拉一次 + 游戏服长连接推送 + 5秒兜底轮询(推送断开也能刷新座位/头像)
     //说明:俱乐部场景下 cc.vv.net 并未建立连接,故这里单独向游戏服建立一条轻量订阅连接(句柄独立于 cc.vv.net)
     _clubStartTableWatch:function(){
         if(!this._clubCur || !this._clubCur.id){ return; }
         this._clubSubConnect(this._clubCur.id);
+        this._clubStartTablePoll(); //推送不可达(原生端弱网/订阅失败)时的兜底轮询
     },
 
     _clubStopTableWatch:function(){
         this._clubSubStop();
+        this._clubStopTablePoll();
+    },
+
+    //兜底轮询:5秒拉一次牌桌列表(签名比对,数据无变化不重建,不会抖动),
+    //保证玩家进房后大厅牌桌座位人物/头像一定能刷新出来,不单纯依赖长连接推送
+    _clubStartTablePoll:function(){
+        if(this._clubTablePollTimer){ return; }
+        var self = this;
+        this._clubTablePollTimer = setInterval(function(){
+            if(!cc.isValid(self.node) || self._clubState !== "detail"){
+                self._clubStopTablePoll();
+                return;
+            }
+            self._clubLoadTables();
+        },5000);
+    },
+
+    _clubStopTablePoll:function(){
+        if(this._clubTablePollTimer){ clearInterval(this._clubTablePollTimer); this._clubTablePollTimer = null; }
     },
 
     //建立/复用俱乐部订阅连接:同俱乐部只刷新玩法参数,切换俱乐部先断开旧连接
@@ -2145,22 +2915,26 @@ cc.Class({
         this._clubSubClubId = null;
     },
 
-    //加载当前玩法下的桌面列表(数据无变化时不重建节点,避免抖动)
+    //加载当前玩法下的桌面列表(数据无变化时不重建节点,避免抖动);「全部」时不传game_type,服务端返回所有玩法桌面
     _clubLoadTables:function(){
         this._clubStartTableWatch();
         var self = this;
-        cc.vv.http.sendRequest("/club_tables",{
+        var reqData = {
             account:cc.vv.userMgr.account,
             sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id,
-            game_type:this._clubCurGame.game_type
-        },function(ret){
+            clubid:this._clubCur.id
+        };
+        var gt = this._clubCurGame && this._clubCurGame.game_type;
+        if(gt){ reqData.game_type = gt; } //「全部」伪玩法行game_type为空,不传字段
+        cc.vv.http.sendRequest("/club_tables",reqData,function(ret){
             if(ret.errcode !== 0){
                 cc.vv.wc.showError(ret.errmsg || "获取桌面失败");
                 return;
             }
             var tables = ret.tables || [];
             self._clubTableList = tables; //留存最新桌面列表,快速加入用
+            //整场结算弹窗点了「快速加入」: 列表一回来就自动挑第一张未满桌进入
+            self._clubMaybeQuickJoin(tables);
             //签名比对:桌面数据未变化则跳过重建,消除刷新造成的列表抖动(玩家ID也纳入,头像变化触发重建)
             var sig = "";
             for(var i = 0; i < tables.length; ++i){
@@ -2184,18 +2958,12 @@ cc.Class({
             var tpl = self._clubCardTpl();
             if(tpl){ tpl.active = false; }
             self._clubTablesNode.removeAllChildren();
-            self._clubTablesNode.y = (self._clubTablesRestY != null) ? self._clubTablesRestY : self._clubTablesNode.parent.height/2; //重建后回到场景里配置的初始位置
-            //两行横向排列:每行 ceil(n/2) 张,内容宽度随列数增长,超出视口后可左右拖动(卡片尺寸直接取场景模板,不做额外缩放)
+            //两行排列/间距全部由tables节点上的cc.Layout组件控制(场景里调),JS不写位置;
+            //只按列数撑开容器宽度,供超出tablesView后左右拖动(容器高度固定530由场景控制,两行排满后往右换列)
             var viewW = self._clubTablesNode.parent.width;
-            var viewH = self._clubTablesNode.parent.height;
-            var cardW = tpl ? tpl.width : 0;
-            var cols = Math.max(1, Math.ceil(tables.length / 2)); //两行显示
-            self._clubTableCols = cols;
-            var cW = Math.max(viewW, 10 + cols * cardW + Math.max(0,cols - 1) * 8 + 10);
-            self._clubTablesNode.setContentSize(cW,viewH);
-            //超宽时初始对齐左缘(锚点0.5:向右偏半个溢出量),未超宽回到场景配置位
-            var restX = (self._clubTablesRestX != null) ? self._clubTablesRestX : 0;
-            self._clubTablesNode.x = cW > viewW ? restX + (cW - viewW) / 2 : restX;
+            var cardW = tpl ? tpl.width : 360;
+            var cols = Math.max(1, Math.ceil(tables.length / 2));
+            self._clubTablesNode.width = Math.max(viewW, cols * (cardW + 5) + 5);
             if(tables.length == 0){
                 self._clubAddRow(self._clubTablesNode,0,"暂无桌面(管理员后台添加)","",null,520);
                 return;
@@ -2204,6 +2972,28 @@ cc.Class({
                 self._clubAddTableCard(self._clubTablesNode,i,t);
             });
         });
+    },
+
+    //整场结算弹窗「快速回入」: 回俱乐部后直接进第一张同玩法且未满桌的牌桌(cc.vv.autoQuickJoin 由 BBGame 置位)
+    _clubMaybeQuickJoin:function(tables){
+        if(!cc.vv.autoQuickJoin || !tables || !tables.length) return;
+        var opt = cc.vv.autoQuickJoin;
+        cc.vv.autoQuickJoin = null;
+        var wantType = (typeof opt === "object") ? (opt.gameType || null) : null; //只进和上一局同玩法的房间
+        var self = this;
+        var pick = null;
+        for(var i = 0; i < tables.length; ++i){
+            var t = tables[i];
+            if(wantType){
+                var gt = t.game_type || t.type;
+                if(gt && gt != wantType){ continue; }
+            }
+            var cnt = Number(t.player_count) || 0;
+            if(cnt < this._clubMaxPlayers(t)){ pick = t; break; }
+        }
+        if(!pick) return;
+        console.log("[club] 快速加入: 自动进入未满桌 " + (pick.name || pick.id || ""));
+        setTimeout(function(){ if(cc.vv && self._clubEnterTable) self._clubEnterTable(pick); }, 300);
     },
 
     //点击桌面进入游戏(服务端复用未满房间或自动建房)

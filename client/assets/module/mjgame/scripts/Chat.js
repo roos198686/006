@@ -28,10 +28,18 @@ cc.Class({
         
         cc.vv.chat = this;
         
-        this._btnChat = this.node.getChildByName("btn_chat");
-        this._btnChat.active = cc.vv.replayMgr.isReplay() == false;
+        // 场景 Canvas 下有两套同名 btn_chat/chat(前一套是禁用的旧拷贝), 必须取后面那套可用的,
+        // 否则面板能打开但输入/发送都作用在隐藏的那套上 -> 消息发不出去
+        var pickLast = function (name) {
+            var arr = this.node.children, found = null;
+            for (var i = 0; i < arr.length; ++i) { if (arr[i].name === name) found = arr[i]; }
+            return found;
+        };
+        this._btnChat = pickLast("btn_chat");
+        if (this._btnChat) this._btnChat.active = cc.vv.replayMgr.isReplay() == false;
         
-        this._chatRoot = this.node.getChildByName("chat");
+        this._chatRoot = pickLast("chat");
+        if (!this._chatRoot) return;
         this._chatRoot.active = false;
         
         this._tabQuick = this._chatRoot.getChildByName("quickchatlist");
@@ -58,39 +66,45 @@ cc.Class({
     },
     
     onBtnChatClicked:function(){
+        if(!this._chatRoot) return;
         this._chatRoot.active = true;
     },
     
     onBgClicked:function(){
+        if(!this._chatRoot) return;
         this._chatRoot.active = false;
     },
     
     onTabClicked:function(event){
+        if(!this._chatRoot) return;
         if(event.target.name == "tabQuick"){
-            this._tabQuick.active = true;
-            this._tabEmoji.active = false;
+            if(this._tabQuick) this._tabQuick.active = true;
+            if(this._tabEmoji) this._tabEmoji.active = false;
         }
         else if(event.target.name == "tabEmoji"){
-            this._tabQuick.active = false;
-            this._tabEmoji.active = true;
+            if(this._tabQuick) this._tabQuick.active = false;
+            if(this._tabEmoji) this._tabEmoji.active = true;
         }
     },
     
     onQuickChatItemClicked:function(event){
+        if(!this._chatRoot) return;
         this._chatRoot.active = false;
         var info = this._quickChatInfo[event.target.name];
         cc.vv.net.send("quick_chat",info.index); 
     },
     
     onEmojiItemClicked:function(event){
+        if(!this._chatRoot) return;
         console.log(event.target.name);
         this._chatRoot.active = false;
         cc.vv.net.send("emoji",event.target.name);
     },
     
     onBtnSendChatClicked:function(){
+        if(!this._chatRoot) return;
         this._chatRoot.active = false;
-        if(this._iptChat.string == ""){
+        if(!this._iptChat || this._iptChat.string == ""){
             return;
         }
         cc.vv.net.send("chat",this._iptChat.string);

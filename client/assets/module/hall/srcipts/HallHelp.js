@@ -42,7 +42,15 @@ var TEXTS = {
     baobao_shou: "6张手动摆宝宝(最多6人)。每人发6张牌,自己摆成前2/中2/后2三道。\n" +
         "· 单道规则:对子为宝,宝>散点(两牌相加取个位,9最大0最小);宝排序 宝A>宝K/Q/J>宝10~2。\n" +
         "· 强制 前道≤中道≤后道,摆错为乌龙,三道全输。\n" +
-        "· 三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍。"
+        "· 三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍。",
+    //大厅只介绍宝宝一个玩法:免摆/手摆合并为一条,内容按当前实际规则写
+    baobao: "宝宝(6张玩法,最多6人同桌),分免摆与手摆两种:\n" +
+        "每人发6张牌。免摆由系统自动选出最大牌型亮牌,整手比大小;手摆由自己摆成前2/中2/后2三道,逐道比大小。\n" +
+        "· 牌型从大到小:6同花顺 > 5同花顺带1 > 4条带2单 > 3条带3条 > 3条带对带1 > 6同花 > 6连顺 > 5同花带1 > 5连顺带1 > 3对 > 3组9 > 散牌。\n" +
+        "· 花色优先级:黑桃 > 红桃 > 梅花 > 方片。A在长顺里算最小(A23456的A当1)。\n" +
+        "· 手摆单道:对子为宝,宝>散点(两牌相加取个位,9最大0最小);宝排序 宝A>宝K/Q/J>宝10~2。\n" +
+        "· 手摆强制 前道≤中道≤后道,摆错为乌龙,三道全输。\n" +
+        "· 手摆三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍。"
 };
 
 cc.Class({
@@ -96,21 +104,9 @@ cc.Class({
     },
 
     loadList: function () {
-        var self = this;
-        cc.vv.http.sendRequest("/game_list", {
-            account: cc.vv.userMgr.account,
-            sign: cc.vv.userMgr.sign
-        }, function (ret) {
-            if (ret == null || ret.errcode != 0) {
-                //请求失败也要填文字,避免弹窗只有背景一片空白
-                if (self._title && self._title.getComponent(cc.Label)) { self._title.getComponent(cc.Label).string = "玩法介绍"; }
-                if (self._body && self._body.getComponent(cc.Label)) { self._body.getComponent(cc.Label).string = "玩法列表获取失败,请稍后重试。"; }
-                if (cc.vv.wc) { cc.vv.wc.showError("玩法列表获取失败"); }
-                return;
-            }
-            self._games = ret.games || [];
-            self.renderList();
-        });
+        //只介绍宝宝一个玩法:固定单条,不再读取玩法列表接口(避免显示后台配置的名称/文字)
+        this._games = [{ type: "baobao", name: "宝宝" }];
+        this.renderList();
     },
 
     renderList: function () {

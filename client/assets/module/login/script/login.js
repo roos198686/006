@@ -128,19 +128,22 @@ cc.Class({
         cc.vv.voiceMgr = new VoiceMgr();
         cc.vv.voiceMgr.init();
         var AudioMgr = require("AudioMgr");
-        cc.vv.audioMgr = new AudioMgr();
-        cc.vv.audioMgr.init();
-        // 全局按钮点击音效
-        var _nodeEmit = cc.Node.prototype.emit;
-        cc.Node.prototype.emit = function(type){
-            if(type === "touch-end" && cc.vv && cc.vv.audioMgr){
-                var btn = this.getComponent ? this.getComponent(cc.Button) : null;
-                if((btn && btn.interactable !== false) || /^btn/i.test(this.name) || /button/i.test(this.name)){
-                    cc.vv.audioMgr.playSFX("btnClick.wav");
+        // 单例: 已存在就不要重建, 否则正在播放的 BGM 句柄会丢失(旧音乐停不掉/叠音)
+        if(!cc.vv.audioMgr) { cc.vv.audioMgr = new AudioMgr(); cc.vv.audioMgr.init(); }
+        // 全局按钮点击音效(只挂一次: loading/login 两处都会执行, 重复包装会让每次点击播两遍)
+        if (!cc.Node.prototype._bbBtnSoundHooked) {
+            cc.Node.prototype._bbBtnSoundHooked = true;
+            var _nodeEmit = cc.Node.prototype.emit;
+            cc.Node.prototype.emit = function(type){
+                if(type === "touch-end" && cc.vv && cc.vv.audioMgr){
+                    var btn = this.getComponent ? this.getComponent(cc.Button) : null;
+                    if((btn && btn.interactable !== false) || /^btn/i.test(this.name) || /button/i.test(this.name)){
+                        cc.vv.audioMgr.playSFX("btnClick.wav");
+                    }
                 }
-            }
-            return _nodeEmit.apply(this, arguments);
-        };
+                return _nodeEmit.apply(this, arguments);
+            };
+        }
         var Utils = require("Utils");
         cc.vv.utils = new Utils();
         try {

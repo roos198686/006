@@ -95,6 +95,14 @@ cc.Class({
         }   
     },
     
+    //WaitingConnection节点在场景里默认隐藏,组件onLoad不执行,cc.vv.wc可能未绑定;先激活一次让其onLoad完成绑定(内部会按_isShow立即隐藏)
+    _ensureWc:function(){
+        if(!cc.vv.wc || !cc.isValid(cc.vv.wc.node)){
+            var wcn = cc.find("Canvas/WaitingConnection");
+            if(wcn){ wcn.active = true; }
+        }
+        return cc.vv.wc;
+    },
     //登录
     login:function(){
         var self = this; 
@@ -139,6 +147,7 @@ cc.Class({
                 }
             }
         };
+        this._ensureWc();
         cc.vv.wc.show("正在登录游戏");  //显示dialog
         //登录请求参数 账户 标志
         cc.vv.http.sendRequest("/login",{account:this.account,sign:this.sign},onLogin);
@@ -208,6 +217,7 @@ cc.Class({
             sign:cc.vv.userMgr.sign,
             roomid:roomId
         };
+        this._ensureWc();
         cc.vv.wc.show("正在进入房间 " + roomId);
         cc.vv.http.sendRequest("/enter_private_room",data,onEnter);
     },

@@ -96,10 +96,6 @@ cc.Class({
                 if(self._rp){
                     self.closeReplay();
                 }
-                else if(self._curRoom != null){
-                    self._curRoom = null;
-                    self.showRooms();
-                }
                 else{
                     self._root.active = false;
                 }
@@ -147,6 +143,10 @@ cc.Class({
     },
 
     typeName: function(type){
+        var s = String(type || "");
+        if(s.indexOf("baobao_mian") === 0){ return "六宝免摆"; }
+        if(s.indexOf("baobao_shou") === 0){ return "六宝手动"; }
+        if(s.indexOf("baobao") === 0){ return "六宝"; }
         return TYPE_NAMES[type] || (type || "对局");
     },
 
@@ -207,45 +207,71 @@ cc.Class({
         btn.getChildByName("Label").getComponent(cc.Label).string = opText;
     },
 
-    //第一级:房间
+    //扁平列表:每个房间的每一局一行(玩法名/时间/房号/局号 + 详情),与俱乐部战绩弹窗一致
     showRooms: function(){
         this.clearList();
-        var data = this._rooms;
+        this._flat = [];
+        var data = this._rooms || [];
+        var idx = 0;
         for(var i = 0; i < data.length; ++i){
             var r = data[i];
-            var node = this.getItem(i);
-            this.setItemText(node, "" + (i + 1), "房间:" + r.roomid, this.dateFormat(r.create_time),
-                [this.typeName(r.type), "共" + r.games.length + "局", "", ""], "详情", i);
+            var games = r.games || [];
+            for(var g = 0; g < games.length; ++g){
+                var gm = games[g];
+                this._flat.push({room: r, game: gm});
+                var node = this.getItem(idx);
+                this.setItemText(node, this.typeName(r.type), "房间:" + r.roomid, this.dateFormat(gm.create_time),
+                    ["第" + gm.index + "局", "", "", ""], "详情", idx);
+                idx++;
+            }
         }
-        this._emptyTip.active = data.length == 0;
+        this._emptyTip.active = idx == 0;
         this._curRoom = null;
     },
 
-    //第二级:局
-    showGames: function(room){
-        this.clearList();
-        var games = room.games || [];
-        for(var i = 0; i < games.length; ++i){
-            var g = games[i];
-            var node = this.getItem(i);
-            this.setItemText(node, "第" + g.index + "局", "房间:" + room.roomid, this.dateFormat(g.create_time),
-                [this.typeName(room.type), "", "", ""], "回放", i);
+    onItemClicked: function(idx){
+        var entry = this._flat && this._flat[idx];
+        if(entry == null){ return; }
+        var type = String(entry.room.type || "");
+        if(type.indexOf("baobao") !== 0){
+            //非宝宝玩法(旧麻将录像):沿用内置画布回放
+            this.playReplay(entry.room, entry.game.index);
+            return;
         }
-        this._emptyTip.active = games.length == 0;
-        this._curRoom = room;
+        //宝宝玩法:进宝宝牌桌场景回放(与俱乐部战绩详情一致)
+        this.openBbReplay(entry.room.uuid, entry.game.index);
     },
 
-    onItemClicked: function(idx){
-        if(this._curRoom == null){
-            var room = this._rooms[idx];
-            if(room == null){ return; }
-            this.showGames(room);
+    //拉取该局录像 → 交给宝宝牌桌场景做回放
+    openBbReplay: function(uuid, index){
+        var self = this;
+        if(!uuid || !index){
+            cc.vv.wc.showError("该局没有录像，无法回放");
+            return;
         }
-        else{
-            var g = this._curRoom.games[idx];
-            if(g == null){ return; }
-            this.playReplay(this._curRoom, g.index);
-        }
+        if(this._bbLoading){ return; }
+        this._bbLoading = true;
+        cc.vv.http.sendRequest("/get_replay", {
+            account: cc.vv.userMgr.account,
+            sign: cc.vv.userMgr.sign,
+            uuid: uuid,
+            index: index
+        }, function(ret){
+            self._bbLoading = false;
+            if(ret == null || ret.errcode != 0){
+                var msg = ret && ret.errcode === 1 ? "该局录像已过期" : (ret && ret.errcode === 2 ? "没有该局回放权限" : ((ret && ret.errmsg) || "获取回放失败"));
+                cc.vv.wc.showError(msg);
+                return;
+            }
+            var rp = ret.replay;
+            if(!rp || !rp.events || !rp.events.length){
+                cc.vv.wc.showError("该局没有录像，无法回放");
+                return;
+            }
+            cc.vv.bbReplayData = rp;
+            var t = String(rp.type || "");
+            cc.director.loadScene(t.indexOf("baobao_shou") === 0 ? "mjgame_bb_shou" : "mjgame_bb_mian");
+        });
     },
 
     //==================== 回放 ====================

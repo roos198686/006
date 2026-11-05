@@ -5,6 +5,7 @@ var express = require('express');
 var tokenMgr = require('./tokenmgr');
 var roomMgr = require('./roommgr');
 var userMgr = require('./usermgr');
+var charge = require('./charge');
 var http = require('../utils/http');
 var io = null;
 
@@ -312,6 +313,15 @@ exports.start = function(conf,mgr){
 			userMgr.broacastInRoom('user_ready_push',{userid:userId,ready:true},userId,true);
 		});
 
+		// 抢庄牛牛: 抢庄倍数(0/1/2/3)
+		socket.on('nn_bet',function(data){
+			var userId = socket.userId;
+			if(userId == null || socket.gameMgr == null || socket.gameMgr.bet == null){
+				return;
+			}
+			socket.gameMgr.bet(userId, data && data.multiple);
+		});
+
 		//换牌
 		socket.on('huanpai',function(data){
 			if(socket.userId == null){
@@ -568,6 +578,12 @@ exports.start = function(conf,mgr){
 			}
 			var phizId = data;
 			userMgr.broacastInRoom('emoji_push',{sender:socket.userId,content:phizId},socket.userId,true);
+			//房间发表情扣豆(额度后台配置, 未配置则不扣)
+			var rid = roomMgr.getUserRoom(socket.userId);
+			var ri = rid != null ? roomMgr.getRoom(rid) : null;
+			if(ri && ri.conf){
+				charge.charge(ri.conf.type, socket.userId, "emoji", rid);
+			}
 		});
 		
 		//语音使用SDK不出现在这里

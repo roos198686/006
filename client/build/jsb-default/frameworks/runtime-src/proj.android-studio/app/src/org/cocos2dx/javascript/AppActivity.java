@@ -132,4 +132,15 @@ public class AppActivity extends Cocos2dxActivity {
         SDKWrapper.getInstance().onStart();
         super.onStart();
     }
+    //复制文本到系统剪贴板(供 jsb.reflection.callStaticMethod 调用)
+    public static boolean copyText(final String text) {
+        try {
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) getContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("share", text));
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
 }

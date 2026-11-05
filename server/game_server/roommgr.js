@@ -121,6 +121,18 @@ function getGameMgrByType(type){
 	if(type == "baobao_mian" || type == "baobao_shou"){
 		return require("./gamemgr_baobao"); // 宝宝(6张) 免摆/手摆共用
 	}
+	if(type == "zj_lao"){
+		return require("./gamemgr_zjlao");  // 诸暨赖倒胡(财神赖子/红中)
+	}
+	if(type == "zp4"){
+		return require("./gamemgr_zp4");    // 漳浦金麻将 4人
+	}
+	if(type == "guanpai2" || type == "guanpai3"){
+		return require("./gamemgr_guanpai"); // 跑得快/关牌 2人/3人
+	}
+	if(type == "niuniu"){
+		return require("./gamemgr_niuniu");  // 抢庄牛牛
+	}
 	// 旧数据兜底
 	return require("./gamemgr_baobao");
 }
@@ -198,8 +210,9 @@ function constructRoomFromDb(dbdata){
 
 exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 	var type = roomConf.type;
-	// 仅开放宝宝两种玩法（6张免摆/6张手动摆）
-	if(type != "baobao_mian" && type != "baobao_shou"){
+	// 开放玩法: 宝宝(免摆/手摆) + 赖倒胡 + 漳浦4人 + 跑得快2/3人 + 牛牛
+	var allowedTypes = ["baobao_mian","baobao_shou","zj_lao","zp4","guanpai2","guanpai3","niuniu"];
+	if(allowedTypes.indexOf(type) < 0){
 		callback(1,null);
 		return;
 	}
@@ -337,6 +350,20 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							conf.cost = 0;  // 宝宝玩法不再扣房卡
 						}
 
+						// 跑得快/关牌: 牌型开关全部走后台 gp_* 配置
+						if(type == "guanpai2" || type == "guanpai3"){
+							conf.gp_four_two = cfg.gp_four_two != null ? cfg.gp_four_two : 1;
+							conf.gp_four_three = cfg.gp_four_three != null ? cfg.gp_four_three : 1;
+							conf.gp_three_one = cfg.gp_three_one != null ? cfg.gp_three_one : 1;
+							conf.gp_last_three_one = cfg.gp_last_three_one != null ? cfg.gp_last_three_one : 0;
+							conf.gp_last_four_two_three = cfg.gp_last_four_two_three != null ? cfg.gp_last_four_two_three : 0;
+							conf.gp_bomb = cfg.gp_bomb != null ? cfg.gp_bomb : 1;
+							conf.gp_bomb_four = cfg.gp_bomb_four != null ? cfg.gp_bomb_four : 1;
+							conf.gp_card_history = cfg.gp_card_history != null ? cfg.gp_card_history : 0;
+							conf.gp_straight_a2 = cfg.gp_straight_a2 != null ? cfg.gp_straight_a2 : 1;
+							conf.taiRules = cfg.tai_rules || null; //出牌倒计时 chupai_timeout 走 tai_rules
+						}
+
 						var roomInfo = {
 							uuid:"",
 							id:roomId,
@@ -456,6 +483,7 @@ exports.enterRoom = function(roomId,userId,userName,callback){
 			if(seat.userId <= 0){
 				seat.userId = userId;
 				seat.name = userName;
+				seat.entryCharged = false; //新入座: 下一局开局时扣"进房首局"豆
 				//宝宝玩法: 座位积分直接显示账户宝宝豆余额
 				var rtype = room.conf && room.conf.type;
 				if(rtype == "baobao_mian" || rtype == "baobao_shou"){
