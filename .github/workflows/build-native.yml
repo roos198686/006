@@ -90,6 +90,24 @@ jobs:
           cmake --build "$OAL/build-ios" --parallel
           ls -la "$OAL/build-ios/libopenal.a"
 
+      - name: Build cocos2d engine (libcocos2d iOS.a)
+        working-directory: client/build/jsb-default/frameworks/cocos2d-x/build
+        run: |
+          xcodebuild -project cocos2d_libs.xcodeproj \
+            -target "libcocos2d iOS" \
+            -configuration Release \
+            -sdk iphoneos \
+            -arch arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+          # 把产出的 .a 拷到 SCMJ 能找到的地方
+          BUILT_A=$(find build -name "libcocos2d iOS.a" 2>/dev/null | head -1)
+          echo "BUILT_A=$BUILT_A"
+          ls -la "$BUILT_A"
+          # 软链到 external/ios/libs/ 让链接器通过 -L../../cocos2d-x/external/ios/libs 能找到
+          ln -sf "$BUILT_A" "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/libcocos2d iOS.a"
+          ls -la "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/libcocos2d iOS.a"
+
       - name: Build unsigned iOS app
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
         run: |
