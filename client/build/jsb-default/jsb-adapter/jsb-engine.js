@@ -1401,55 +1401,24 @@ var handleVolume = function handleVolume(volume) {
   var _effect = {
     volume: 1
   };
-  // ===== 临时诊断+修复(iOS无声):路径解析兜底 + 屏幕红色诊断标签,修好后删除 =====
-  if (!window.__audioDiag) {
-    window.__audioDiagCount = 0;
-    window.__audioDiag = function (msg) {
-      try {
-        console.log('[AUDIODIAG] ' + msg);
-        if (window.__audioDiagCount >= 10) return;
-        window.__audioDiagCount++;
-        if (!cc.director || !cc.director.getRunningScene) return;
-        var scene = cc.director.getRunningScene();
-        if (!scene) return;
-        var lb = window.__audioDiagLabel;
-        if (!lb) {
-          lb = window.__audioDiagLabel = new cc.Label('', 'Arial', 20);
-          lb.setColor(cc.Color.RED);
-          lb.setAnchorPoint(0, 1);
-          lb.setLocalZOrder(999999);
-        }
-        lb.string = window.__audioDiagCount + ':' + msg;
-        lb.setPosition(10, cc.view.getVisibleSize().height - 10);
-        if (lb.parent !== scene) scene.addChild(lb);
-      } catch (e) {}
-    };
-  }
   audioEngine.play = function (clip, loop, volume) {
     if (typeof volume !== 'number') {
       volume = 1;
     }
     var audioFilePath;
     if (typeof clip === 'string') {
+      // backward compatibility since 1.10
+      cc.warnID(8401, 'cc.audioEngine', 'cc.AudioClip', 'AudioClip', 'cc.AudioClip', 'audio');
       audioFilePath = clip;
     } else {
-      audioFilePath = clip._nativeAsset;
-      if (!audioFilePath) {
-        try { audioFilePath = cacheManager.getCache(clip.nativeUrl) || clip.nativeUrl; } catch (e) {}
-      }
-      if (!audioFilePath && clip._uuid) {
-        try {
-          audioFilePath = cc.assetManager.utils.getUrlWithUuid(clip._uuid, { nativeExt: clip._native || '.mp3', isNative: true });
-        } catch (e2) {}
-      }
-      clip._nativeAsset = audioFilePath;
-      clip.loaded = true;
-      if (!audioFilePath) {
-        window.__audioDiag('PLAY-EMPTY uuid=' + clip._uuid + ' native=' + clip._native + ' name=' + clip.name);
-        return -1;
+      if (clip.loaded) {
+        audioFilePath = clip._nativeAsset;
+      } else {
+        // audio delay loading
+        clip._nativeAsset = audioFilePath = cacheManager.getCache(clip.nativeUrl) || clip.nativeUrl;
+        clip.loaded = true;
       }
     }
-    window.__audioDiag('PLAY ' + audioFilePath);
     return audioEngine.play2d(audioFilePath, loop, volume);
   };
   audioEngine.playMusic = function (clip, loop) {
