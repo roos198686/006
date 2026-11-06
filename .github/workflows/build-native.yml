@@ -13,16 +13,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore cocos2d-x engine libs
-        run: |
-          git fetch --unshallow || true
-          # bd2c517 has engine .a libs (9a137c8 replaced with jsb-link)
-          git checkout bd2c517 -- client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/
-          git checkout bd2c517 -- client/build/jsb-default/frameworks/cocos2d-x/external/
-          # a396f8f has openal-soft source (added after bd2c517)
-          git checkout a396f8f -- client/build/jsb-default/frameworks/cocos2d-x/external/openal-soft/
-          ls client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/*.a 2>/dev/null | head -3
-          ls client/build/jsb-default/frameworks/cocos2d-x/external/openal-soft/CMakeLists.txt 2>/dev/null
+      # cocos2d-x engine libs are now committed directly in the repo
+      - name: Verify engine libs present
+        run: ls client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/*.a 2>/dev/null | head -3
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -66,11 +59,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore cocos2d-x engine libs
-        run: |
-          git fetch --unshallow || true
-          git checkout bd2c517 -- client/build/jsb-default/frameworks/cocos2d-x/
-          ls client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/*.a
+      - name: Verify engine libs present
+        run: ls client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/*.a
 
       - name: Re-archive libwebp (旧归档成员未 8 字节对齐,新 ld 拒绝)
         run: |
