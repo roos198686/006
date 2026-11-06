@@ -162,8 +162,8 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <!-- 玩法列表(不可添加, 可编辑/禁用/删除) -->
         <div id="cdPanelGames" class="panel" style="padding:16px">
           <div class="toolbar">
+            <button class="btn btn-success btn-sm" onclick="clubShowAddGameModal()">+ 添加玩法</button>
             <button class="btn btn-primary btn-sm" onclick="clubLoadGames()">刷新</button>
-            <span style="font-size:12px;color:#999">总管理端不可添加玩法, 仅可编辑/禁用/删除已添加玩法</span>
           </div>
           <div class="card-grid" id="cdGameList"></div>
         </div>
@@ -499,6 +499,25 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
       <button class="btn btn-primary" onclick="confirmGemChange()">确认</button>
     </div>
   </div>
+
+<!-- 添加玩法弹窗 -->
+<div id="clubAddGameModal" class="modal">
+  <div class="modal-content">
+    <h3>添加玩法</h3>
+    <div class="form-group">
+      <label>选择玩法</label>
+      <select id="club_add_game_type"></select>
+    </div>
+    <div class="form-group">
+      <label>玩法名称</label>
+      <input type="text" id="club_add_game_name">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="clubCloseAddGameModal()">取消</button>
+      <button class="btn btn-primary" onclick="clubDoAddGame()">确定</button>
+    </div>
+  </div>
+</div>
 
 <!-- === 俱乐部详情弹窗 === -->
 <!-- 编辑玩法弹窗 (总管理端无添加玩法入口) -->
@@ -1701,6 +1720,40 @@ function clubRenderArray(id, arr){
 }
 function clubGetArray(id){ return Array.prototype.slice.call(document.getElementById(id).querySelectorAll('input')).map(function(i){ return parseInt(i.value)||0; }); }
 function clubCloseGameModal(){ document.getElementById('clubGameModal').style.display = 'none'; }
+
+// 添加玩法
+var allGameTypes = [];
+function clubShowAddGameModal(){
+  // 先拉取全部可用玩法
+  api('/admin/game_configs').then(function(ret){
+    if(ret.code !== 0){ alert(ret.msg); return; }
+    allGameTypes = ret.data || [];
+    var sel = document.getElementById('club_add_game_type');
+    sel.innerHTML = '';
+    allGameTypes.forEach(function(g){
+      var o = document.createElement('option');
+      o.value = g.type;
+      o.textContent = g.name + ' (' + g.type + ')';
+      sel.appendChild(o);
+    });
+    if(allGameTypes.length > 0){
+      document.getElementById('club_add_game_name').value = allGameTypes[0].name;
+    }
+    document.getElementById('clubAddGameModal').style.display = 'block';
+  });
+}
+function clubCloseAddGameModal(){ document.getElementById('clubAddGameModal').style.display = 'none'; }
+function clubDoAddGame(){
+  var type = document.getElementById('club_add_game_type').value;
+  var name = document.getElementById('club_add_game_name').value;
+  if(!type || !name){ alert('请选择玩法并填写名称'); return; }
+  api('/admin/club_game', {club_id: curClubId, game_type: type, name: name}).then(function(ret){
+    if(ret.code !== 0){ alert(ret.msg); return; }
+    alert('添加成功');
+    clubCloseAddGameModal();
+    clubLoadGames();
+  });
+}
 function clubSaveGame(){
   var data = {
     name: document.getElementById('club_game_name').value.trim(),
@@ -1794,7 +1847,6 @@ function clubShowTableModal(){
   document.getElementById('club_tbl_banker_mode').value = '1';
   document.getElementById('club_tbl_min_bean').value = '0';
   document.getElementById('club_tbl_kick_bean').value = '0';
-  document.getElementById('club_tbl_name').value = clubNextTableName();
   var dOpts = g.difen_options || [];
   document.getElementById('club_tbl_difen').value = dOpts.length ? dOpts[0] : 1;
   clubFillIndexSel('club_tbl_jushu', g.jushu_options);

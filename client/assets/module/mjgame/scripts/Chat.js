@@ -30,8 +30,10 @@ cc.Class({
         
         // 场景 Canvas 下有两套同名 btn_chat/chat(前一套是禁用的旧拷贝), 必须取后面那套可用的,
         // 否则面板能打开但输入/发送都作用在隐藏的那套上 -> 消息发不出去
+        // 注意: 必须用 self 闭包引用, 普通函数调用里 this 是 undefined(严格模式), 直接写 this.node 会崩
+        var self = this;
         var pickLast = function (name) {
-            var arr = this.node.children, found = null;
+            var arr = self.node.children, found = null;
             for (var i = 0; i < arr.length; ++i) { if (arr[i].name === name) found = arr[i]; }
             return found;
         };

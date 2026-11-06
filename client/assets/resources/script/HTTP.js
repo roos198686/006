@@ -33,7 +33,7 @@ var HTTP = cc.Class({
         //发送请求  路径 ，数据,handler,额外url
         sendRequest : function(path,data,handler,extraUrl){
             var xhr = cc.loader.getXMLHttpRequest();
-            xhr.timeout = 5000;
+            xhr.timeout = 15000;
             var str = "?";
             for(var k in data){
                 if(str != "?"){

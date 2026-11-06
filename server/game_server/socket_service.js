@@ -109,7 +109,13 @@ exports.start = function(conf,mgr){
 	var httpServer = require('http').createServer(app);
 	//禁用permessage-deflate:Cocos原生(jsb)WebSocket客户端的压缩扩展实现有缺陷,
 	//协商成功后帧解析异常导致连接秒断、回退polling也发不出数据(iOS进房黑屏)
-	io = require('socket.io')(httpServer, { perMessageDeflate: false, httpCompression: false });
+	io = require('socket.io')(httpServer, { 
+		perMessageDeflate: false, 
+		httpCompression: false,
+		pingTimeout: 60000,      // 60秒超时(默认20秒,iOS弱网容易触发)
+		pingInterval: 10000,      // 10秒发一次ping(默认25秒)
+		upgradeTimeout: 30000     // 升级超时30秒
+	});
 	httpServer.listen(config.CLIENT_PORT, "0.0.0.0");
 	
 	io.sockets.on('connection',function(socket){
