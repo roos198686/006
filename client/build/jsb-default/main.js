@@ -1,92 +1,144 @@
-/****************************************************************************
- Copyright (c) 2017-2018 Xiamen Yaji Software Co., Ltd.
+window.boot = function () {
+    var settings = window._CCSettings;
+    window._CCSettings = undefined;
+    var onProgress = null;
+    
+    var RESOURCES = cc.AssetManager.BuiltinBundleName.RESOURCES;
+    var INTERNAL = cc.AssetManager.BuiltinBundleName.INTERNAL;
+    var MAIN = cc.AssetManager.BuiltinBundleName.MAIN;
+    function setLoadingDisplay () {
+        // Loading splash scene
+        var splash = document.getElementById('splash');
+        var progressBar = splash.querySelector('.progress-bar span');
+        onProgress = function (finish, total) {
+            var percent = 100 * finish / total;
+            if (progressBar) {
+                progressBar.style.width = percent.toFixed(2) + '%';
+            }
+        };
+        splash.style.display = 'block';
+        progressBar.style.width = '0%';
 
- http://www.cocos.com
+        cc.director.once(cc.Director.EVENT_AFTER_SCENE_LAUNCH, function () {
+            splash.style.display = 'none';
+        });
+    }
 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated engine source code (the "Software"), a limited,
- worldwide, royalty-free, non-assignable, revocable and non-exclusive license
- to use Cocos Creator solely to develop games on your target platforms. You shall
- not use Cocos Creator software for developing other software or tools that's
- used for developing games. You are not granted to publish, distribute,
- sublicense, and/or sell copies of Cocos Creator.
+    var onStart = function () {
 
- The software or tools in this License Agreement are licensed, not sold.
- Xiamen Yaji Software Co., Ltd. reserves all rights not expressly granted to you.
+        cc.view.enableRetina(true);
+        cc.view.resizeWithBrowserSize(true);
 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- THE SOFTWARE.
- ****************************************************************************/
+        if (cc.sys.isBrowser) {
+            setLoadingDisplay();
+        }
 
-/**
- * A brief explanation for "project.json":
- * Here is the content of project.json file, this is the global configuration for your game, you can modify it to customize some behavior.
- * The detail of each field is under it.
- {
-    "project_type": "javascript",
-    // "project_type" indicate the program language of your project, you can ignore this field
+        if (cc.sys.isMobile) {
+            if (settings.orientation === 'landscape') {
+                cc.view.setOrientation(cc.macro.ORIENTATION_LANDSCAPE);
+            }
+            else if (settings.orientation === 'portrait') {
+                cc.view.setOrientation(cc.macro.ORIENTATION_PORTRAIT);
+            }
+            cc.view.enableAutoFullScreen([
+                cc.sys.BROWSER_TYPE_BAIDU,
+                cc.sys.BROWSER_TYPE_BAIDU_APP,
+                cc.sys.BROWSER_TYPE_WECHAT,
+                cc.sys.BROWSER_TYPE_MOBILE_QQ,
+                cc.sys.BROWSER_TYPE_MIUI,
+                cc.sys.BROWSER_TYPE_HUAWEI,
+                cc.sys.BROWSER_TYPE_UC,
+            ].indexOf(cc.sys.browserType) < 0);
+        }
 
-    "debugMode"     : 1,
-    // "debugMode" possible values :
-    //      0 - No message will be printed.
-    //      1 - cc.error, cc.assert, cc.warn, cc.log will print in console.
-    //      2 - cc.error, cc.assert, cc.warn will print in console.
-    //      3 - cc.error, cc.assert will print in console.
-    //      4 - cc.error, cc.assert, cc.warn, cc.log will print on canvas, available only on web.
-    //      5 - cc.error, cc.assert, cc.warn will print on canvas, available only on web.
-    //      6 - cc.error, cc.assert will print on canvas, available only on web.
+        // Limit downloading max concurrent task to 2,
+        // more tasks simultaneously may cause performance draw back on some android system / browsers.
+        // You can adjust the number based on your own test result, you have to set it before any loading process to take effect.
+        if (cc.sys.isBrowser && cc.sys.os === cc.sys.OS_ANDROID) {
+            cc.assetManager.downloader.maxConcurrency = 2;
+            cc.assetManager.downloader.maxRequestsPerFrame = 2;
+        }
 
-    "showFPS"       : true,
-    // Left bottom corner fps information will show when "showFPS" equals true, otherwise it will be hide.
+        var launchScene = settings.launchScene;
+        var bundle = cc.assetManager.bundles.find(function (b) {
+            return b.getSceneInfo(launchScene);
+        });
+        
+        bundle.loadScene(launchScene, null, onProgress,
+            function (err, scene) {
+                if (!err) {
+                    cc.director.runSceneImmediate(scene);
+                    if (cc.sys.isBrowser) {
+                        // show canvas
+                        var canvas = document.getElementById('GameCanvas');
+                        canvas.style.visibility = '';
+                        var div = document.getElementById('GameDiv');
+                        if (div) {
+                            div.style.backgroundImage = '';
+                        }
+                        console.log('Success to load scene: ' + launchScene);
+                    }
+                }
+            }
+        );
 
-    "frameRate"     : 60,
-    // "frameRate" set the wanted frame rate for your game, but the real fps depends on your game implementation and the running environment.
+    };
 
-    "id"            : "gameCanvas",
-    // "gameCanvas" sets the id of your canvas element on the web page, it's useful only on web.
+    var option = {
+        id: 'GameCanvas',
+        debugMode: settings.debug ? cc.debug.DebugMode.INFO : cc.debug.DebugMode.ERROR,
+        showFPS: settings.debug,
+        frameRate: 60,
+        groupList: settings.groupList,
+        collisionMatrix: settings.collisionMatrix,
+    };
 
-    "renderMode"    : 0,
-    // "renderMode" sets the renderer type, only useful on web :
-    //      0 - Automatically chosen by engine
-    //      1 - Forced to use canvas renderer
-    //      2 - Forced to use WebGL renderer, but this will be ignored on mobile browsers
+    cc.assetManager.init({ 
+        bundleVers: settings.bundleVers,
+        remoteBundles: settings.remoteBundles,
+        server: settings.server
+    });
+    
+    var bundleRoot = [INTERNAL];
+    settings.hasResourcesBundle && bundleRoot.push(RESOURCES);
 
-    "engineDir"     : "frameworks/cocos2d-html5/",
-    // (Deprecated) In debug mode, if you use the whole engine to develop your game, you should specify its relative path with "engineDir",
-    // but if you are using a single engine file, you can ignore it.
+    var count = 0;
+    function cb (err) {
+        if (err) return console.error(err.message, err.stack);
+        count++;
+        if (count === bundleRoot.length + 1) {
+            cc.assetManager.loadBundle(MAIN, function (err) {
+                if (!err) cc.game.run(option, onStart);
+            });
+        }
+    }
 
-    "modules"       : ["cocos2d"],
-    // "modules" defines which modules you will need in your game, it's useful only on web,
-    // using this can greatly reduce your game's resource size, and the cocos console tool can package your game with only the modules you set.
-    // For details about modules definitions, you can refer to "../../frameworks/cocos2d-html5/modulesConfig.json".
+    cc.assetManager.loadScript(settings.jsList.map(function (x) { return 'src/' + x;}), cb);
 
-    "jsList"        : [
-    ]
-    // "jsList" sets the list of js files in your game.
- }
- *
- */
-
-cc.game.onStart = function(){
-    if(!cc.sys.isNative && document.getElementById("cocosLoading")) //If referenced loading.js, please remove it
-        document.body.removeChild(document.getElementById("cocosLoading"));
-
-    // Pass true to enable retina display, disabled by default to improve performance
-    cc.view.enableRetina(false);
-    // Adjust viewport meta
-    cc.view.adjustViewPort(true);
-    // Setup the resolution policy and design resolution size
-    cc.view.setDesignResolutionSize(800, 450, cc.ResolutionPolicy.SHOW_ALL);
-    // The game will be resized when browser size change
-    cc.view.resizeWithBrowserSize(true);
-    //load resources
-    cc.LoaderScene.preload(g_resources, function () {
-        cc.director.runScene(new HelloWorldScene());
-    }, this);
+    for (var i = 0; i < bundleRoot.length; i++) {
+        cc.assetManager.loadBundle(bundleRoot[i], cb);
+    }
 };
-cc.game.run();
+
+if (window.jsb) {
+    var isRuntime = (typeof loadRuntime === 'function');
+    if (isRuntime) {
+        require('src/settings.fa012.js');
+        require('src/cocos2d-runtime.js');
+        if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
+            require('src/physics.10dc9.js');
+        }
+        require('jsb-adapter/engine/index.js');
+    }
+    else {
+        require('src/settings.fa012.js');
+        require('src/cocos2d-jsb.8491d.js');
+        if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
+            require('src/physics.10dc9.js');
+        }
+        require('jsb-adapter/jsb-engine.js');
+    }
+
+    cc.macro.CLEANUP_IMAGE_CACHE = true;
+    window.boot();
+}
