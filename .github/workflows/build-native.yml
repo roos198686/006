@@ -86,42 +86,10 @@ jobs:
           cmake --build "$OAL/build-ios" --parallel
           ls -la "$OAL/build-ios/libopenal.a"
 
-      - name: Build libcocos2d iOS engine library
-        run: |
-          set -e
-          COCOS2D_LIBS="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build/cocos2d_libs.xcodeproj"
-          echo "=== 编 libcocos2d iOS target ==="
-          xcodebuild -project "$COCOS2D_LIBS" \
-            -target "libcocos2d iOS" \
-            -configuration Release \
-            -sdk iphoneos \
-            -arch arm64 \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tail -20
-          echo ""
-          echo "=== 找编好的 .a ==="
-          find "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build" -name "*.a" 2>/dev/null
-
       - name: Build unsigned iOS app
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
         run: |
-          set -e
           OAL="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/openal-soft"
-          LIBS_DIR="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs"
-          
-          # 找编好的 libcocos2d iOS.a 并复制到 external/ios/libs
-          COCOS_A=$(find "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build" -name "libcocos2d iOS.a" 2>/dev/null | head -1)
-          if [ -z "$COCOS_A" ]; then
-            echo "ERROR: libcocos2d iOS.a not found after build!"
-            find "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x" -name "*.a" 2>/dev/null
-            exit 1
-          fi
-          echo "Found: $COCOS_A"
-          cp "$COCOS_A" "$LIBS_DIR/libcocos2d iOS.a"
-          ls -la "$LIBS_DIR/libcocos2d iOS.a"
-          
           xcodebuild -project SCMJ.xcodeproj \
             -target SCMJ-mobile \
             -configuration Release \
