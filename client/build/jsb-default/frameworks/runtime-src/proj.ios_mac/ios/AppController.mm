@@ -77,18 +77,6 @@ Application* app = nullptr;
     
     [window makeKeyAndVisible];
 
-    // ===== 临时诊断：启动弹窗，确认装的是诊断包，修好后删除 =====
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"DIAG-LAUNCH"
-                                                                       message:@"诊断包已启动(含音频探针)"
-                                                                preferredStyle:UIAlertControllerStyleAlert];
-        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
-        UIViewController* root = window.rootViewController;
-        while (root.presentedViewController) root = root.presentedViewController;
-        [root presentViewController:alert animated:YES completion:nil];
-    });
-    // ===== 诊断代码结束 =====
-
     [[UIApplication sharedApplication] setStatusBarHidden:YES];
     
     //run the cocos2d-x game scene

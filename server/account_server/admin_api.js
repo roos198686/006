@@ -97,6 +97,24 @@ app.post('/admin/logout', auth, function(req, res){
     send(res, 0, "ok");
 });
 
+// 自己改密码(验证旧密码)
+app.post('/admin/change_password', auth, function(req, res){
+    var oldPwd = req.body.old_password;
+    var newPwd = req.body.new_password;
+    if(!oldPwd || !newPwd){ send(res, 1, "旧密码和新密码不能为空"); return; }
+    if(newPwd.length < 4){ send(res, 1, "新密码至少4位"); return; }
+    var id = req.adminUser.id;
+    db.query('SELECT password FROM t_admin_users WHERE id=' + id + ' LIMIT 1', function(err, rows){
+        if(err){ send(res, 500, "数据库错误"); return; }
+        if(!rows || rows.length === 0){ send(res, 1, "账号不存在"); return; }
+        if(rows[0].password !== crypto.md5(oldPwd)){ send(res, 1, "旧密码错误"); return; }
+        db.query('UPDATE t_admin_users SET password="' + crypto.md5(newPwd) + '" WHERE id=' + id, function(err2){
+            if(err2){ send(res, 500, "数据库错误"); return; }
+            send(res, 0, "密码已修改, 请重新登录");
+        });
+    });
+});
+
 // ============ 玩法配置管理 ============
 // 获取所有玩法配置
 app.get('/admin/game_configs', auth, function(req, res){
@@ -239,23 +257,28 @@ app.delete('/admin/game_config/:id', auth, function(req, res){
 });
 
 // ============ 用户管理 ============
-// 查询用户
+// 查询用户:super 看全部,club 只看本俱乐部成员
 app.get('/admin/users', auth, function(req, res){
     var keyword = req.query.keyword || '';
     var page = parseInt(req.query.page) || 1;
     var pageSize = parseInt(req.query.pageSize) || 20;
     var offset = (page - 1) * pageSize;
-    var where = '';
+    var kwName = keyword ? (/[^\x00-\x7F]/.test(keyword) ? Buffer.from(keyword, 'utf8').toString('base64') : keyword) : '';
+
+// club 角色现在也看全部,不按俱乐部过滤
+    var joinSql = '';
+    var extraWhere = '';
+
     if(keyword){
-        //昵称在库中是base64存储,中文昵称需转base64后匹配
-        var kwName = /[^\x00-\x7F]/.test(keyword) ? Buffer.from(keyword, 'utf8').toString('base64') : keyword;
-        where = ' WHERE userid LIKE "%' + keyword + '%" OR account LIKE "%' + keyword + '%" OR name LIKE "%' + kwName + '%"';
+        extraWhere = ' WHERE t_users.userid LIKE "%' + keyword + '%" OR t_users.account LIKE "%' + keyword + '%" OR t_users.name LIKE "%' + kwName + '%"';
     }
-    var countSql = 'SELECT COUNT(*) as total FROM t_users' + where;
+    // club 角色 + keyword 时,where 需要跟 join 结合
+    // club 无 keyword: join 本身就过滤了; club 有 keyword: join + where 都生效
+    var countSql = 'SELECT COUNT(*) as total FROM t_users' + joinSql + extraWhere;
     db.query(countSql, function(err, countRows){
         if(err){ send(res, 500, "数据库错误"); return; }
         var total = countRows[0].total;
-        var sql = 'SELECT userid,account,name,sex,gems,coins,roomid FROM t_users' + where + ' ORDER BY userid DESC LIMIT ' + offset + ',' + pageSize;
+        var sql = 'SELECT t_users.userid,t_users.account,t_users.name,t_users.sex,t_users.gems,t_users.coins,t_users.roomid FROM t_users' + joinSql + extraWhere + ' ORDER BY t_users.userid DESC LIMIT ' + offset + ',' + pageSize;
         db.query(sql, function(err, rows){
             if(err){ send(res, 500, "数据库错误"); return; }
             rows.forEach(function(r){ if(r.name){ r.name = crypto.fromBase64(r.name); } });
@@ -353,29 +376,18 @@ function requireSuper(req, res, next){
     next();
 }
 
-// 校验是否可操作指定俱乐部:超级管理员可操作任意俱乐部,俱乐部管理员只能操作自己绑定的
+// 校验是否可操作指定俱乐部:所有管理员都可操作
 function checkClubOwn(req, res, clubId){
     if(!req.adminUser){ send(res, 403, "未登录"); return false; }
-    if(req.adminUser.role === 'super') return true;
-    if(req.adminUser.role === 'club' && req.adminUser.club_id != null && req.adminUser.club_id == clubId) return true;
-    send(res, 403, "无权操作该俱乐部");
-    return false;
+    return true;
 }
 
-// 解析当前操作的俱乐部ID:超级管理员取请求参数club_id,俱乐部管理员固定为自己的俱乐部
+// 解析当前操作的俱乐部ID:所有角色都从参数取club_id,club 角色能操作任何俱乐部
 function resolveClubId(req, res){
     if(!req.adminUser){ send(res, 403, "未登录"); return null; }
-    if(req.adminUser.role === 'super'){
-        var cid = parseInt(req.query.club_id || (req.body && req.body.club_id));
-        if(!(cid > 0)){ send(res, 1, "club_id required"); return null; }
-        return cid;
-    }
-    if(req.adminUser.role === 'club'){
-        if(!(req.adminUser.club_id > 0)){ send(res, 403, "该账号未绑定俱乐部"); return null; }
-        return req.adminUser.club_id;
-    }
-    send(res, 403, "无权限");
-    return null;
+    var cid = parseInt(req.query.club_id || (req.body && req.body.club_id));
+    if(!(cid > 0)){ send(res, 1, "club_id required"); return null; }
+    return cid;
 }
 
 // ============ 俱乐部内容管理(超级管理员/俱乐部管理员均可,按角色限权) ============
@@ -418,7 +430,9 @@ app.get('/admin/club_games', auth, function(req, res){
                 gp_last_three_one: r.gp_last_three_one != null ? r.gp_last_three_one : 0,
                 gp_last_four_two_three: r.gp_last_four_two_three != null ? r.gp_last_four_two_three : 0,
                 gp_straight_a2: r.gp_straight_a2 != null ? r.gp_straight_a2 : 1,
-                gp_card_history: r.gp_card_history != null ? r.gp_card_history : 0
+                gp_card_history: r.gp_card_history != null ? r.gp_card_history : 0,
+                auto_dissolve_seconds: r.auto_dissolve_seconds != null ? r.auto_dissolve_seconds : 300,
+                tai_rules: r.tai_rules || null
             };
         });
         send(res, 0, "ok", list);
@@ -465,7 +479,7 @@ app.post('/admin/club_game', auth, function(req, res){
     if(!c.game_type || !c.name){ send(res, 1, "玩法类型和名称不能为空"); return; }
     db.club_game_add(cid, c.game_type, c.name,
         c.difen_options || [1, 2, 5], c.jushu_options || [4, 8], c.cost_options || [2, 3],
-        c.sort || 0, function(id){
+        c.sort || 0, c.tai_rules || null, function(id){
             if(id == null){ send(res, 1, "添加失败(该玩法可能已存在)"); return; }
             send(res, 0, "ok", {id: id});
         });
@@ -607,8 +621,8 @@ app.post('/admin/club_member/gems', auth, function(req, res){
     });
 });
 
-// ============ 俱乐部管理(仅超级管理员) ============
-app.get('/admin/clubs', auth, requireSuper, function(req, res){
+// ============ 俱乐部管理(仅超级管理员增删改,所有管理员可读列表) ============
+app.get('/admin/clubs', auth, function(req, res){
     db.admin_club_list(function(rows){
         send(res, 0, "ok", rows);
     });
@@ -634,25 +648,58 @@ app.put('/admin/club/:id', auth, requireSuper, function(req, res){
 
 app.delete('/admin/club/:id', auth, requireSuper, function(req, res){
     var id = parseInt(req.params.id);
-    db.admin_club_delete(id, function(ok){
-        send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+    var priKey = (config && config.ROOM_PRI_KEY) ? config.ROOM_PRI_KEY : '~!@#$(*&^%$&';
+    // 先查出所有该俱乐部的牌桌,逐个清场(解散运行中房间)
+    db.query('SELECT id, roomid FROM t_club_tables WHERE club_id = ' + id, function(err, tables){
+        if(err){ send(res, 500, "数据库错误"); return; }
+        if(!tables || tables.length === 0){
+            // 没有牌桌,直接删
+            db.admin_club_delete(id, function(ok){
+                send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+            });
+            return;
+        }
+        // 逐个清理有房间占用的牌桌
+        var idx = 0;
+        function clearNext(){
+            if(idx >= tables.length){
+                // 所有牌桌清完,开始级联删除
+                db.admin_club_delete(id, function(ok){
+                    send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+                });
+                return;
+            }
+            var t = tables[idx++];
+            if(t.roomid == null){ clearNext(); return; }
+            // 调 game_server clear_room 解散房间
+            db.get_room_data(String(t.roomid), function(roomData){
+                if(roomData == null){
+                    // 房间已不存在,直接解绑牌桌
+                    db.query('UPDATE t_club_tables SET roomid = NULL WHERE id = ' + t.id, function(){ clearNext(); });
+                    return;
+                }
+                var sign = crypto.md5(String(t.roomid) + priKey);
+                http.get(roomData.ip, roomData.port, '/clear_room?roomid=' + t.roomid + '&sign=' + sign, null, function(){
+                    db.query('UPDATE t_club_tables SET roomid = NULL WHERE id = ' + t.id, function(){ clearNext(); });
+                });
+            });
+        }
+        clearNext();
     });
 });
 
-// ============ 管理员账号管理(仅超级管理员) ============
-app.get('/admin/admin_users', auth, requireSuper, function(req, res){
-    db.admin_user_list(function(rows){
-        send(res, 0, "ok", rows);
-    });
+// ============ 管理员账号管理 ============
+// GET 列表:所有管理员(不分角色)看全部
+app.get('/admin/admin_users', auth, function(req, res){
+    db.admin_user_list(function(rows){ send(res, 0, "ok", rows); });
 });
 
-app.post('/admin/admin_user', auth, requireSuper, function(req, res){
+// POST 新建:新建管理员,不绑定俱乐部
+app.post('/admin/admin_user', auth, function(req, res){
     var c = req.body || {};
     var role = c.role === 'club' ? 'club' : 'super';
-    var clubId = role === 'club' ? parseInt(c.club_id) : null;
     if(!c.username || !c.password){ send(res, 1, "用户名和密码不能为空"); return; }
-    if(role === 'club' && !(clubId > 0)){ send(res, 1, "俱乐部管理员必须绑定俱乐部"); return; }
-    db.admin_user_add(c.username, crypto.md5(c.password), role, clubId, function(id, err){
+    db.admin_user_add(c.username, crypto.md5(c.password), role, null, function(id, err){
         if(id == null){
             send(res, 1, (err && err.code === 'ER_DUP_ENTRY') ? "用户名已存在" : "创建失败");
             return;
@@ -661,25 +708,36 @@ app.post('/admin/admin_user', auth, requireSuper, function(req, res){
     });
 });
 
-app.put('/admin/admin_user/:id', auth, requireSuper, function(req, res){
+// PUT 更新:所有角色都能改任意管理员的密码;super 还能改 role/club_id
+app.put('/admin/admin_user/:id', auth, function(req, res){
     var id = parseInt(req.params.id);
     var c = req.body || {};
     var fields = {};
     if(c.password){ fields.password = crypto.md5(c.password); }
-    if(c.role){ fields.role = c.role === 'club' ? 'club' : 'super'; }
-    if(c.club_id !== undefined && c.club_id !== null){
-        fields.club_id = c.club_id === '' ? null : parseInt(c.club_id);
+    if(req.adminUser.role === 'super'){
+        if(c.role){ fields.role = c.role === 'club' ? 'club' : 'super'; }
+        if(c.club_id !== undefined && c.club_id !== null){
+            fields.club_id = c.club_id === '' ? null : parseInt(c.club_id);
+        }
     }
     db.admin_user_update(id, fields, function(ok){
         send(res, ok ? 0 : 1, ok ? "ok" : "更新失败");
     });
 });
 
-app.delete('/admin/admin_user/:id', auth, requireSuper, function(req, res){
+// DELETE 删除:super 可删任意;club 只能删非 super 的管理员
+app.delete('/admin/admin_user/:id', auth, function(req, res){
     var id = parseInt(req.params.id);
     if(id === 1){ send(res, 1, "默认超级管理员账号不可删除"); return; }
-    db.admin_user_delete(id, function(ok){
-        send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+    var delUserRole = null;
+    db.query('SELECT role FROM t_admin_users WHERE id=' + id + ' LIMIT 1', function(err, rows){
+        if(err){ send(res, 500, "数据库错误"); return; }
+        if(!rows || rows.length === 0){ send(res, 1, "管理员不存在"); return; }
+        delUserRole = rows[0].role;
+        if(req.adminUser.role !== 'super' && delUserRole === 'super'){
+            send(res, 403, "无权删除超级管理员"); return;
+        }
+        db.admin_user_delete(id, function(ok){ send(res, ok ? 0 : 1, ok ? "ok" : "删除失败"); });
     });
 });
 

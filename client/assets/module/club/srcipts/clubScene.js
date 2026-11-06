@@ -2143,24 +2143,9 @@ cc.Class({
         }
         this._clubBackBtn = backBtn;
         }
-        //返回按钮右边显示俱乐部名称(顶部通栏内,白底通栏用黑字),与返回按钮间距固定30px
+        //返回按钮右边隐藏俱乐部名称
         var cnNode = this._clubFind(area,"clubName");
-        if(cnNode){
-            var cl = cnNode.getComponent(cc.Label);
-            var cobj = this._clubCur || {};
-            //俱乐部名字段兼容:服务器可能返回 name / club_name / clubName
-            var cname = cobj.name || cobj.club_name || cobj.clubName || "";
-            if(cl && cname){ cl.string = cname; } //取不到名字时保留场景里的默认文字,不置空
-            cnNode.active = true;
-            //俱乐部名称:黑色字体
-            cnNode.color = new cc.Color(0,0,0,255);
-            //与返回按钮右侧边缘保持30px间距(两节点可能不同父节点,用世界坐标换算避免偏差)
-            if(backBtn && cnNode.parent){
-                var backRightWorld = backBtn.convertToWorldSpaceAR(cc.v2((1 - backBtn.anchorX) * backBtn.width, 0));
-                var backRightLocal = cnNode.parent.convertToNodeSpaceAR(backRightWorld);
-                cnNode.x = backRightLocal.x + 30 + cnNode.anchorX * cnNode.width;
-            }
-        }
+        if(cnNode){ cnNode.active = false; }
         //俱乐部名称后面显示玩家房卡数(节点clubGems固化在场景listArea下,位置由编辑器控制,JS只填文字)
         var gemsNode = this._clubFind(area,"clubGems");
         this._clubGemsNode = gemsNode; //缓存引用,供保险柜存取后同步显示 //rc2

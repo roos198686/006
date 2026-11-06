@@ -51,7 +51,10 @@ cc.Class({
         var btn = node.getComponent(cc.Button);
         if (btn) btn.transition = cc.Button.Transition.NONE;
         node.off(cc.Node.EventType.TOUCH_END);
-        node.on(cc.Node.EventType.TOUCH_END, function () { handler.call(target); });
+        node.on(cc.Node.EventType.TOUCH_END, function () {
+            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("btnClick.wav");
+            handler.call(target);
+        });
     },
     rankOf: function (id) { return Math.floor(id / 4) + 2; },
     suitOf: function (id) { return id % 4; },
@@ -1583,15 +1586,23 @@ cc.Class({
     updateRoomInfo: function () {
         var nm = cc.vv.gameNetMgr;
         var conf = nm.conf || {};
-        //是否有庄:banker_mode未配置默认有庄,0为无庄
-        var bankerTxt = (conf.banker_mode != null && !Number(conf.banker_mode)) ? "无庄" : "有庄";
+        // 玩法名(记号): type → 中文
+        var wanfaName = "血战宝宝";
+        if (conf.type === "baobao_mian") wanfaName = "免摆宝宝";
+        else if (conf.type === "baobao_shou") wanfaName = "血战宝宝";
+        else if (conf.type) wanfaName = conf.type;
+        // 底分: conf.baseScore (gamemgr 结算用的倍率基础)
+        var baseScore = conf.baseScore != null ? conf.baseScore : (conf.base != null ? conf.base : 1);
+        // 局数: conf.maxGames
+        var maxGames = conf.maxGames != null ? conf.maxGames : (conf.jushuxuanze != null ? conf.jushuxuanze : "-");
+        // 入场豆: 牌桌配置的 min_bean (进房最低宝宝豆门槛)
         var minBean = Number(conf.min_bean) || 0;
-        //getWanfa已含玩法名+底分+局数,这里补上有庄/无庄和进入最低宝宝豆
-        var txt = "房号:" + (nm.roomId || "") + "  " + nm.getWanfa() + "  " + bankerTxt + "  最低豆" + minBean;
+        // 离场豆: 牌桌配置的 kick_bean (结算后低于该值请出房间)
+        var kickBean = Number(conf.kick_bean) || 0;
+        var txt = "记号:" + wanfaName + "  底分:" + baseScore + "  局数:" + maxGames;
+        txt += "  入场:" + minBean + "  离场:" + kickBean;
+        // 进度: 已打第几局/总局
         if (nm.maxNumOfGames > 0) txt += "  第" + nm.numOfGames + "/" + nm.maxNumOfGames + "局";
-        if (nm.bbSeats && nm.bbSeats[nm.bbBankerSeat] && nm.bbBankerMode) {
-            txt += "  庄:" + (nm.bbSeats[nm.bbBankerSeat].name || "");
-        }
         this.setStr(this._n.titleLabel, txt);
     },
 
@@ -2120,6 +2131,7 @@ cc.Class({
     _dealSeq: function (onDone) {
         this._stopDeal();
         this._dealing = false;
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("deal.wav");
         this._resetSlotPos();
         this.renderCards();
         if (onDone) { try { onDone(); } catch (e) { console.error("[BB] 发牌完成回调异常", e); } }
@@ -2245,16 +2257,19 @@ cc.Class({
         }, stepIdx * STEP);
     },
 
-    // 逐道报牌: 手摆每翻开一道报该道(宝→bao, N点→dianN); 免摆最后一道报"免摆"(lipai)
+    // 逐道报牌: 每翻开一道按 desc 报牌型(宝→bao, N点→dianN);
+    // 手摆局免摆玩家有 daos 数据也逐道报, 最后一道额外补播 lipai(免摆/立牌);
+    // 纯免摆局(只有 groups 没有 daos)只在最后一道播 lipai
     _reportDaoVoice: function (p, daoIdx) {
         var sex = p.sex || 0;
-        if (p.mianFree || p.groups) {
-            if (daoIdx == 2) this._playVoice(sex, "lipai");
-            return;
-        }
         var d = (p.daos || [])[daoIdx];
-        var v = this._voiceOfDao(d && d.desc);
-        if (v) this._playVoice(sex, v);
+        if (d && d.desc) {
+            var v = this._voiceOfDao(d.desc);
+            if (v) this._playVoice(sex, v);
+        }
+        // 免摆玩家最后一道额外补播"免摆"(手摆局免摆 + 纯免摆局都算)
+        var isMian = p.mianFree || (p.groups && !p.daos);
+        if (isMian && daoIdx == 2) this._playVoice(sex, "lipai");
     },
     _voiceOfDao: function (desc) {
         if (!desc) return null;
@@ -2271,12 +2286,14 @@ cc.Class({
     },
     _mySex: function () { return (cc.vv && cc.vv.userMgr && cc.vv.userMgr.sex) || 1; },
 
-    // 后台动画开关(默认关): t_game_config.tai_rules 里 anim_xxx = 1 才播
-    _animOn: function (key) {
+    // 后台动画开关: t_game_config.tai_rules 里 anim_xxx 值
+    // withVal=true 时返回实际值(0/1/2), false 时返回 bool(兼容旧调用)
+    _animOn: function (key, withVal) {
         var nm = cc.vv && cc.vv.gameNetMgr;
         var tr = nm && nm.conf && nm.conf.taiRules;
         if (typeof tr === "string") { try { tr = JSON.parse(tr); } catch (e) { tr = null; } }
-        return !!(tr && Number(tr[key]) > 0);
+        var val = tr ? Number(tr[key]) || 0 : 0;
+        return withVal ? val : val > 0;
     },
 
     // 打枪/全垒打(图六后): 由后台开关控制启动; 按对轮播, 每对1.5秒, 播报打枪语音+三连枪声
@@ -2712,6 +2729,7 @@ cc.Class({
 
     onHandTap: function (cardIdx) {
         if (!this._arranging) return;
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.wav");
         var nm = cc.vv.gameNetMgr;
         var myCards = nm.bbMyCards || [];
         var id = myCards[cardIdx];
@@ -2744,6 +2762,7 @@ cc.Class({
     // 点道内牌退回: 传 k 只退这一张, 不传整道退回
     onDaoTap: function (d, k) {
         if (!this._arranging) return;
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.wav");
         var sel = this._daoSel[d];
         if (!sel) return;
         if (k != null) {
@@ -3766,25 +3785,28 @@ cc.Class({
         return node;
     },
 
-    // 亮牌结束后的牌型特效队列: 只剩 3对/3组9 的手牌聚焦+玩具枪, 全部播完再回调
+    // 亮牌结束后的牌型特效队列
     _playHandFx: function (done) {
         var self = this;
         var total = this._total || 2;
         var lv = {}, queue = [];
+        // level → anim_key 映射
+        var ANIM_KEY = { 12: "anim_sf6", 11: "anim_sf5", 10: "anim_4", 9: "anim_33", 8: "anim_3p1", 7: "anim_f6", 6: "anim_s6", 5: "anim_f5", 4: "anim_s5", 3: "anim_p3", 2: "anim_n9" };
+        // 后台值 → 特效: 1=喷火fire  2=爆炸bomb  (客户端只有这两种burst特效)
+        var ANIM_TO_KIND = { 1: "fire", 2: "bomb" };
         for (var off = 0; off < total; ++off) {
             var gs = this._watching ? off : (this._mySeat + off) % total;
             var p = this._revealByGs[gs];
             lv[off] = p && p.typeKey != null ? p.typeKey : null;
             if (lv[off] == null) continue;
-            // 牌型特效由后台动画开关决定(默认关), 散牌不列开关也不播
-            var ANIM_KEY = { 12: "anim_sf6", 11: "anim_sf5", 10: "anim_4", 9: "anim_33", 8: "anim_3p1", 7: "anim_f6", 6: "anim_s6", 5: "anim_f5", 4: "anim_s5", 3: "anim_p3", 2: "anim_n9" };
-            var fk = null;
-            if (lv[off] >= 11) fk = "fire";        // 6同花顺/5同花顺带1
-            else if (lv[off] == 10) fk = "bomb";   // 4条带2单
-            else if (lv[off] == 3) fk = "pairs";   // 3个对子
-            else if (lv[off] == 2) fk = "nine";    // 3组九点
-            if (fk && this._animOn(ANIM_KEY[lv[off]])) {
+            // 后台 anim 值: 0=关 1=动画1(fire) 2=动画2(bomb)
+            var animVal = this._animOn(ANIM_KEY[lv[off]], true);
+            if (!animVal) continue;
+            var fk = ANIM_TO_KIND[animVal] || null;
+            if (fk) {
+                // 先手牌聚焦(1.9s): 把6张牌移到中心放大 + 显示牌型名图片抖动
                 queue.push({ kind: "hand", off: off, type: fk });
+                // 再 burst 特效
                 queue.push({ kind: fk, off: off });
             }
         }

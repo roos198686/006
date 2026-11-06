@@ -219,6 +219,15 @@ exports.start = function(conf,mgr){
 			//注意:不要用内存绑定覆盖客户端请求的 roomId。
 			//用户可能已释放占用(退出/重进/服务重启),此时请求的房间号才是有效目标;
 			//覆盖成 null 会让 getRoom(null) 直接返回"房间已失效",断线重连被误拒。
+
+			//同一账号多设备登录: 新连接进来前先踢掉旧连接(否则旧设备收不到任何推送,表现为卡死)
+			var oldSocket = userMgr.get(userId);
+			if(oldSocket && oldSocket !== socket){
+				console.log('[login kick] userId=' + userId + ' 旧socket=' + oldSocket.id + ' 被新socket=' + socket.id + ' 取代');
+				try{ oldSocket.emit('kick_offline', { reason: 'other_device_login' }); }catch(e){}
+				try{ oldSocket.disconnect(true); }catch(e){}
+			}
+
 			userMgr.bind(userId,socket);
 			socket.userId = userId;
 

@@ -57,9 +57,8 @@ cc.Class({
 
         var fn = function(data){
             self.node.off('disconnect',fn);
-            // 禁用重连提示弹窗,避免界面闪动
-            // self._reconnect.active = true;
-            // fnTestServerOn();
+            self._reconnect.active = true;
+            fnTestServerOn();
         };
         this.node.on('disconnect',fn);
     },

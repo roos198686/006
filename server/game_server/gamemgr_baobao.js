@@ -444,10 +444,9 @@ var FX_ANIM_KEYS = {12:"anim_sf6",11:"anim_sf5",10:"anim_4",9:"anim_33",8:"anim_
 function handFxMs(level, tr){
     if(!(level >= 2)) return 0;
     var key = FX_ANIM_KEYS[level];
-    if(!(key && Number(tr[key]) > 0)) return 0;
-    if(level >= 11) return 1900 + 2450;   // 手牌聚焦1.9s + 喷火2.45s
-    if(level >= 10) return 1900 + 3450;   // 手牌聚焦1.9s + 爆炸3.45s
-    return 1900 + 1200;                    // 3对/3组9: 手牌聚焦 + 小特效
+    // anim值 1=fire(1.6s) 2=bomb(1.2s), 统一按fire估多留一点
+    if(key && Number(tr[key]) > 0) return 1900 + 1600;
+    return 0;
 }
 function revealFxMs(game){
     // 与客户端 onBbReveal 的真实节奏对齐: 3道 × 每家1.5秒(每步翻2张+报牌语音), 两种玩法一致。

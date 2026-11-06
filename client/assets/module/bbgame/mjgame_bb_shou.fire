@@ -1024,7 +1024,7 @@
     "_contentSize": {
       "__type__": "cc.Size",
       "width": 235,
-      "height": 70
+      "height": 60
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -1078,15 +1078,15 @@
     "_opacity": 255,
     "_color": {
       "__type__": "cc.Color",
-      "r": 255,
-      "g": 255,
-      "b": 255,
+      "r": 0,
+      "g": 0,
+      "b": 0,
       "a": 255
     },
     "_contentSize": {
       "__type__": "cc.Size",
       "width": 150,
-      "height": 50
+      "height": 34
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -1171,7 +1171,7 @@
     "_srcBlendFactor": 770,
     "_dstBlendFactor": 771,
     "_spriteFrame": {
-      "__uuid__": "1e70ef76-7007-4993-ac24-b3b0d5c13c32"
+      "__uuid__": "a1446067-67e3-4e14-ad0f-4dc7b2dd5ff3"
     },
     "_type": 0,
     "_sizeMode": 0,
@@ -2295,7 +2295,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 80,
+      "width": 70,
       "height": 30.24
     },
     "_anchorPoint": {
@@ -2307,7 +2307,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        42.865,
+        35.865,
         15.530000000000001,
         0,
         0,
@@ -2349,7 +2349,7 @@
     "_dstBlendFactor": 771,
     "_string": "昵称",
     "_N$string": "昵称",
-    "_fontSize": 20,
+    "_fontSize": 18,
     "_lineHeight": 24,
     "_enableWrapText": false,
     "_N$file": null,
@@ -2402,7 +2402,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        41.89,
+        39.89,
         -14.405999999999999,
         0,
         0,
@@ -4657,7 +4657,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 80,
+      "width": 70,
       "height": 30.24
     },
     "_anchorPoint": {
@@ -4669,7 +4669,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        43.998,
+        35.998,
         15.350999999999999,
         0,
         0,
@@ -4711,7 +4711,7 @@
     "_dstBlendFactor": 771,
     "_string": "昵称",
     "_N$string": "昵称",
-    "_fontSize": 20,
+    "_fontSize": 18,
     "_lineHeight": 24,
     "_enableWrapText": false,
     "_N$file": null,
@@ -4764,7 +4764,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        43.412,
+        40.412,
         -13.002,
         0,
         0,
@@ -6889,7 +6889,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        42.783,
+        41.783,
         14.957,
         0,
         0,
@@ -6931,7 +6931,7 @@
     "_dstBlendFactor": 771,
     "_string": "昵称",
     "_N$string": "昵称",
-    "_fontSize": 20,
+    "_fontSize": 18,
     "_lineHeight": 24,
     "_enableWrapText": false,
     "_N$file": null,
@@ -6984,7 +6984,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        41.595,
+        40.595,
         -13.362,
         0,
         0,
@@ -9155,7 +9155,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 80,
+      "width": 70,
       "height": 30.24
     },
     "_anchorPoint": {
@@ -9167,7 +9167,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        42.056,
+        37.056,
         13.119,
         0,
         0,
@@ -9209,7 +9209,7 @@
     "_dstBlendFactor": 771,
     "_string": "昵称",
     "_N$string": "昵称",
-    "_fontSize": 20,
+    "_fontSize": 18,
     "_lineHeight": 24,
     "_enableWrapText": false,
     "_N$file": null,
@@ -9262,7 +9262,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        41.315,
+        40.315,
         -14.881,
         0,
         0,
@@ -11255,7 +11255,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 80,
+      "width": 70,
       "height": 30.24
     },
     "_anchorPoint": {
@@ -11267,7 +11267,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        40.251,
+        35.251,
         13.119,
         0,
         0,
@@ -11309,7 +11309,7 @@
     "_dstBlendFactor": 771,
     "_string": "昵称",
     "_N$string": "昵称",
-    "_fontSize": 20,
+    "_fontSize": 18,
     "_lineHeight": 24,
     "_enableWrapText": false,
     "_N$file": null,
@@ -11362,7 +11362,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        39.244,
+        38.244,
         -14.881,
         0,
         0,
@@ -13442,7 +13442,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 80,
+      "width": 70,
       "height": 30.24
     },
     "_anchorPoint": {
@@ -13454,7 +13454,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        40.252,
+        34.252,
         12.113,
         0,
         0,
@@ -13496,7 +13496,7 @@
     "_dstBlendFactor": 771,
     "_string": "昵称",
     "_N$string": "昵称",
-    "_fontSize": 20,
+    "_fontSize": 18,
     "_lineHeight": 24,
     "_enableWrapText": false,
     "_N$file": null,
@@ -13549,8 +13549,8 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        39.245,
-        -15.887,
+        37.245,
+        -13.887,
         0,
         0,
         0,

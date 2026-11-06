@@ -1556,11 +1556,13 @@ exports.club_game_get = function(id,callback){
 };
 
 //新增俱乐部玩法
-exports.club_game_add = function(clubId,gameType,name,difen,jushu,cost,sort,callback){
+exports.club_game_add = function(clubId,gameType,name,difen,jushu,cost,sort,taiRules,callback){
+    if(typeof taiRules === 'function'){ callback = taiRules; taiRules = undefined; }
     callback = callback == null? nop:callback;
     var createTime = Math.ceil(Date.now()/1000);
-    var sql = 'INSERT INTO t_club_games(club_id,game_type,name,difen_options,jushu_options,cost_options,sort,enabled,create_time) VALUES(?,?,?,?,?,?,?,1,?)';
-    queryP(sql,[clubId,gameType,name,JSON.stringify(difen),JSON.stringify(jushu),JSON.stringify(cost),sort||0,createTime],function(err,rows){
+    var taiRulesStr = taiRules ? JSON.stringify(taiRules) : null;
+    var sql = 'INSERT INTO t_club_games(club_id,game_type,name,difen_options,jushu_options,cost_options,sort,tai_rules,enabled,create_time) VALUES(?,?,?,?,?,?,?,?,1,?)';
+    queryP(sql,[clubId,gameType,name,JSON.stringify(difen),JSON.stringify(jushu),JSON.stringify(cost),sort||0,taiRulesStr,createTime],function(err,rows){
         if(err){ console.log(err); callback(null); return; }
         callback(rows.insertId);
     });

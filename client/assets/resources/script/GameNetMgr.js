@@ -385,6 +385,19 @@ cc.Class({
             self.dispatchEvent("dispress_push", null);
         });
 
+        // 同一账号在其他设备登录被踢下线: 立即清房间状态,弹窗提示后回大厅
+        cc.vv.net.addHandler("kick_offline", function(data){
+            console.log("[kick_offline] 被其他设备顶下线:", data && data.reason);
+            self._ignoreDisconnectOnce = true;
+            self.clearRoomState();
+            self.dispatchEvent('kick_offline', data);
+            // 提示语留在登录页/大厅页展示, 这里先切场景
+            setTimeout(function(){
+                if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); }
+                else{ cc.director.loadScene("hall"); }
+            }, 100);
+        });
+
         cc.vv.net.addHandler("disconnect",function(data){
             if(self._ignoreDisconnectOnce){
                 //主动退出/解散导致的断开:场景已在退出流程中切换,这里不再重复加载
