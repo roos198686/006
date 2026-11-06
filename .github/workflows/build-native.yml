@@ -13,9 +13,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      # cocos2d-x engine libs are now committed directly in the repo
       - name: Verify engine libs present
-        run: ls client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/*.a 2>/dev/null | head -3
+        run: ls client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/*.a
 
       - name: Setup JDK 17
         uses: actions/setup-java@v4
@@ -23,20 +22,23 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Install NDK r21e
+      - name: Install NDK r21e + Gradle 7.5
         run: |
           SDKMANAGER=$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager
           yes | $SDKMANAGER --sdk_root=$ANDROID_HOME --licenses > /dev/null || true
           $SDKMANAGER --sdk_root=$ANDROID_HOME "ndk;21.4.7075529" "platforms;android-33" "build-tools;33.0.3"
           echo "NDK=$ANDROID_HOME/ndk/21.4.7075529" >> $GITHUB_ENV
-          echo "sdk.dir=$ANDROID_HOME" > client/build/jsb-default/frameworks/runtime-src/proj.android-studio/local.properties
-          echo "ndk.dir=$ANDROID_HOME/ndk/21.4.7075529" >> client/build/jsb-default/frameworks/runtime-src/proj.android-studio/local.properties
+          echo "sdk.dir=$ANDROID_HOME" > client/build/jsb-link/frameworks/runtime-src/proj.android-studio/local.properties
+          echo "ndk.dir=$ANDROID_HOME/ndk/21.4.7075529" >> client/build/jsb-link/frameworks/runtime-src/proj.android-studio/local.properties
+
+      - name: Verify jsb-link gradle has no Windows paths
+        run: grep -r "ProgramData\|C:/ProgramData" client/build/jsb-link/frameworks/runtime-src/proj.android-studio/*.gradle || echo "OK: no Windows paths"
 
       - name: Decode official keystore
         run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > $GITHUB_WORKSPACE/scmj-release.jks
 
-      - name: Build signed release APK (官方固定签名,可覆盖安装)
-        working-directory: client/build/jsb-default/frameworks/runtime-src/proj.android-studio
+      - name: Build signed release APK (用jsb-link工程,引擎指向jsb-default)
+        working-directory: client/build/jsb-link/frameworks/runtime-src/proj.android-studio
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon :SCMJ:assembleRelease \
@@ -50,7 +52,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SCMJ-android-release-signed
-          path: client/build/jsb-default/frameworks/runtime-src/proj.android-studio/**/build/outputs/apk/release/*.apk
+          path: client/build/jsb-link/frameworks/runtime-src/proj.android-studio/**/build/outputs/apk/release/*.apk
 
   ios:
     runs-on: macos-latest
@@ -61,6 +63,9 @@ jobs:
 
       - name: Verify engine libs present
         run: ls client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/*.a
+
+      - name: Verify jsb-link pbxproj has no Windows paths
+        run: grep -r "ProgramData\|C:/ProgramData" client/build/jsb-link/frameworks/runtime-src/proj.ios_mac/SCMJ.xcodeproj/project.pbxproj || echo "OK: no Windows paths"
 
       - name: Re-archive libwebp (旧归档成员未 8 字节对齐,新 ld 拒绝)
         run: |
@@ -90,19 +95,10 @@ jobs:
           cmake --build "$OAL/build-ios" --parallel
           ls -la "$OAL/build-ios/libopenal.a"
 
-      - name: List Xcode projects and targets
-        run: |
-          echo "=== cocos2d_libs targets ==="
-          xcodebuild -project client/build/jsb-default/frameworks/cocos2d-x/build/cocos2d_libs.xcodeproj -list 2>&1 | head -20
-          echo "=== SCMJ targets ==="
-          xcodebuild -project client/build/jsb-default/frameworks/runtime-src/proj.ios_mac/SCMJ.xcodeproj -list 2>&1 | head -20
-
       - name: Build cocos2d engine (libcocos2d iOS.a)
         run: |
           set -e
           XPROJ="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build/cocos2d_libs.xcodeproj"
-          OUT_DIR="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build/build/Release-iphoneos"
-          echo "Building cocos2d_libs..."
           xcodebuild -project "$XPROJ" \
             -target "libcocos2d iOS" \
             -configuration Release \
@@ -110,26 +106,21 @@ jobs:
             -arch arm64 \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tail -20
-          echo "--- Looking for libcocos2d iOS.a ---"
-          find "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x" -name "libcocos2d iOS.a" 2>/dev/null
-          echo "--- Copying to ios/libs ---"
           SRC=$(find "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x" -name "libcocos2d iOS.a" 2>/dev/null | head -1)
           if [ -z "$SRC" ]; then echo "ERROR: libcocos2d iOS.a not found!"; exit 1; fi
           DST="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/libcocos2d iOS.a"
           cp -f "$SRC" "$DST"
           ls -la "$DST"
-          echo "Verifying architecture:"
           lipo -info "$DST"
 
-      - name: Build unsigned iOS app
-        working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
+      - name: Build unsigned iOS app (用jsb-link工程,引擎指向jsb-default)
+        working-directory: client/build/jsb-link/frameworks/runtime-src/proj.ios_mac
         run: |
           set -e
           OAL="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/openal-soft"
-          LIBS_DIR="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs"
-          echo "=== Verify libcocos2d iOS.a exists ==="
-          ls -la "$LIBS_DIR/libcocos2d iOS.a"
-          echo "=== Building SCMJ ==="
+          echo "=== Verify no Windows paths in project ==="
+          grep "ProgramData" SCMJ.xcodeproj/project.pbxproj && echo "FAIL: Windows paths found!" && exit 1 || echo "OK"
+          echo "=== Building SCMJ-mobile ==="
           xcodebuild -project SCMJ.xcodeproj \
             -target SCMJ-mobile \
             -configuration Release \
@@ -143,7 +134,7 @@ jobs:
             build 2>&1 | tail -30
 
       - name: Package unsigned IPA
-        working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
+        working-directory: client/build/jsb-link/frameworks/runtime-src/proj.ios_mac
         run: |
           APP=$(find build -name "*.app" -type d | head -1)
           echo "APP=$APP"
@@ -155,14 +146,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: SCMJ-ios-unsigned
-          path: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac/SCMJ-unsigned.ipa
+          path: client/build/jsb-link/frameworks/runtime-src/proj.ios_mac/SCMJ-unsigned.ipa
 
   backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Zip server deploy package (排除 node_modules/logs/临时脚本)
+      - name: Zip server deploy package
         run: |
           cd server
           zip -r ../server_deploy.zip account_server admin game_server hall_server public uploads utils package.json package-lock.json

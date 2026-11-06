@@ -1,0 +1,13 @@
+
+qiepai.png
+size: 197,277
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+paibei
+  rotate: false
+  xy: 2, 2
+  size: 193, 273
+  orig: 193, 273
+  offset: 0, 0
+  index: -1
