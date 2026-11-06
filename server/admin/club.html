@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>超级管理后台</title>
+<title>管理后台</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f4f6fa; color: #333; min-height: 100vh; }
@@ -102,7 +102,7 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
 <body>
 
 <div id="loginView" class="login-box">
-  <h2>超级管理后台</h2>
+  <h2>管理后台</h2>
   <div class="form-group">
     <label>用户名</label>
     <input type="text" id="loginUser" placeholder="俱乐部管理员账号">
@@ -116,7 +116,7 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
 
 <div id="mainView" style="display:none">
   <div class="sidebar">
-    <div class="logo">俱乐部管理后台</div>
+    <div class="logo">管理后台</div>
     <div class="nav-item active" data-tab="clubs" onclick="switchTab('clubs', this)">俱乐部管理</div>
     <div class="nav-item" data-tab="games" onclick="switchTab('games', this)">玩法列表</div>
     <div class="nav-item" data-tab="tables" onclick="switchTab('tables', this)">牌桌管理</div>
@@ -570,6 +570,7 @@ function doLogin(){
     adminRole = ret.data.role;
     localStorage.setItem('admin_token', token);
     localStorage.setItem('admin_role', adminRole);
+    localStorage.setItem('admin_username', ret.data.username || '');
     enterMain(ret.data);
   }).catch(function(e){ alert('登录请求失败: ' + e.message); });
 }
@@ -1133,38 +1134,26 @@ function clubRenderUserPagination(totalPages){
 
 // ========= 启动 =========
 (function boot(){
-  if(token && adminRole === 'club'){
-    // club 角色 token 还在，补一次用户信息
-    api('/admin/club_detail').then(function(ret){
-      if(ret.code === 0){
-        // 用 token 里的 club_id 继续
-        var data = {role:'club', club_id: parseInt(localStorage.getItem('admin_club_id')) || 0, username: localStorage.getItem('admin_username') || ''};
-        // 用户名从 tokenStore 里没存，简单方式：让 admin_detail 顺便返回 username
-        document.getElementById('adminName').textContent = localStorage.getItem('admin_username') + ' [俱乐部管理员]';
-        enterMainFromCache(localStorage.getItem('admin_username'), ret.data);
-      } else { token=''; localStorage.removeItem('admin_token'); location.reload(); }
-    });
-  } else if(token && adminRole === 'super'){
+  if(!token) return;
+  if(adminRole === 'super'){
     // super token 误进 club.html, 静默清掉回登录页
     token = ''; adminRole = '';
     localStorage.removeItem('admin_token'); localStorage.removeItem('admin_role');
-    document.getElementById('loginView').style.display = 'block';
+    return;
   }
+  if(adminRole !== 'club') return;
+  // 用 /admin/clubs 验证 token, 它只需要 auth, 不需要 club_id
+  api('/admin/clubs').then(function(ret){
+    if(ret.code !== 0){
+      // token 失效, auth 中间件会返回 401, 已由 api() 里的 onAuthExpired 处理
+      return;
+    }
+    var username = localStorage.getItem('admin_username') || '';
+    document.getElementById('adminName').textContent = username + '  [管理员]';
+    enterMain({username: username, role: 'club', club_id: localStorage.getItem('admin_club_id') || null});
+  });
 })();
 
-function enterMainFromCache(username, c){
-  currentClubId = parseInt(localStorage.getItem('admin_club_id')) || c.id;
-  document.getElementById('clubSideName').textContent = c.name;
-  document.getElementById('clubSideId').textContent = c.id;
-  document.getElementById('clubHeaderName').textContent = c.name;
-  document.getElementById('clubHeaderOwner').textContent = (c.owner_account||'') + ' (' + c.owner_userid + ')';
-  document.getElementById('clubHeaderMembers').textContent = c.member_count;
-  document.getElementById('clubHeaderGames').textContent = c.game_count;
-  document.getElementById('clubHeaderTables').textContent = c.table_count;
-  document.getElementById('loginView').style.display = 'none';
-  document.getElementById('mainView').style.display = 'flex';
-  switchTab('games', document.querySelector('.sidebar .nav-item.active'));
-}
 </script>
 </body>
 </html>

@@ -1,0 +1,1 @@
+window._CCSettings={platform:"android",groupList:["default"],collisionMatrix:[[true]],hasResourcesBundle:true,hasStartSceneBundle:false,remoteBundles:[],subpackages:[],launchScene:"db://assets/module/login/login.fire",orientation:"",server:"",jsList:[],bundleVers:{internal:"333b0",resources:"f01d1",main:"aaafa"}};
