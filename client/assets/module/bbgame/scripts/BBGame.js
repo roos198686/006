@@ -580,15 +580,15 @@ cc.Class({
         }
         // 快捷语 item0~item8 / 表情条目: 容器里所有带名字的叶子节点逐个绑
         this._chatQuickInfo = {
-            0: { content: "快点啊，都等到我花儿都谢谢了！", sound: "fix_msg_1.mp3" },
-            1: { content: "怎么又断线了，网络怎么这么差啊！", sound: "fix_msg_2.mp3" },
-            2: { content: "不要走，决战到天亮！", sound: "fix_msg_3.mp3" },
-            3: { content: "你的牌打得也太好了！", sound: "fix_msg_4.mp3" },
-            4: { content: "你是妹妹还是哥哥啊？", sound: "fix_msg_5.mp3" },
-            5: { content: "和你合作真是太愉快了！", sound: "fix_msg_6.mp3" },
-            6: { content: "大家好，很高兴见到各位！", sound: "fix_msg_7.mp3" },
-            7: { content: "各位，真是不好意思，我得离开一会儿。", sound: "fix_msg_8.mp3" },
-            8: { content: "不要吵了，专心玩游戏吧！", sound: "fix_msg_9.mp3" }
+            0: { content: "快点啊，都等到我花儿都谢谢了！" },
+            1: { content: "怎么又断线了，网络怎么这么差啊！" },
+            2: { content: "不要走，决战到天亮！" },
+            3: { content: "你的牌打得也太好了！" },
+            4: { content: "你是妹妹还是哥哥啊？" },
+            5: { content: "和你合作真是太愉快了！" },
+            6: { content: "大家好，很高兴见到各位！" },
+            7: { content: "各位，真是不好意思，我得离开一会儿。" },
+            8: { content: "不要吵了，专心玩游戏吧！" }
         };
         this._bindChatItems(this._chatQuickList, true);
         this._bindChatItems(this._chatEmojiList, false);
@@ -3007,17 +3007,31 @@ cc.Class({
         }, 1);
     },
 
-    // 本地版 autoArrange(与服务端一致: 枚举90种, 前>=中>=后, 取(前,中,后)最大)
+    // 摆牌专用比较(与服务端 cmpArrange 一致): 不读 tongdian_mode, 只比 点数→最大单张点数→花色
+    // 例: 678JQK → K8/Q7/J6; 5789JK → K9/J8/57
+    _cmpArrange: function (a, b) {
+        if (a.bao != b.bao) return a.bao ? 1 : -1;
+        if (a.bao) {
+            if (a.rank != b.rank) return a.rank > b.rank ? 1 : -1;
+            return this._cmpSuit(a.suit, b.suit);
+        }
+        if (a.point != b.point) return a.point > b.point ? 1 : -1;
+        if (a.maxRank != b.maxRank) return a.maxRank > b.maxRank ? 1 : -1;
+        return this._cmpSuit(a.maxSuit, b.maxSuit);
+    },
+    // 本地版 autoArrange(与服务端一致: 枚举90种, 前>=中>=后按 _cmpD 校验不摆乌龙,
+    // 候选按 _cmpArrange 取(前,中,后)最大 —— 点数相同比最大单张)
     autoArrangeLocal: function (cards) {
         if (!cards || cards.length != 6) return null;
         var evalD = this._evalD.bind(this);
         var cmpD = this._cmpD.bind(this);
+        var cmpA = this._cmpArrange.bind(this);
         var best = null, bestCards = null;
         var idx = [0, 1, 2, 3, 4, 5], pairs = [];
         for (var a = 0; a < 6; ++a) for (var b = a + 1; b < 6; ++b) pairs.push([a, b]);
         function better(x, y) {
             if (!y) return true;
-            for (var d = 0; d <= 2; ++d) { var c = cmpD(x[d], y[d]); if (c != 0) return c > 0; }
+            for (var d = 0; d <= 2; ++d) { var c = cmpA(x[d], y[d]); if (c != 0) return c > 0; }
             return false;
         }
         for (var i = 0; i < pairs.length; ++i) {
@@ -3044,6 +3058,11 @@ cc.Class({
         if (!bestCards && cards.length == 6) {
             bestCards = [[cards[0], cards[1]], [cards[2], cards[3]], [cards[4], cards[5]]];
         }
+        // 展示统一大牌在前(与服务端 autoArrange 一致)
+        var self2 = this;
+        bestCards.forEach(function (p) {
+            p.sort(function (a, b) { return self2.rankOf(b) - self2.rankOf(a) || self2.suitOf(a) - self2.suitOf(b); });
+        });
         return bestCards;
     },
 
@@ -3791,7 +3810,7 @@ cc.Class({
         var total = this._total || 2;
         var lv = {}, queue = [];
         // level → anim_key 映射
-        var ANIM_KEY = { 12: "anim_sf6", 11: "anim_sf5", 10: "anim_4", 9: "anim_33", 8: "anim_3p1", 7: "anim_f6", 6: "anim_s6", 5: "anim_f5", 4: "anim_s5", 3: "anim_p3", 2: "anim_n9" };
+        var ANIM_KEY = { 13: "anim_sf6", 12: "anim_sf5", 11: "anim_4p", 10: "anim_4", 9: "anim_33", 8: "anim_3p1", 7: "anim_f6", 6: "anim_s6", 5: "anim_f5", 4: "anim_s5", 3: "anim_p3", 2: "anim_n9" };
         // 后台值 → 特效: 1=喷火fire  2=爆炸bomb  (客户端只有这两种burst特效)
         var ANIM_TO_KIND = { 1: "fire", 2: "bomb" };
         for (var off = 0; off < total; ++off) {

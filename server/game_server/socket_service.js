@@ -45,7 +45,7 @@ function broadcastClubUpdate(roomId,roomInfo){
 	for(var i = 0; i < seats.length; ++i){
 		if(seats[i].userId > 0){
 			count++;
-			seatList.push({seatindex:i,userid:seats[i].userId});
+			seatList.push({seatindex:i,userid:seats[i].userId,name:seats[i].name || ""});
 		}
 	}
 	var payload = {

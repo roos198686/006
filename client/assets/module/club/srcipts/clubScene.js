@@ -200,8 +200,7 @@ cc.Class({
         var sp = row._iconSp;
         var f = sp ? ((selected && row._iconSel) ? row._iconSel : row._iconNormal) : null;
         if(sp && f){
-            sp.spriteFrame = f;
-            sp.node.setContentSize(row.width, row.height); //赋图后强制恢复行尺寸
+            sp.spriteFrame = f; //只换图;按钮底图尺寸/偏移完全由场景allRow/gameRowTpl的bgimg节点控制,JS不覆盖
             return; //有按钮图时不重画兜底色块
         }
         var bgN = row.getChildByName("bg");
@@ -415,16 +414,14 @@ cc.Class({
             if(this._clubListArea){
                 var games = this._clubFind(this._clubListArea,"games");
                 if(games){
-                    //保留gameRowTpl/allRow/emptyTip/samptext固化节点,只清动态克隆的行
-                    var grt = games.getChildByName("gameRowTpl");
-                    var alr = games.getChildByName("allRow");
-                    var get = games.getChildByName("emptyTip");
-                    var gst = games.getChildByName("samptext");
+                    //保留固化模板/按钮/提示节点,只清动态克隆的行
+                    var keep0 = [];
+                    ["samptext","gameRowTpl","sampleRow0","sampleRow1","sampleRow2","allRow","emptyTip"].forEach(function(nm){
+                        var k = games.getChildByName(nm);
+                        if(k){ keep0.push(k); }
+                    });
                     games.removeAllChildren();
-                    if(gst){ games.addChild(gst); }
-                    if(grt){ games.addChild(grt); }
-                    if(alr){ games.addChild(alr); }
-                    if(get){ games.addChild(get); get.active = false; }
+                    keep0.forEach(function(k){ games.addChild(k); if(k.name === "emptyTip"){ k.active = false; } });
                 }
                 var tv = this._clubFind(this._clubListArea,"tablesView");
                 var tables = tv ? tv.getChildByName("tables") : null;
@@ -936,9 +933,9 @@ cc.Class({
                 return;
             }
             cc.vv.bbReplayData = rp;
-            //按录像里的玩法类型进对应牌桌场景(免摆/手摆)
+            //按录像里的玩法类型进对应牌桌场景
             var t = String(rp.type || "");
-            var scene = (t.indexOf("baobao_shou") === 0) ? "mjgame_bb_shou" : "mjgame_bb_mian";
+            var scene = cc.vv.gameNetMgr.sceneForType(t);
             cc.director.loadScene(scene);
         });
     },
@@ -2178,14 +2175,19 @@ cc.Class({
         //左侧玩法列表:行结构(gameRowTpl含bgimg背景图+l名称Label)固化在场景games下,JS只克隆填文字+赋图
         var gamesNode = this._clubFind(area,"games");
         if(!gamesNode){ return; }
-        //保留gameRowTpl/allRow/emptyTip/samptext固化节点,只清动态克隆的行
-        var grTpl = gamesNode.getChildByName("gameRowTpl");
+        //保留固化模板/按钮/提示节点,只清动态克隆的行;玩法按钮模板优先用sampleRow0(只显示玩法名)
+        var grTpl = gamesNode.getChildByName("sampleRow0") || gamesNode.getChildByName("gameRowTpl");
         var allRow = gamesNode.getChildByName("allRow"); //场景固化的「全部」按钮
         var etNode = gamesNode.getChildByName("emptyTip");
         var tiNode = gamesNode.getChildByName("samptext");
+        var keeps = [];
+        ["gameRowTpl","sampleRow0","sampleRow1","sampleRow2"].forEach(function(nm){
+            var k = gamesNode.getChildByName(nm);
+            if(k){ keeps.push(k); }
+        });
         gamesNode.removeAllChildren();
         if(tiNode){ gamesNode.addChild(tiNode); }
-        if(grTpl){ gamesNode.addChild(grTpl); grTpl.active = false; }
+        keeps.forEach(function(k){ gamesNode.addChild(k); k.active = false; });
         if(allRow){ gamesNode.addChild(allRow); allRow.active = true; }
         if(etNode){ gamesNode.addChild(etNode); }
         this._clubGameRows = [];
@@ -2303,13 +2305,82 @@ cc.Class({
         }
     },
 
-    //选中玩法:高亮行并刷新右侧牌桌
+    //选中玩法:高亮行+在它正下方展开该玩法的牌桌列表,并刷新右侧牌桌;重复点击=收起/展开
     _clubSelectGame:function(gm,row){
+        if(gm === this._clubCurGame){
+            this._clubChipsOpen = !this._clubChipsOpen;
+            this._clubChipsAnchor = row;
+            this._clubRenderTableChips();
+            return;
+        }
+        this._clubChipsOpen = true; //点击后才展开,初始不显示
+        this._clubChipsAnchor = row; //列表锚定在被点的按钮正下方
         this._clubCurGame = gm;
         for(var k = 0; k < this._clubGameRows.length; ++k){
             this._clubPaintRow(this._clubGameRows[k],this._clubGameRows[k] === row);
         }
+        this._clubTableList = []; //清空旧玩法数据,避免下方牌桌列表短暂显示上一个玩法的桌
+        this._clubRenderTableChips();
         this._clubLoadTables();
+    },
+
+    //被点玩法按钮正下方展开的牌桌列表(列表项模板=games下的sampleRow1):只列被点玩法的牌桌,点某桌只强制刷新右侧列表
+    _clubRenderTableChips:function(){
+        var area = this._clubListArea;
+        var gamesNode = area ? this._clubFind(area,"games") : null;
+        if(!gamesNode){ return; }
+        //清掉旧列表项(动态节点统一命名tchip)
+        var olds = [];
+        gamesNode.children.forEach(function(ch){ if(ch.name === "tchip"){ olds.push(ch); } });
+        olds.forEach(function(ch){ ch.destroy(); });
+        if(!this._clubChipsOpen){ return; } //只在点击玩法/全部按钮后展开,初始不显示
+        var tpl = gamesNode.getChildByName("sampleRow1");
+        var allRow = gamesNode.getChildByName("allRow");
+        if(!tpl || !allRow){ return; }
+        //只列当前玩法的牌桌(「全部」时列所有),防止切换玩法瞬间显示旧数据
+        var cur = this._clubCurGame || {};
+        var tables = (this._clubTableList || []).filter(function(t){
+            return cur._all || !cur.game_type || t.game_type === cur.game_type;
+        });
+        if(!tables.length){ return; }
+        var self = this;
+        var IW = tpl.width, IH = tpl.height, GAPX = 8, GAPY = 6;
+        var PAD = 28; //文字两侧留白,项宽=文字宽+留白(不小于模板宽)
+        //锚定在被点的按钮正下方(左缘对齐该按钮),失效时回退「全部」按钮
+        var anchor = (this._clubChipsAnchor && cc.isValid(this._clubChipsAnchor)) ? this._clubChipsAnchor : allRow;
+        var left = anchor.x - anchor.width / 2;
+        var topY = anchor.y - anchor.height / 2 - GAPY - IH / 2;
+        var right = (gamesNode.width || 1920) / 2 - 10; //近似右缘
+        //项宽按文字长度自适应,从左往右排,超右缘换行
+        var cx = left, cy = topY;
+        tables.forEach(function(t){
+            var item = cc.instantiate(tpl);
+            item.name = "tchip";
+            item.active = true;
+            var text = (t.name || "") + "号桌";
+            var lNode = item.getChildByName("l");
+            var lb = lNode ? lNode.getComponent(cc.Label) : null;
+            if(lb){
+                lb.overflow = cc.Label.Overflow.NONE; //不缩放不换行,按内容撑开
+                lb.string = text;
+                if(lb._forceUpdateRenderData){ lb._forceUpdateRenderData(); }
+            }
+            var tw = (lb && lb.node.width > 0) ? lb.node.width : text.length * 20;
+            var w = Math.max(IW, Math.ceil(tw + PAD));
+            item.width = w;
+            var bg = item.getChildByName("bgimg");
+            if(bg){ bg.width = w; }
+            if(cx + w > right && cx > left){ cx = left; cy -= (IH + GAPY); } //换行
+            item.setPosition(cx + w / 2, cy);
+            cx += w + GAPX;
+            gamesNode.addChild(item);
+            item.on(cc.Node.EventType.TOUCH_END,function(){
+                if(self._clubScrollMoved){ self._clubScrollMoved = false; return; }
+                //只强制刷新右侧牌桌列表(签名置空确保重建)
+                self._clubTablesSig = null;
+                self._clubLoadTables();
+            });
+        });
     },
 
     //牌桌卡片模板=场景 tables 下的 sampleCard0(场景里只配置这一个,列表全部由它克隆)
@@ -2358,9 +2429,12 @@ cc.Class({
         //初始座位:用列表接口返回的 user_id0..5(下标=房间座位号)按map换算到显示位直接渲染,
         //否则打开页面前已落座的玩家永远显示不出来,后续变化再由长连接推送增量更新
         var uids = [0,0,0,0,0,0]; //下标=显示位
+        var names = ["","","","","",""]; //下标=显示位,与uids同序
+        var uidNames = this._clubUidNames = this._clubUidNames || {}; //uid→昵称:推送只带userid时按它补名
         for(var s = 0; s < useSet.length; s++){
             var su = Number(t["user_id" + s]) || 0;
-            if(su > 0 && useSet[s] < uids.length){ uids[useSet[s]] = su; }
+            var sn = t["user_name" + s] || "";
+            if(su > 0 && useSet[s] < uids.length){ uids[useSet[s]] = su; names[useSet[s]] = sn; uidNames[su] = sn; }
         }
         var slotList = [null,null,null,null,null,null]; //下标=显示位,与uids同序,增量刷新时按显示位写座位
         for(var i = 0; i < 6; i++){
@@ -2369,14 +2443,14 @@ cc.Class({
             if(useSet.indexOf(i) < 0){ st.active = false; continue; }
             st._side = sides[i];
             slotList[i] = st;
-            this._clubSetSeat(st,uids[i] || 0);
+            this._clubSetSeat(st,uids[i] || 0,names[i] || "");
         }
         if(!this._clubTableCardMap){ this._clubTableCardMap = {}; }
         var ent = {card:card,slots:slotList,uids:uids,map:useSet}; //map:房间座位号→显示位
         this._clubTableCardMap[t.id] = ent; //供长连接推送增量刷新落座人物
         if(t.roomid){ this._clubTableCardMap["r_" + t.roomid] = ent; } //推送按roomid定位卡片,避免走DB全表刷新(异步写库有时序差)
         //桌面名称:牌桌号后面加"号桌"二字
-        var nn = card.getChildByName("n");
+        var nn = card.getChildByName("cb") || card.getChildByName("n"); //cb=牌桌名称节点(旧模板叫n)
         if(nn){
             var nl = nn.getComponent(cc.Label);
             if(nl){ nl.string = (t.name || "") + "号桌"; }
@@ -2394,13 +2468,12 @@ cc.Class({
         //是否有庄:banker_mode未配置默认有庄,0为无庄
         var bankerTxt = (confObj.banker_mode != null && !Number(confObj.banker_mode)) ? "无庄" : "有庄";
         var minBean = Number(confObj.min_bean) || 0;
-        var cn = card.getChildByName("c");
-        if(cn){
-            var cl = cn.getComponent(cc.Label);
-            if(cl){
-                //格式跟场景模板一致:"底分-  局数-",只填数值,样式全由场景控制
-                cl.string = "底分" + (df != null ? df : "-") + "  局数" + (js != null ? js : "-");
-            }
+        //底分/局数填到所有名为c(或C)的直子节点(模板里有新旧两个c,都填,由场景决定留哪个)
+        for(var ci = 0; ci < card.children.length; ++ci){
+            var cch = card.children[ci];
+            if(cch.name !== "c" && cch.name !== "C"){ continue; }
+            var cl = cch.getComponent(cc.Label);
+            if(cl){ cl.string = "底分" + (df != null ? df : "-") + "  局数" + (js != null ? js : "-"); }
         }
         //入场/离场豆豆:ca节点(场景模板sampleCard0直子节点,Label样式由场景控制),取桌conf的min_bean/kick_bean
         var caN = card.getChildByName("ca");
@@ -2665,11 +2738,20 @@ cc.Class({
     },
 
     //设置牌桌座位人物:uid>0按性别显示落座人物(sex=2为女性,无法区分默认男性),0=恢复空位
-    _clubSetSeat:function(slotNode,uid){
+    _clubSetSeat:function(slotNode,uid,name){
         if(!slotNode || !cc.isValid(slotNode)){ return; }
         uid = uid || 0;
-        if(slotNode._uid === uid){ return; } //同一玩家不重复加载
+        name = name || "";
+        //座位昵称:场景里每个座位下的name节点,有人显示/空位隐藏,样式全由场景控制
+        var nameN = slotNode.getChildByName("name");
+        if(nameN){
+            nameN.active = uid > 0;
+            var nameLb = nameN.getComponent(cc.Label);
+            if(nameLb){ nameLb.string = name; }
+        }
+        if(slotNode._uid === uid && slotNode._seatName === name){ return; } //同一玩家不重复加载
         slotNode._uid = uid;
+        slotNode._seatName = name;
         var chara = slotNode.getChildByName("chara");    //男
         var charaF = slotNode.getChildByName("charaF");  //女(位置在编辑器里单独调好)
         var head = slotNode.getChildByName("head");      //头顶圆形头像(位置在场景里调)
@@ -2860,14 +2942,18 @@ cc.Class({
         if(ent){
             var seats = data.seats || [];
             var uids = [0,0,0,0,0,0]; //下标=显示位
+            var uidNames2 = this._clubUidNames || (this._clubUidNames = {});
             for(var j = 0; j < seats.length; ++j){
                 var si = seats[j].seatindex;
+                //推送带昵称:新进玩家在列表接口数据里没有,直接进缓存,不再依赖列表刷新
+                var puid = seats[j].userid || 0;
+                if(puid > 0 && seats[j].name){ uidNames2[puid] = seats[j].name; }
                 //房间座位号按map换算成显示位,否则2人桌的第二个玩家会落到隐藏座位(seat1)上
                 var slot = (ent.map && si >= 0 && si < ent.map.length) ? ent.map[si] : si;
-                if(slot >= 0 && slot < uids.length){ uids[slot] = seats[j].userid || 0; }
+                if(slot >= 0 && slot < uids.length){ uids[slot] = puid; }
             }
             for(var k = 0; k < ent.slots.length; ++k){
-                this._clubSetSeat(ent.slots[k],uids[k]);
+                this._clubSetSeat(ent.slots[k],uids[k],uidNames2[uids[k]] || "");
             }
             return;
         }
@@ -2950,12 +3036,14 @@ cc.Class({
             var cols = Math.max(1, Math.ceil(tables.length / 2));
             self._clubTablesNode.width = Math.max(viewW, cols * (cardW + 5) + 5);
             if(tables.length == 0){
+                self._clubRenderTableChips();
                 self._clubAddRow(self._clubTablesNode,0,"暂无桌面(管理员后台添加)","",null,520);
                 return;
             }
             tables.forEach(function(t,i){
                 self._clubAddTableCard(self._clubTablesNode,i,t);
             });
+            self._clubRenderTableChips();
         });
     },
 

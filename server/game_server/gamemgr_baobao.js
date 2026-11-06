@@ -5,7 +5,7 @@
 // 花色优先级: 黑桃 > 红桃 > 梅花 > 方片 (suit 越小越大)
 // 可配置项全部走 t_game_config.tai_rules JSON:
 //   公共: banker_mode(1有庄/0无庄,默认1) arrange_timeout(摆牌秒数,默认60)
-//   免摆牌型倍率: m_sf6 m_sf5 m_4 m_33 m_3p1 m_f6 m_s6 m_f5 m_s5 m_p3 m_n9 m_san
+//   免摆牌型倍率: m_sf6 m_sf5 m_4p m_4 m_33 m_3p1 m_f6 m_s6 m_f5 m_s5 m_p3 m_n9 m_san
 //   手摆道倍率: s_bao_2..s_bao_14(13张宝独立) s_dian9 s_dian8 s_dian7 s_dianlow
 //   手摆: wulong_check(1校验乌龙,默认1) tongdian_mode(同点比较:1比最大牌花色/2和/3先比最大单张点数再比花色,默认3)
 var roomMgr = require("./roommgr");
@@ -85,10 +85,10 @@ function straightKeys(ranks){
 }
 
 // ============ 免摆: 整手6张牌型识别 ============
-// 牌型 level: 12=6同花顺 11=5同花顺带1 10=4条带2单 9=3条带3条 8=3条带对带1 7=6同花
+// 牌型 level: 13=6同花顺 12=5同花顺带1 11=4条带对 10=4条带2单 9=3条带3条 8=3条带对带1 7=6同花
 //             6=6连顺 5=5同花带1 4=5连顺带1 3=3对 2=3组9 1=散牌
-var MIAN_NAMES = {12:"6同花顺",11:"5同花顺带1",10:"4条带2单",9:"3条带3条",8:"3条带对带1",7:"6同花",6:"6连顺",5:"5同花带1",4:"5连顺带1",3:"3对",2:"3组9",1:"散牌"};
-var MIAN_RATE_KEYS = {12:"m_sf6",11:"m_sf5",10:"m_4",9:"m_33",8:"m_3p1",7:"m_f6",6:"m_s6",5:"m_f5",4:"m_s5",3:"m_p3",2:"m_n9",1:"m_san"};
+var MIAN_NAMES = {13:"6同花顺",12:"5同花顺带1",11:"4条带对",10:"4条带2单",9:"3条带3条",8:"3条带对带1",7:"6同花",6:"6连顺",5:"5同花带1",4:"5连顺带1",3:"3对",2:"3组9",1:"散牌"};
+var MIAN_RATE_KEYS = {13:"m_sf6",12:"m_sf5",11:"m_4p",10:"m_4",9:"m_33",8:"m_3p1",7:"m_f6",6:"m_s6",5:"m_f5",4:"m_s5",3:"m_p3",2:"m_n9",1:"m_san"};
 
 function identMian(cards){
     var ranks = cards.map(rankOf);
@@ -106,7 +106,7 @@ function identMian(cards){
     var top6 = uniqRanks.length == 6 ? straightTop(uniqRanks) : -1;
     // 1) 6同花顺
     if(flush6 && top6 > 0){
-        return { level:12, keys: straightKeys(uniqRanks), cards: cards.slice() };
+        return { level:13, keys: straightKeys(uniqRanks), cards: cards.slice() };
     }
     // 5张组合枚举辅助
     function combos5(){
@@ -126,43 +126,52 @@ function identMian(cards){
         if(!flushAll(c5)) continue;
         var r5 = c5.map(rankOf);
         if(straightTop(r5) > 0){
-            return { level:11, keys: straightKeys(r5).concat([rankOf(c5._kick)]), kick: c5._kick, cards: cards.slice() };
+            return { level:12, keys: straightKeys(r5).concat([rankOf(c5._kick)]), kick: c5._kick, cards: cards.slice() };
         }
     }
-    // 3) 4条带2单(含带对)
+    // 3) 4条带对
+    for(var r in cnt){
+        if(cnt[r] == 4){
+            var pairRanks = uniqRanks.filter(function(x){ return cnt[x] == 2; });
+            if(pairRanks.length == 1){
+                return { level:11, keys: [Number(r), pairRanks[0]], cards: cards.slice() };
+            }
+        }
+    }
+    // 4) 4条带2单(两张散牌点数不同)
     for(var r in cnt){
         if(cnt[r] == 4){
             var kickers = cards.filter(function(c){ return rankOf(c) != r; }).map(rankOf).sort(function(a,b){ return b-a; });
             return { level:10, keys: [Number(r)].concat(kickers), cards: cards.slice() };
         }
     }
-    // 4) 3条带3条
+    // 5) 3条带3条
     var triples = uniqRanks.filter(function(r){ return cnt[r] == 3; }).sort(function(a,b){ return b-a; });
     if(triples.length == 2){
         return { level:9, keys: triples, cards: cards.slice() };
     }
-    // 5) 3条带对带1
+    // 6) 3条带对带1
     var pairs = uniqRanks.filter(function(r){ return cnt[r] == 2; }).sort(function(a,b){ return b-a; });
     var singles = uniqRanks.filter(function(r){ return cnt[r] == 1; }).sort(function(a,b){ return b-a; });
     if(triples.length == 1 && pairs.length == 1 && singles.length == 1){
         return { level:8, keys: [triples[0], pairs[0], singles[0]], cards: cards.slice() };
     }
-    // 6) 6同花(不成顺)
+    // 7) 6同花(不成顺)
     if(flush6){
         return { level:7, keys: desc, cards: cards.slice() };
     }
-    // 7) 6连顺(不同花)
+    // 8) 6连顺(不同花)
     if(top6 > 0){
         return { level:6, keys: [straightPower(uniqRanks)], cards: cards.slice() };
     }
-    // 8) 5同花带1(不连续)
+    // 9) 5同花带1(不连续)
     for(var i = 0; i < c5s.length; ++i){
         var c5 = c5s[i];
         if(!flushAll(c5)) continue;
         var r5d = c5.map(rankOf).sort(function(a,b){ return b-a; });
         return { level:5, keys: r5d.concat([rankOf(c5._kick)]), kick: c5._kick, cards: cards.slice() };
     }
-    // 9) 5连顺带1
+    // 10) 5连顺带1
     for(var i = 0; i < c5s.length; ++i){
         var c5 = c5s[i];
         var r5 = c5.map(rankOf);
@@ -171,15 +180,15 @@ function identMian(cards){
             return { level:4, keys: [straightPower(r5), rankOf(c5._kick)], kick: c5._kick, cards: cards.slice() };
         }
     }
-    // 10) 3对
+    // 11) 3对
     if(pairs.length == 3){
         return { level:3, keys: pairs, cards: cards.slice() };
     }
-    // 11) 3组9: 六张分三组,每组点数和为9 (10/J/Q/K=0, A=1)
+    // 12) 3组9: 六张分三组,每组点数和为9 (10/J/Q/K=0, A=1)
     if(canSplitNines(cards)){
         return { level:2, keys: desc, cards: cards.slice() };
     }
-    // 12) 散牌
+    // 13) 散牌
     return { level:1, keys: desc, cards: cards.slice() };
 }
 
@@ -228,7 +237,7 @@ function compareMian(a, b){
 
 function mianRate(level, tr){
     var key = MIAN_RATE_KEYS[level];
-    var defs = {m_sf6:12, m_sf5:10, m_4:8, m_33:6, m_3p1:5, m_f6:4, m_s6:4, m_f5:3, m_s5:3, m_p3:2, m_n9:2, m_san:1};
+    var defs = {m_sf6:12, m_sf5:10, m_4p:9, m_4:8, m_33:6, m_3p1:5, m_f6:4, m_s6:4, m_f5:3, m_s5:3, m_p3:2, m_n9:2, m_san:1};
     var v = tr && tr[key] != null ? Number(tr[key]) : defs[key];
     return v > 0 ? v : defs[key];
 }
@@ -306,16 +315,31 @@ function daoOrderOk(daos, mode){
     return cmpDao(daos[0], daos[1], mode) >= 0 && cmpDao(daos[1], daos[2], mode) >= 0;
 }
 
-// 手摆自动最优摆法: 枚举90种 (2,2,2) 分法, 取满足 前>=中>=后 且 (前,中,后) 字典序最大
+// 摆牌专用比较(与结算 cmpDao 无关, 不读 tongdian_mode): 宝>散牌; 宝比点数再比花色;
+// 散牌只比 点数→最大单张点数→最大单张花色 (不比较总和 sum, 保证高牌优先成组)
+// 例: 678JQK → K8/Q7/J6; 5789JK → K9/J8/57
+function cmpArrange(a, b){
+    if(a.bao != b.bao) return a.bao ? 1 : -1;
+    if(a.bao){
+        if(a.key != b.key) return a.key > b.key ? 1 : -1;
+        return cmpSuit(a.suit, b.suit);
+    }
+    if(a.dian != b.dian) return a.dian > b.dian ? 1 : -1;
+    if(a.maxRank != b.maxRank) return a.maxRank > b.maxRank ? 1 : -1;
+    return cmpSuit(a.maxSuit, b.maxSuit);
+}
+
+// 手摆自动最优摆法: 枚举90种 (2,2,2) 分法, 满足 前>=中>=后(按结算 cmpDao 校验, 不摆出乌龙),
+// 候选中取(前,中,后)字典序最大 —— 比较用 cmpArrange(点数→最大单张), 与结算的同点规则解耦
 function autoArrange(cards, mode){
     var best = null;
     var idx = [0,1,2,3,4,5];
     var pairs = [];
     for(var a = 0; a < 6; ++a) for(var b = a+1; b < 6; ++b) pairs.push([a,b]);
-    function better(x, y){ // x 是否优于 y (按 前,中,后 字典序)
+    function better(x, y){ // x 是否优于 y (按 前,中,后 字典序, 最大单张优先)
         if(y == null) return true;
         for(var d = 0; d <= 2; ++d){
-            var c = cmpDao(x[d], y[d], mode);
+            var c = cmpArrange(x[d], y[d]);
             if(c != 0) return c > 0;
         }
         return false;
@@ -347,6 +371,10 @@ function autoArrange(cards, mode){
     if(best == null){
         best = [evalDao(cards[0], cards[1]), evalDao(cards[2], cards[3]), evalDao(cards[4], cards[5])];
     }
+    // 展示统一大牌在前(不影响比较结果, evalDao 的比较字段与 cards 顺序无关)
+    best.forEach(function(d){
+        d.cards.sort(function(a, b){ return rankOf(b) - rankOf(a) || suitOf(a) - suitOf(b); });
+    });
     return best;
 }
 
@@ -440,7 +468,7 @@ function confirmTimeout(game){
 // 亮牌+特效总耗时(毫秒): 服务端等它全部播完再推 game_over_push,
 // 让结算倒计时起点=客户端结算弹窗真正弹出的时刻, 特效再长也不会吃掉倒计时
 // 牌型特效动画耗时(客户端 BBGame._playHandFx 的动画开关): 只有后台打开对应开关才播, 没开不能预留等待
-var FX_ANIM_KEYS = {12:"anim_sf6",11:"anim_sf5",10:"anim_4",9:"anim_33",8:"anim_3p1",7:"anim_f6",6:"anim_s6",5:"anim_f5",4:"anim_s5",3:"anim_p3",2:"anim_n9"};
+var FX_ANIM_KEYS = {13:"anim_sf6",12:"anim_sf5",11:"anim_4p",10:"anim_4",9:"anim_33",8:"anim_3p1",7:"anim_f6",6:"anim_s6",5:"anim_f5",4:"anim_s5",3:"anim_p3",2:"anim_n9"};
 function handFxMs(level, tr){
     if(!(level >= 2)) return 0;
     var key = FX_ANIM_KEYS[level];
@@ -764,45 +792,51 @@ function doGameOver(game){
     var details = []; // 每场/每道明细(结算弹窗展示)
     if(isShou(game)){
         var tf = tongdianMode(game);
-        // 第一遍: 先算免摆整手对比(免摆只与免摆布, 与手摆玩家不交叉结算)
         pairs.forEach(function(pr){
             var A = game.gameSeats[pr[0]], B = game.gameSeats[pr[1]];
-            if(!A.mianFree || !B.mianFree) return;
-            var mc = compareMian(A.mian, B.mian);
-            if(mc == 0) return;
-            var mWin = mc > 0 ? 1 : -1;
-            var wM = mc > 0 ? A.mian : B.mian;
-            var mRate = wM.rate;
-            var mDesc = MIAN_NAMES[wM.level];
-            var mwSeat = mWin > 0 ? pr[0] : pr[1];
-            var mlSeat = mWin > 0 ? pr[1] : pr[0];
-            var mScore = base * mRate;
-            deltas[mwSeat] += mScore;
-            deltas[mlSeat] -= mScore;
-            details.push({ a: pr[0], b: pr[1], mian: true, winner: mwSeat, rate: mRate, score: mScore, wDesc: mDesc });
-        });
-        // 第二遍: 再算手摆玩家的前/中/后三道(每道二张)对比
-        pairs.forEach(function(pr){
-            var A = game.gameSeats[pr[0]], B = game.gameSeats[pr[1]];
-            if(A.mianFree || B.mianFree) return;   // 免摆已在第一遍算完
+            // 1) 双方都免摆: 整手比大小, 赢方得分=底分×赢方牌型倍率
+            if(A.mianFree && B.mianFree){
+                var mc = compareMian(A.mian, B.mian);
+                if(mc == 0) return;
+                var wM = mc > 0 ? A.mian : B.mian;
+                var mwSeat = mc > 0 ? pr[0] : pr[1];
+                var mlSeat = mc > 0 ? pr[1] : pr[0];
+                var mScore = base * wM.rate;
+                deltas[mwSeat] += mScore;
+                deltas[mlSeat] -= mScore;
+                details.push({ a: pr[0], b: pr[1], mian: true, winner: mwSeat, rate: wM.rate, score: mScore, wDesc: MIAN_NAMES[wM.level] });
+                return;
+            }
+            // 2) 一方免摆: 免摆玩家直接赢非免摆玩家, 得分=底分×免摆牌型倍率
+            if(A.mianFree || B.mianFree){
+                var mfSeat = A.mianFree ? pr[0] : pr[1];
+                var otSeat = A.mianFree ? pr[1] : pr[0];
+                var mf = A.mianFree ? A.mian : B.mian;
+                var xScore = base * mf.rate;
+                deltas[mfSeat] += xScore;
+                deltas[otSeat] -= xScore;
+                details.push({ a: pr[0], b: pr[1], mian: true, winner: mfSeat, rate: mf.rate, score: xScore, wDesc: MIAN_NAMES[mf.level] });
+                return;
+            }
+            // 3) 双方手摆: 三道全部比完后聚合 —— 赢2道=底分×1, 赢3道(打枪)=底分×3, 输家扣同额
+            var winA = 0, winB = 0;
             for(var d = 0; d < 3; ++d){
-                var da = A.daos[d], dbb = B.daos[d];
                 var win = 0; // 1=A胜 -1=B胜 0=和
                 if(A.wulong && B.wulong){ win = 0; }
                 else if(A.wulong){ win = -1; }
                 else if(B.wulong){ win = 1; }
-                else { var c = cmpDao(da, dbb, tf); win = c > 0 ? 1 : (c < 0 ? -1 : 0); }
-                if(win == 0) continue;
-                var wSeat = win > 0 ? pr[0] : pr[1];
-                var lSeat = win > 0 ? pr[1] : pr[0];
-                var wDao = win > 0 ? da : dbb;
-                var lDao = win > 0 ? dbb : da;
-                var rate = daoRate(wDao, taiRules(game));
-                var score = base * rate;
-                deltas[wSeat] += score;
-                deltas[lSeat] -= score;
-                details.push({ a: pr[0], b: pr[1], dao: d, winner: wSeat, rate: rate, score: score, wDesc: daoDesc(wDao), lDesc: daoDesc(lDao) });
+                else { var c = cmpDao(A.daos[d], B.daos[d], tf); win = c > 0 ? 1 : (c < 0 ? -1 : 0); }
+                if(win > 0) winA++; else if(win < 0) winB++;
             }
+            if(winA < 2 && winB < 2) return;
+            var wSeat = winA >= 2 ? pr[0] : pr[1];
+            var lSeat = winA >= 2 ? pr[1] : pr[0];
+            var winDaos = winA >= 2 ? winA : winB;
+            var rate = winDaos >= 3 ? 3 : 1;
+            var score = base * rate;
+            deltas[wSeat] += score;
+            deltas[lSeat] -= score;
+            details.push({ a: pr[0], b: pr[1], winner: wSeat, winDaos: winDaos, rate: rate, score: score, wDesc: winDaos >= 3 ? "三道全胜" : "赢两道" });
         });
     } else {
         pairs.forEach(function(pr){

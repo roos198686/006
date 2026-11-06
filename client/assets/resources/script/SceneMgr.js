@@ -12,7 +12,9 @@ cc.Class({
     extends: cc.Component,
 
     ctor: function () {
-        this.SCENE_LIST = ["login", "loading", "hall", "club", "mjgame_bb_mian", "mjgame_bb_shou", "mjgame"];
+        this.SCENE_LIST = ["login", "loading", "hall", "club", "mjgame_bb_mian", "mjgame_bb_shou", "mjgame",
+            "mjgame_ldh", "mjgame_bmj", "mjgame_zjlao", "mjgame_zjzx", "mjgame_zjzx4",
+            "mjgame_zp", "mjgame_zp4", "mjgame_wujin", "mjgame_gp2", "mjgame_gp3"];
         this._preloaded = {};
         this._isTransitioning = false;
     },

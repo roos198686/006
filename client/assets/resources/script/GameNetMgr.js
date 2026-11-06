@@ -173,11 +173,27 @@ cc.Class({
         return ret;
     },
 
-    //当前玩法的游戏场景名（宝宝独立项目：免摆/手摆为两个独立场景）
-    getGameScene:function(){
-        var t = this.conf && this.conf.type;
-        if(t == "baobao_shou") return "mjgame_bb_shou";
+    //按玩法类型返回牌桌场景名(进入房间/回放共用)
+    sceneForType:function(t){
+        t = String(t || "");
+        if(t.indexOf("baobao_shou") === 0) return "mjgame_bb_shou";
+        if(t.indexOf("baobao") === 0) return "mjgame_bb_mian";
+        if(t == "zj_lao") return "mjgame_zjlao";
+        if(t == "zj_bt") return "mjgame_bmj";
+        if(t == "zj_zx") return "mjgame_zjzx";
+        if(t == "zj4_zx") return "mjgame_zjzx4";
+        if(t == "zp") return "mjgame_zp";
+        if(t == "zp4") return "mjgame_zp4";
+        if(t == "wujin") return "mjgame_wujin";
+        if(t == "guanpai2") return "mjgame_gp2";
+        if(t == "guanpai3") return "mjgame_gp3";
+        if(t == "zj" || t == "zj4" || t == "zj4_bt") return "mjgame_ldh";
         return "mjgame_bb_mian";
+    },
+
+    //当前玩法的游戏场景名
+    getGameScene:function(){
+        return this.sceneForType(this.conf && this.conf.type);
     },
 
     prepareReplay:function(roomInfo,detailOfGame){

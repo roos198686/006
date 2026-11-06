@@ -270,7 +270,7 @@ cc.Class({
             }
             cc.vv.bbReplayData = rp;
             var t = String(rp.type || "");
-            cc.director.loadScene(t.indexOf("baobao_shou") === 0 ? "mjgame_bb_shou" : "mjgame_bb_mian");
+            cc.director.loadScene(cc.vv.gameNetMgr.sceneForType(t));
         });
     },
 

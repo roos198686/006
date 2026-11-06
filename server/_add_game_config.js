@@ -1,5 +1,6 @@
 var mysql = require('mysql');
-var configs = require('./configs_win');
+var configs;
+try { configs = require('./configs'); } catch(e) { configs = require('./configs_win'); }
 var c = configs.mysql();
 var conn = mysql.createConnection({host:c.HOST, user:c.USER, password:c.PSWD, database:c.DB, port:c.PORT});
 
@@ -9,6 +10,14 @@ var rows = [
     {type:'guanpai2', name:'跑得快(2人)', max_players:2, sort:5, difen:'[100,200,500]', jushu:'[10,20]', cost:'[1,2,4]'},
     {type:'guanpai3', name:'跑得快(3人)', max_players:3, sort:6, difen:'[100,200,500]', jushu:'[10,20]', cost:'[1,2,4]'},
     {type:'niuniu', name:'抢庄牛牛', max_players:4, sort:7, difen:'[100,200,500]', jushu:'[10,20]', cost:'[1,2,4]'},
+    {type:'zj', name:'翻财神(2人)', max_players:2, sort:8, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'zj4', name:'翻财神(4人)', max_players:4, sort:9, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'zj_bt', name:'包麻将(2人)', max_players:2, sort:10, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'zj4_bt', name:'包麻将(4人)', max_players:4, sort:11, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'zj_zx', name:'自选财神(2人)', max_players:2, sort:12, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'zj4_zx', name:'自选财神(4人)', max_players:4, sort:13, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'zp', name:'漳浦麻将(2人)', max_players:2, sort:14, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'wujin', name:'漳浦无金(2人)', max_players:2, sort:15, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
 ];
 
 function insert(row, done){

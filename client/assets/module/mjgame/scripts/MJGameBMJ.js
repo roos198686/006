@@ -336,7 +336,7 @@ cc.Class({
                 self.playEfx(localIndex,"play_hu");
             }
 
-            cc.vv.audioMgr.playSFX("nv/hu.mp3");
+            cc.vv.mahjongmgr.playRandSFX(data.zimo ? "zimo" : "hu", data.zimo ? 2 : 3);
         });
 
         this.node.on('mj_count',function(data){
@@ -390,7 +390,7 @@ cc.Class({
             }
             var localIndex = self.getLocalIndex(seatData.seatindex);
             self.playEfx(localIndex,"play_peng");
-            cc.vv.audioMgr.playSFX("nv/peng.mp3");
+            cc.vv.mahjongmgr.playRandSFX("peng", 5);
             self.hideOptions();
         });
         //杠
@@ -433,7 +433,7 @@ cc.Class({
             }
             var localIndex = self.getLocalIndex(seatData.seatindex);
             self.playEfx(localIndex,"play_peng");
-            cc.vv.audioMgr.playSFX("nv/peng.mp3");
+            cc.vv.mahjongmgr.playRandSFX("chi", 4);
             self.hideOptions();
         });
     },
@@ -1063,8 +1063,13 @@ cc.Class({
 
     //碰杠胡行为实现
     playEfx:function(index,name){
-        this._playEfxs[index].node.active = true;
-        this._playEfxs[index].play(name);
+        var efx = this._playEfxs[index];
+        efx.node.active = true;
+        efx.play(name);
+        //胡牌/自摸叠加逆向包的 spine 动画
+        if((name == "play_hu" || name == "play_zimo") && cc.vv && cc.vv.mahjongmgr){
+            cc.vv.mahjongmgr.playHuSpine(efx.node, name == "play_zimo");
+        }
     },
     //游戏开始
     onGameBeign:function(fromGameStart, startData){

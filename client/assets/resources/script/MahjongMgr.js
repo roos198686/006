@@ -130,6 +130,42 @@ cc.Class({
         }
         return "nv/" + realId + ".mp3";
     },
+
+    //随机播放同一动作的多条语音(如 peng1~5、chi1~4、hu1~3、zimo1~2)
+    playRandSFX:function(prefix, count){
+        var idx = 1 + Math.floor(Math.random() * count);
+        cc.vv.audioMgr.playSFX("nv/" + prefix + idx + ".mp3");
+    },
+
+    //胡牌/自摸 spine 动画(逆向包 mj_hu / mj_zimo, 挂在对应座位的 play_efx 节点上)
+    playHuSpine:function(parentNode, zimo){
+        if(!parentNode || !cc.isValid(parentNode) || typeof sp === "undefined"){ return; }
+        var self = this;
+        var key = zimo ? "mj_zimo" : "mj_hu";
+        var cache = this._huSpineCache || (this._huSpineCache = {});
+        var old = parentNode.getChildByName("hu_spine");
+        if(old){ old.destroy(); }
+        var play = function(sd){
+            if(!sd || !cc.isValid(parentNode)){ return; }
+            var n = new cc.Node("hu_spine");
+            n.layer = parentNode.layer;
+            parentNode.addChild(n);
+            n.setPosition(0, 0);
+            var sk = n.addComponent(sp.Skeleton);
+            sk.skeletonData = sd;
+            sk.premultipliedAlpha = false;
+            sk.setAnimation(0, "animation", false);
+            self.scheduleOnce(function(){
+                if(cc.isValid(n)){ n.destroy(); }
+            }, 1.6);
+        };
+        if(cache[key]){ play(cache[key]); return; }
+        cc.resources.load("spine/" + key + "/" + key, sp.SkeletonData, function(err, sd){
+            if(err || !sd){ console.log("[MahjongMgr] 胡牌动画加载失败:", key, err); return; }
+            cache[key] = sd;
+            play(sd);
+        });
+    },
     
     getEmptySpriteFrame:function(side){
         if(side == "up"){

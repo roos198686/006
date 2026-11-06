@@ -120,6 +120,18 @@ exports.init = function(config){
             if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_bean_logs.game_index failed:" + err.message); }
         });
     }, 2100);
+
+    //管理后台登录token列(老库自动升级,缺列会导致登录报错/进程崩溃)
+    setTimeout(function(){
+        query('ALTER TABLE `t_admin_users` ADD COLUMN `token` VARCHAR(64) NULL DEFAULT NULL COMMENT "登录token"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_admin_users.token failed:" + err.message); }
+        });
+    }, 2400);
+    setTimeout(function(){
+        query('ALTER TABLE `t_admin_users` ADD UNIQUE KEY `uniq_token` (`token`)', function(err){
+            if(err && !/Duplicate key name/i.test(err.message)){ console.log("add t_admin_users.uniq_token failed:" + err.message); }
+        });
+    }, 2700);
 };
 
 //写入一条乐豆流水(对局结算/保险柜存取等),失败不影响主流程
@@ -1457,9 +1469,17 @@ exports.club_tables = function(clubId,gameType,callback){
     var sql = 'SELECT t.id,t.name,t.game_type,t.roomid,t.conf,c.max_players AS max_players,'
         + 'IF(r.id IS NULL,0,(r.user_id0 > 0) + (r.user_id1 > 0) + (r.user_id2 > 0) + (r.user_id3 > 0)'
         + ' + (r.user_id4 > 0) + (r.user_id5 > 0)) AS player_count,'
-        + 'r.num_of_turns,r.user_id0,r.user_id1,r.user_id2,r.user_id3,r.user_id4,r.user_id5 '
+        + 'r.num_of_turns,r.user_id0,r.user_id1,r.user_id2,r.user_id3,r.user_id4,r.user_id5,'
+        + 'u0.name AS user_name0,u1.name AS user_name1,u2.name AS user_name2,'
+        + 'u3.name AS user_name3,u4.name AS user_name4,u5.name AS user_name5 '
         + 'FROM t_club_tables t LEFT JOIN t_rooms r ON r.id = t.roomid '
         + 'LEFT JOIN t_game_config c ON c.type = t.game_type '
+        + 'LEFT JOIN t_users u0 ON u0.userid = r.user_id0 '
+        + 'LEFT JOIN t_users u1 ON u1.userid = r.user_id1 '
+        + 'LEFT JOIN t_users u2 ON u2.userid = r.user_id2 '
+        + 'LEFT JOIN t_users u3 ON u3.userid = r.user_id3 '
+        + 'LEFT JOIN t_users u4 ON u4.userid = r.user_id4 '
+        + 'LEFT JOIN t_users u5 ON u5.userid = r.user_id5 '
         + where + ' ORDER BY t.id';
     query(sql, function(err, rows){
         if(err){

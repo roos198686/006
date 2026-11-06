@@ -124,14 +124,35 @@ function getGameMgrByType(type){
 	if(type == "zj_lao"){
 		return require("./gamemgr_zjlao");  // 诸暨赖倒胡(财神赖子/红中)
 	}
+	if(type == "zj" || type == "zj4"){
+		return require("./gamemgr_ldh");    // 翻财神 2人/4人
+	}
+	if(type == "zj4_bt"){
+		return require("./gamemgr_zj4_bt"); // 包麻将 4人
+	}
+	if(type == "zj_bt"){
+		return require("./gamemgr_bmj");    // 包麻将 2人
+	}
+	if(type == "zj_zx" || type == "zj4_zx"){
+		return require(type == "zj_zx" ? "./gamemgr_zjzx" : "./gamemgr_zjzx4"); // 自选财神 2人/4人
+	}
+	if(type == "zp"){
+		return require("./gamemgr_zp");     // 漳浦麻将 2人
+	}
 	if(type == "zp4"){
 		return require("./gamemgr_zp4");    // 漳浦金麻将 4人
+	}
+	if(type == "wujin"){
+		return require("./gamemgr_wujin");  // 漳浦无金
 	}
 	if(type == "guanpai2" || type == "guanpai3"){
 		return require("./gamemgr_guanpai"); // 跑得快/关牌 2人/3人
 	}
 	if(type == "niuniu"){
 		return require("./gamemgr_niuniu");  // 抢庄牛牛
+	}
+	if(type == "dzpk"){
+		return require("./gamemgr_dzpk");   // 德州扑克(仅服务端,无客户端场景)
 	}
 	// 旧数据兜底
 	return require("./gamemgr_baobao");
@@ -210,8 +231,8 @@ function constructRoomFromDb(dbdata){
 
 exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 	var type = roomConf.type;
-	// 开放玩法: 宝宝(免摆/手摆) + 赖倒胡 + 漳浦4人 + 跑得快2/3人 + 牛牛
-	var allowedTypes = ["baobao_mian","baobao_shou","zj_lao","zp4","guanpai2","guanpai3","niuniu"];
+	// 开放玩法: 宝宝(免摆/手摆) + 翻财神/包麻将/赖倒胡/自选财神/漳浦/无金/跑得快/牛牛
+	var allowedTypes = ["baobao_mian","baobao_shou","zj","zj4","zj4_bt","zj_bt","zj_lao","zj_zx","zj4_zx","zp","zp4","wujin","guanpai2","guanpai3","niuniu"];
 	if(allowedTypes.indexOf(type) < 0){
 		callback(1,null);
 		return;

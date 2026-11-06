@@ -51,15 +51,15 @@ cc.Class({
         
         
         this._quickChatInfo = {};
-        this._quickChatInfo["item0"] = {index:0,content:"快点啊，都等到我花儿都谢谢了！",sound:"fix_msg_1.mp3"};
-        this._quickChatInfo["item1"] = {index:1,content:"怎么又断线了，网络怎么这么差啊！",sound:"fix_msg_2.mp3"};
-        this._quickChatInfo["item2"] = {index:2,content:"不要走，决战到天亮！",sound:"fix_msg_3.mp3"};
-        this._quickChatInfo["item3"] = {index:3,content:"你的牌打得也太好了！",sound:"fix_msg_4.mp3"};
-        this._quickChatInfo["item4"] = {index:4,content:"你是妹妹还是哥哥啊？",sound:"fix_msg_5.mp3"};
-        this._quickChatInfo["item5"] = {index:5,content:"和你合作真是太愉快了！",sound:"fix_msg_6.mp3"};
-        this._quickChatInfo["item6"] = {index:6,content:"大家好，很高兴见到各位！",sound:"fix_msg_7.mp3"};
-        this._quickChatInfo["item7"] = {index:7,content:"各位，真是不好意思，我得离开一会儿。",sound:"fix_msg_8.mp3"};
-        this._quickChatInfo["item8"] = {index:8,content:"不要吵了，专心玩游戏吧！",sound:"fix_msg_9.mp3"};
+        this._quickChatInfo["item0"] = {index:0,content:"快点啊，都等到我花儿都谢谢了！"};
+        this._quickChatInfo["item1"] = {index:1,content:"怎么又断线了，网络怎么这么差啊！"};
+        this._quickChatInfo["item2"] = {index:2,content:"不要走，决战到天亮！"};
+        this._quickChatInfo["item3"] = {index:3,content:"你的牌打得也太好了！"};
+        this._quickChatInfo["item4"] = {index:4,content:"你是妹妹还是哥哥啊？"};
+        this._quickChatInfo["item5"] = {index:5,content:"和你合作真是太愉快了！"};
+        this._quickChatInfo["item6"] = {index:6,content:"大家好，很高兴见到各位！"};
+        this._quickChatInfo["item7"] = {index:7,content:"各位，真是不好意思，我得离开一会儿。"};
+        this._quickChatInfo["item8"] = {index:8,content:"不要吵了，专心玩游戏吧！"};
     },
     
     getQuickChatInfo(index){
