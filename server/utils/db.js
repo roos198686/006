@@ -1838,6 +1838,26 @@ exports.admin_user_by_name = function(username,callback){
     });
 };
 
+// ===== Admin Token 持久化(存在 t_admin_users.token 列) =====
+exports.admin_token_get = function(token, callback){
+    callback = callback == null? nop:callback;
+    queryP('SELECT id, username, role, club_id FROM t_admin_users WHERE token = ?',[token],function(err,rows){
+        if(err || rows.length === 0){ callback(null); return; }
+        var r = rows[0];
+        callback({id:r.id, username:r.username, role:r.role, club_id:r.club_id});
+    });
+};
+exports.admin_token_set = function(id, token, callback){
+    queryP('UPDATE t_admin_users SET token = ? WHERE id = ?',[token,id],function(){
+        if(callback) callback();
+    });
+};
+exports.admin_token_del = function(token, callback){
+    queryP('UPDATE t_admin_users SET token = NULL WHERE token = ?',[token],function(){
+        if(callback) callback();
+    });
+};
+
 // 获取玩法配置
 exports.get_game_config = function(type, callback){
     callback = callback == null? nop:callback;

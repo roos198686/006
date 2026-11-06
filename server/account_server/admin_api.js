@@ -22,7 +22,6 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
 app.get('/', function(req, res){ res.redirect('/admin/index.html'); });
 
 var config = null;
-var tokenStore = {}; // 简单的内存 token 存储
 
 // 跨域
 app.all('*', function(req, res, next) {
@@ -41,15 +40,15 @@ function send(res, code, msg, data){
     res.send(JSON.stringify({code: code, msg: msg, data: data || null}));
 }
 
-// 认证中间件
+// 认证中间件 - token存MySQL, 进程重启不丢
 function auth(req, res, next){
     var token = req.headers['authorization'] || req.query.token;
-    if(!token || !tokenStore[token]){
-        send(res, 401, "未登录");
-        return;
-    }
-    req.adminUser = tokenStore[token];
-    next();
+    if(!token){ send(res, 401, "未登录"); return; }
+    db.admin_token_get(token, function(user){
+        if(!user){ send(res, 401, "登录已过期, 请重新登录"); return; }
+        req.adminUser = user;
+        next();
+    });
 }
 
 exports.start = function(cfg){
@@ -78,23 +77,25 @@ app.post('/admin/login', function(req, res){
             return;
         }
         var token = crypto.md5(username + Date.now() + Math.random());
-        tokenStore[token] = {id: rows[0].id, username: rows[0].username, role: rows[0].role, club_id: rows[0].club_id};
-        var ret = {token: token, username: rows[0].username, role: rows[0].role, club_id: rows[0].club_id};
-        if(rows[0].role == "club"){
-            db.club_get(rows[0].club_id, function(club){
-                ret.club_name = club ? club.name : null;
-                send(res, 0, "ok", ret);
-            });
-            return;
-        }
-        send(res, 0, "ok", ret);
+        // token存MySQL, 进程重启不丢
+        db.admin_token_set(rows[0].id, token, function(){
+            var ret = {token: token, username: rows[0].username, role: rows[0].role, club_id: rows[0].club_id};
+            if(rows[0].role == "club"){
+                db.club_get(rows[0].club_id, function(club){
+                    ret.club_name = club ? club.name : null;
+                    send(res, 0, "ok", ret);
+                });
+                return;
+            }
+            send(res, 0, "ok", ret);
+        });
     });
 });
 
 app.post('/admin/logout', auth, function(req, res){
-    var token = req.headers['authorization'];
-    delete tokenStore[token];
-    send(res, 0, "ok");
+    db.admin_token_del(req.headers['authorization'], function(){
+        send(res, 0, "ok");
+    });
 });
 
 // 自己改密码(验证旧密码)
