@@ -1,4 +1,4 @@
-import org.apache.tools.ant.taskdefs.condition.Os
+﻿import org.apache.tools.ant.taskdefs.condition.Os
 
 apply plugin: 'com.android.application'
 
@@ -20,9 +20,9 @@ android {
                     targets 'cocos2djs'
                     arguments 'NDK_TOOLCHAIN_VERSION=clang'
                     
-                    def module_paths = [project.file("C:/ProgramData/cocos/editors/Creator/2.4.15/resources/cocos2d-x"),
-                                        project.file("C:/ProgramData/cocos/editors/Creator/2.4.15/resources/cocos2d-x/cocos"),
-                                        project.file("C:/ProgramData/cocos/editors/Creator/2.4.15/resources/cocos2d-x/external")]
+                    def module_paths = [project.file("../../cocos2d-x"),
+                                        project.file("../../cocos2d-x/cocos"),
+                                        project.file("../../cocos2d-x/external")]
                     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
                         arguments 'NDK_MODULE_PATH=' + module_paths.join(";")
                     }
@@ -125,6 +125,6 @@ android.applicationVariants.all { variant ->
 dependencies {
     implementation fileTree(dir: '../libs', include: ['*.jar','*.aar'])
     implementation fileTree(dir: 'libs', include: ['*.jar','*.aar'])
-    implementation fileTree(dir: "C:/ProgramData/cocos/editors/Creator/2.4.15/resources/cocos2d-x/cocos/platform/android/java/libs", include: ['*.jar'])
+    implementation fileTree(dir: "../../cocos2d-x/cocos/platform/android/java/libs", include: ['*.jar'])
     implementation project(':libcocos2dx')
 }
