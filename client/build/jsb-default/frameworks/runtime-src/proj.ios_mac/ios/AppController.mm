@@ -76,7 +76,7 @@ Application* app = nullptr;
     }
     
     [window makeKeyAndVisible];
-
+    
     [[UIApplication sharedApplication] setStatusBarHidden:YES];
     
     //run the cocos2d-x game scene
@@ -107,14 +107,14 @@ Application* app = nullptr;
      Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
      If your application supports background execution, called instead of applicationWillTerminate: when the user quits.
      */
-    [[SDKWrapper getInstance] applicationDidEnterBackground:application];
+    [[SDKWrapper getInstance] applicationDidEnterBackground:application]; 
 }
 
 - (void)applicationWillEnterForeground:(UIApplication *)application {
     /*
      Called as part of  transition from the background to the inactive state: here you can undo many of the changes made on entering the background.
      */
-    [[SDKWrapper getInstance] applicationWillEnterForeground:application];    
+    [[SDKWrapper getInstance] applicationWillEnterForeground:application]; 
 }
 
 - (void)applicationWillTerminate:(UIApplication *)application
@@ -132,13 +132,6 @@ Application* app = nullptr;
     /*
      Free up as much memory as possible by purging cached data objects that can be recreated (or reloaded from disk) later.
      */
-}
-
-//复制文本到系统剪贴板(供 jsb.reflection 调用)
-+ (BOOL)copyText:(NSString *)text {
-    if (text == nil) { return NO; }
-    [UIPasteboard generalPasteboard].string = text;
-    return YES;
 }
 
 @end

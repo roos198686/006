@@ -93,7 +93,6 @@ endif()
 target_link_libraries(${CC_LIB_NAME} PUBLIC ${LIBS})
 
 
-
 #cc_openharmony_before_target(${CC_LIB_NAME})
 
 #cc_openharmony_after_target(${CC_LIB_NAME})

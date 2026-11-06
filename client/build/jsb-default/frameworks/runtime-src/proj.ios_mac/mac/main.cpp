@@ -25,10 +25,7 @@
  ****************************************************************************/
 
 #include "AppDelegate.h"
-#include "cocos2d.h"
 #include "NativeConfig.h"
-
-USING_NS_CC;
 
 int main(int argc, char *argv[])
 {

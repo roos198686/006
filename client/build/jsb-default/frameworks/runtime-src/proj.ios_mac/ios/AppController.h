@@ -33,8 +33,5 @@
 
 @property(nonatomic, readonly) RootViewController* viewController;
 
-//复制文本到系统剪贴板(供 jsb.reflection.callStaticMethod("AppController","copyText:",text) 调用)
-+ (BOOL)copyText:(NSString *)text;
-
 @end
 
