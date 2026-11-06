@@ -108,7 +108,6 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -arch arm64 \
-            -derivedDataPath "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build" \
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tail -20
           echo "--- Looking for libcocos2d iOS.a ---"
