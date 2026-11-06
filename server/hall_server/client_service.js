@@ -124,8 +124,8 @@ app.get('/create_user',function(req,res){
 	var account = req.query.account; //账号
 	var name = req.query.name;  //获取名字
 	var headimg = normalizeAvatarKey(req.query.headimg); //首次建档随机头像(avatar_01~18), 非法值则用空
-	var coins = 1000;//初试金兵
-	var gems = 99;//初试房卡
+	var coins = 0;//初试金兵
+	var gems = 0;//初试房卡
 	console.log(name);
     //判断名字用户是否已经存在
 	db.is_user_exist(account,function(ret){

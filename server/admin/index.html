@@ -103,6 +103,38 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
   .main { margin-left: 60px; }
   .card-grid { grid-template-columns: 1fr; }
   .content { padding: 12px; }
+  .topbar { height: auto; padding: 10px 12px; flex-wrap: wrap; gap: 6px; }
+  .topbar .title { font-size: 14px; }
+  .topbar .user { font-size: 12px; }
+  .topbar .user a { margin-left: 6px; }
+  .login-box { margin: 40px 16px; padding: 28px 20px; }
+  .login-box h2 { font-size: 18px; margin-bottom: 20px; }
+  .panel { padding: 14px 12px; border-radius: 6px; }
+  .toolbar input { min-width: 120px; }
+  .btn { padding: 8px 12px; font-size: 13px; }
+  .card-header { flex-wrap: wrap; gap: 4px; }
+  .card-body .row { font-size: 12px; }
+  .card-actions { gap: 6px; }
+  .card-actions .btn { flex: 1; min-width: 0; text-align: center; }
+  .modal-content { margin: 10px; max-width: none; width: auto; max-height: calc(100vh - 20px); border-radius: 8px; }
+  .modal-content h3 { padding: 14px 16px 10px; font-size: 15px; }
+  .modal-body { padding: 14px 16px; }
+  .modal-footer { padding: 10px 16px; }
+  .form-row { flex-direction: column; gap: 0; }
+  .cfg-grid { grid-template-columns: 1fr; }
+  table { font-size: 12px; }
+  th, td { padding: 6px 4px; }
+  .pagination button { padding: 4px 8px; margin: 0 2px; font-size: 12px; }
+  .tabs .tab { padding: 8px 12px; font-size: 13px; }
+}
+@media (max-width: 400px) {
+  .sidebar { width: 48px; }
+  .sidebar .logo, .nav-item { padding: 12px 0; }
+  .main { margin-left: 48px; }
+  .toolbar { gap: 6px; }
+  .toolbar input { min-width: 100px; padding: 8px; font-size: 13px; }
+  .card { padding: 12px; }
+  .card-title { font-size: 14px; }
 }
 </style>
 </head>
@@ -597,7 +629,7 @@ function uploadApp(){
         document.getElementById('appFile').value = '';
         loadAppInfo();
       } else {
-        txt.textContent = '上传失败：' + ret.msg;
+        txt.textContent = '上传失败：' + ret.msg + (ret.code === 403 ? '（当前登录账号不是超级管理员，请用超级管理员账号重新登录）' : '');
       }
       btn.disabled = false;
     }).catch(function(e){
@@ -671,14 +703,24 @@ function doLogout(){
   });
 }
 
-// 检查登录状态(用超级管理员专属接口验证,普通管理员token会被拒绝)
+// 检查登录状态:必须是从数据库查出的超级管理员账号(俱乐部管理员token会被拒绝)
 if(token){
-  api('/admin/clubs').then(function(ret){
-    if(ret.code === 0){
+  api('/admin/me').then(function(ret){
+    if(ret.code === 0 && ret.data && String(ret.data.role || '').trim().toLowerCase() === 'super'){
+      localStorage.setItem('admin_role', ret.data.role);
+      localStorage.setItem('admin_name', ret.data.username || '');
+      document.getElementById('adminName').textContent = ret.data.username || '';
       document.getElementById('loginView').style.display = 'none';
       document.getElementById('mainView').style.display = 'block';
-      document.getElementById('adminName').textContent = localStorage.getItem('admin_name') || '';
       restoreTab();
+    } else if(ret.code === 0){
+      // 当前是俱乐部管理员账号,清掉登录态,回到超级管理员登录页
+      token = '';
+      localStorage.removeItem('admin_token');
+      localStorage.removeItem('admin_role');
+      localStorage.removeItem('admin_name');
+      document.getElementById('loginView').style.display = 'block';
+      document.getElementById('mainView').style.display = 'none';
     } else {
       token = '';
       localStorage.removeItem('admin_token');
@@ -1404,10 +1446,10 @@ function loadUsers(){
         '<span class="card-tag">'+u.account+'</span></div>'+
         '<div class="card-body">'+
         '<div class="row"><span class="k">房卡</span><span class="v">'+u.gems+'</span></div>'+
-        '<div class="row"><span class="k">金币</span><span class="v">'+u.coins+'</span></div>'+
         '<div class="row"><span class="k">当前房间</span><span class="v">'+(u.roomid||'-')+'</span></div></div>'+
         '<div class="card-actions">'+
-        '<button class="btn btn-primary btn-sm" onclick="showGemModal('+u.userid+','+u.gems+')">调整房卡</button></div>';
+        '<button class="btn btn-primary btn-sm" onclick="showGemModal('+u.userid+','+u.gems+')">调整房卡</button>'+
+        '<button class="btn btn-danger btn-sm" onclick="deleteUser('+u.userid+')">删除玩家</button></div>';
       grid.appendChild(card);
     });
     renderPagination(ret.data.total, ret.data.page, ret.data.pageSize);
@@ -1442,6 +1484,14 @@ function confirmGemChange(){
   api('/admin/user/gems', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({userid:gemUserId, gems:change})}).then(function(ret){
     if(ret.code === 0){ closeGemModal(); loadUsers(); }
     else alert(ret.msg);
+  });
+}
+
+function deleteUser(userid){
+  if(!confirm('确认删除玩家 ID '+userid+'？该操作不可恢复！')) return;
+  api('/admin/user/'+userid, {method:'DELETE'}).then(function(ret){
+    if(ret.code === 0){ alert('删除成功'); loadUsers(); }
+    else alert(ret.msg || '删除失败');
   });
 }
 

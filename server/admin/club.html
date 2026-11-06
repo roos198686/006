@@ -94,8 +94,44 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
   .main { margin-left: 60px; }
   .card-grid { grid-template-columns: 1fr; }
   .content { padding: 12px; }
-  .club-header { flex-direction: column; gap: 10px; text-align: center; }
-  .club-header .meta { margin: 0; text-align: center; }
+  .club-header { flex-direction: column; gap: 10px; text-align: center; padding: 14px; }
+  .club-header h2 { font-size: 16px; }
+  .club-header .sub { font-size: 12px; }
+  .club-header .meta { margin: 0; text-align: center; font-size: 12px; line-height: 1.6; }
+  .topbar { height: auto; padding: 10px 12px; flex-wrap: wrap; gap: 6px; }
+  .topbar .title { font-size: 14px; }
+  .topbar .user { font-size: 12px; }
+  .topbar .user a { margin-left: 6px; }
+  .login-box { margin: 40px 16px; padding: 28px 20px; }
+  .login-box h2 { font-size: 18px; margin-bottom: 20px; }
+  .panel { padding: 14px 12px; border-radius: 6px; }
+  .toolbar input { min-width: 120px; }
+  .btn { padding: 8px 12px; font-size: 13px; }
+  .list-card { padding: 12px; }
+  .list-card-head { flex-wrap: wrap; gap: 4px; }
+  .list-card-title { font-size: 14px; }
+  .list-card-body { font-size: 12px; line-height: 1.7; }
+  .list-card-row { flex-wrap: wrap; gap: 2px 6px; }
+  .list-card-foot { gap: 6px; }
+  .list-card-foot .btn { flex: 1; min-width: 0; text-align: center; }
+  .table-wrap { margin: 0 -12px; padding: 0 12px; overflow-x: auto; }
+  table { font-size: 12px; min-width: 420px; }
+  th, td { padding: 6px 4px; white-space: nowrap; }
+  .modal-content { margin: 10px; padding: 18px; max-width: none; width: auto; max-height: calc(100vh - 20px); border-radius: 8px; }
+  .modal-content h3 { font-size: 15px; margin-bottom: 14px; }
+  .form-group label { font-size: 13px; }
+  .form-group input, .form-group select { font-size: 16px; padding: 10px; }
+  .cfg-grid { grid-template-columns: 1fr; }
+  .tabs .tab { padding: 8px 12px; font-size: 13px; }
+}
+@media (max-width: 400px) {
+  .sidebar { width: 48px; }
+  .sidebar .logo, .sidebar .nav-item { padding: 12px 0; }
+  .main { margin-left: 48px; }
+  .toolbar { gap: 6px; }
+  .toolbar input { min-width: 100px; padding: 8px; font-size: 13px; }
+  .list-card { padding: 10px; }
+  .list-card-title { font-size: 13px; }
 }
 </style>
 </head>
@@ -269,7 +305,7 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
       <select id="club_tbl_banker_mode"><option value="1">有庄</option><option value="0">无庄</option></select>
     </div>
     <div class="form-group"><label>底分</label><input type="number" id="club_tbl_difen" min="1"></div>
-    <div class="form-group"><label>局数</label><select id="club_tbl_jushu"></select></div>
+    <div class="form-group"><label>局数</label><input type="number" id="club_tbl_jushu" min="1" value="8" placeholder="请输入局数"></div>
     <div class="form-group"><label>最低宝宝豆</label><input type="number" id="club_tbl_min_bean" value="0" min="0"></div>
     <div class="form-group"><label>请出阈值</label><input type="number" id="club_tbl_kick_bean" value="0" min="0"></div>
     <div class="modal-footer">
@@ -511,8 +547,8 @@ function clubGetTaiRules(gameType, boxId){
 }
 
 var API_BASE = '';
-var token = localStorage.getItem('admin_token') || '';
-var adminRole = localStorage.getItem('admin_role') || '';
+var token = localStorage.getItem('club_admin_token') || '';
+var adminRole = localStorage.getItem('club_admin_role') || '';
 var clubGames = [];
 var clubMembers = [];
 var currentTableGame = '';
@@ -555,7 +591,7 @@ function api(path, opts){
   });
 }
 function onAuthExpired(){
-  token = ''; localStorage.removeItem('admin_token'); localStorage.removeItem('admin_role');
+  token = ''; localStorage.removeItem('club_admin_token'); localStorage.removeItem('club_admin_role');
   alert('登录已过期，请重新登录'); location.reload();
 }
 
@@ -568,8 +604,8 @@ function doLogin(){
     if(ret.code !== 0){ alert(ret.msg); return; }
     token = ret.data.token;
     adminRole = ret.data.role;
-    localStorage.setItem('admin_token', token);
-    localStorage.setItem('admin_role', adminRole);
+    localStorage.setItem('club_admin_token', token);
+    localStorage.setItem('club_admin_role', adminRole);
     localStorage.setItem('admin_username', ret.data.username || '');
     enterMain(ret.data);
   }).catch(function(e){ alert('登录请求失败: ' + e.message); });
@@ -599,7 +635,7 @@ function clubDoChangePwd(){
 }
 function doLogout(){
   token = ''; adminRole = ''; currentClubId = null;
-  localStorage.removeItem('admin_token'); localStorage.removeItem('admin_role'); localStorage.removeItem('admin_club_id');
+  localStorage.removeItem('club_admin_token'); localStorage.removeItem('club_admin_role'); localStorage.removeItem('admin_club_id');
   document.getElementById('mainView').style.display = 'none';
   document.getElementById('loginView').style.display = 'block';
 }
@@ -608,7 +644,7 @@ function enterMain(data){
   // super 角色不允许进 club.html, 静默清 token 回登录页
   if(data.role === 'super'){
     token = ''; adminRole = '';
-    localStorage.removeItem('admin_token'); localStorage.removeItem('admin_role');
+    localStorage.removeItem('club_admin_token'); localStorage.removeItem('club_admin_role');
     document.getElementById('loginView').style.display = 'block';
     return;
   }
@@ -972,12 +1008,8 @@ function clubShowTableModal(){
   document.getElementById('club_tbl_kick_bean').value = '0';
   var dOpts = g.difen_options || [];
   document.getElementById('club_tbl_difen').value = dOpts.length ? dOpts[0] : 1;
-  clubFillIndexSel('club_tbl_jushu', g.jushu_options);
+  document.getElementById('club_tbl_jushu').value = 8;
   document.getElementById('clubTableModal').style.display = 'flex';
-}
-function clubFillIndexSel(id, arr){
-  var sel=document.getElementById(id); sel.innerHTML='';
-  (arr||[]).forEach(function(v,i){ var o=document.createElement('option'); o.value=i; o.textContent=v; sel.appendChild(o); });
 }
 function clubCloseTableModal(){ document.getElementById('clubTableModal').style.display = 'none'; }
 function clubSaveTable(){
@@ -985,14 +1017,12 @@ function clubSaveTable(){
   var g = clubGames.find(function(x){ return x.game_type === gt; }) || {};
   var difenVal = parseInt(document.getElementById('club_tbl_difen').value) || 0;
   var difenIdx = (g.difen_options || []).indexOf(difenVal);
-  var jushuIdx = parseInt(document.getElementById('club_tbl_jushu').value) || 0;
-  var jushuVal = (g.jushu_options || [])[jushuIdx];
-  if(!(jushuVal > 0)){ jushuVal = jushuIdx; } // 兜底: 如果选项数组没值, 下标本身就是局数
+  var jushuVal = parseInt(document.getElementById('club_tbl_jushu').value) || 8;
   var conf = {
     type: gt,
     difen: difenIdx >= 0 ? difenIdx : 0,
     difen_value: difenVal,
-    jushuxuanze: jushuIdx,
+    jushuxuanze: jushuVal,
     jushu_value: jushuVal,
     banker_mode: parseInt(document.getElementById('club_tbl_banker_mode').value),
     min_bean: parseInt(document.getElementById('club_tbl_min_bean').value) || 0,
@@ -1040,8 +1070,16 @@ function clubRenderMembers(){
     var tr = document.createElement('tr');
     tr.innerHTML = '<td>'+m.userid+'</td><td>'+(m.account||'-')+'</td><td>'+(m.name||'-')+'</td>'+
       '<td>'+m.gems+'</td><td>'+time+'</td>'+
-      '<td><button class="btn btn-primary btn-sm" onclick="clubShowGemModal('+m.userid+','+m.gems+')">调整房卡</button></td>';
+      '<td><button class="btn btn-primary btn-sm" onclick="clubShowGemModal('+m.userid+','+m.gems+')">调整房卡</button> '+
+      '<button class="btn btn-danger btn-sm" onclick="clubDeleteUser('+m.userid+')">删除</button></td>';
     tbody.appendChild(tr);
+  });
+}
+function clubDeleteUser(userid){
+  if(!confirm('确认删除玩家 ID '+userid+'？该玩家将被从系统中彻底删除！')) return;
+  api('/admin/user/'+userid, {method:'DELETE'}).then(function(ret){
+    if(ret.code === 0){ alert('删除成功'); clubLoadMembers(); }
+    else alert(ret.msg || '删除失败');
   });
 }
 var clubGemUserId = null;
@@ -1138,7 +1176,7 @@ function clubRenderUserPagination(totalPages){
   if(adminRole === 'super'){
     // super token 误进 club.html, 静默清掉回登录页
     token = ''; adminRole = '';
-    localStorage.removeItem('admin_token'); localStorage.removeItem('admin_role');
+    localStorage.removeItem('club_admin_token'); localStorage.removeItem('club_admin_role');
     return;
   }
   if(adminRole !== 'club') return;

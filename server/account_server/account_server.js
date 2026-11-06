@@ -203,8 +203,8 @@ function get_state_info(access_token,openid,callback){
 }
 
 function create_user(account,name,sex,headimgurl,callback){
-	var coins = 1000;
-	var gems = 21;
+	var coins = 0;
+	var gems = 0;
 	db.is_user_exist(account,function(ret){
 		if(!ret){
 			db.create_user(account,name,coins,gems,sex,headimgurl,function(ret){

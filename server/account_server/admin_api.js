@@ -116,6 +116,12 @@ app.post('/admin/change_password', auth, function(req, res){
     });
 });
 
+// 当前登录管理员的真实身份(前端据此校验角色,避免用俱乐部管理员token进超级管理后台)
+app.get('/admin/me', auth, function(req, res){
+    var u = req.adminUser;
+    send(res, 0, "ok", {id: u.id, username: u.username, role: u.role, club_id: u.club_id});
+});
+
 // ============ 玩法配置管理 ============
 // 获取所有玩法配置
 app.get('/admin/game_configs', auth, function(req, res){
@@ -305,6 +311,27 @@ app.post('/admin/user/gems', auth, function(req, res){
     });
 });
 
+// 删除玩家（超级管理员/俱乐部管理员都可以）
+app.delete('/admin/user/:userid', auth, function(req, res){
+    var userid = parseInt(req.params.userid);
+    if(!userid){ send(res, 1, "参数错误"); return; }
+    // 先查是否是俱乐部社长，不能删
+    db.query('SELECT COUNT(*) as c FROM t_clubs WHERE owner_userid = ' + userid, function(err, rows){
+        if(err){ send(res, 500, "数据库错误"); return; }
+        if(rows[0].c > 0){ send(res, 1, "该玩家是俱乐部社长，不能删除"); return; }
+        // 踢下线
+        db.query('UPDATE t_users SET roomid = NULL WHERE userid = ' + userid, function(){
+            // 删用户相关数据
+            db.query('DELETE FROM t_club_members WHERE userid = ' + userid, function(){
+                db.query('DELETE FROM t_users WHERE userid = ' + userid, function(err2){
+                    if(err2){ send(res, 500, "删除失败"); return; }
+                    send(res, 0, "ok");
+                });
+            });
+        });
+    });
+});
+
 // ============ 系统配置 ============
 app.get('/admin/sys_config', auth, function(req, res){
     db.query('SELECT * FROM t_sys_config', function(err, rows){
@@ -370,7 +397,8 @@ app.get('/admin/history/:userId', auth, function(req, res){
 // ============ 权限辅助 ============
 // 超级管理员:拥有全部权限
 function requireSuper(req, res, next){
-    if(!req.adminUser || req.adminUser.role !== 'super'){
+    var role = String((req.adminUser && req.adminUser.role) || '').trim().toLowerCase();
+    if(role !== 'super'){
         send(res, 403, "需要超级管理员权限");
         return;
     }
