@@ -116,11 +116,10 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
 
 <div id="mainView" style="display:none">
   <div class="sidebar">
-    <div class="logo">超级管理后台</div>
+    <div class="logo">俱乐部管理后台</div>
     <div class="nav-item active" data-tab="games" onclick="switchTab('games', this)">玩法列表</div>
     <div class="nav-item" data-tab="tables" onclick="switchTab('tables', this)">牌桌管理</div>
     <div class="nav-item" data-tab="members" onclick="switchTab('members', this)">成员房卡</div>
-    <div class="nav-item" data-tab="admins" onclick="switchTab('admins', this)">管理员</div>
     <div class="nav-item" data-tab="users" onclick="switchTab('users', this)">用户管理</div>
     <div class="nav-item" data-tab="games_history" onclick="switchTab('games_history', this)">战绩查询</div>
   </div>
@@ -177,14 +176,6 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
             <tbody id="cdMemberList"></tbody>
           </table>
         </div>
-      </div>
-
-      <!-- 管理员管理 -->
-      <div id="tab-admins" class="panel" style="display:none">
-        <div class="toolbar">
-          <button class="btn btn-primary btn-sm" onclick="clubLoadAdmins()">刷新</button>
-        </div>
-        <div class="card-grid" id="adminList"></div>
       </div>
 
       <!-- 用户管理 -->
@@ -287,38 +278,6 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
     <div class="modal-footer">
       <button class="btn btn-default" onclick="clubCloseGemModal()">取消</button>
       <button class="btn btn-primary" onclick="clubConfirmGemChange()">确认</button>
-    </div>
-  </div>
-</div>
-
-<!-- 管理员弹窗 -->
-<div id="clubAdminModal" class="modal">
-  <div class="modal-content">
-    <h3 id="clubAdminModalTitle">新增管理员</h3>
-    <div class="modal-body">
-      <div class="form-group">
-        <label>用户名</label>
-        <input type="text" id="club_adm_username">
-      </div>
-      <div class="form-group">
-        <label>密码 <span id="club_adm_pass_tip" style="color:#999;font-size:12px"></span></label>
-        <input type="text" id="club_adm_password" placeholder="留空则不修改">
-      </div>
-      <div class="form-group">
-        <label>角色</label>
-        <select id="club_adm_role" onchange="clubAdmRoleChange()">
-          <option value="super">超级管理员(全部权限)</option>
-          <option value="club">俱乐部管理员</option>
-        </select>
-      </div>
-      <div class="form-group" id="club_adm_club_group">
-        <label>绑定俱乐部</label>
-        <select id="club_adm_club_id"></select>
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-default" onclick="clubCloseAdminModal()">取消</button>
-      <button class="btn btn-primary" onclick="clubSaveAdmin()">保存</button>
     </div>
   </div>
 </div>
@@ -664,9 +623,9 @@ function clubLoadHeader(){
 }
 
 // ========= Tab 切换 =========
-var TAB_TITLES = {games:'玩法列表', tables:'牌桌管理', members:'成员房卡', admins:'管理员', users:'用户管理', games_history:'战绩查询'};
+var TAB_TITLES = {games:'玩法列表', tables:'牌桌管理', members:'成员房卡', users:'用户管理', games_history:'战绩查询'};
 function switchTab(name, el){
-  var tabs = ['games', 'tables', 'members', 'admins', 'users', 'games_history'];
+  var tabs = ['games', 'tables', 'members', 'users', 'games_history'];
   document.querySelectorAll('.sidebar .nav-item').forEach(function(n){ n.classList.remove('active'); });
   if(el) el.classList.add('active');
   document.getElementById('pageTitle').textContent = TAB_TITLES[name] || name;
@@ -674,7 +633,6 @@ function switchTab(name, el){
   if(name === 'games') clubLoadGames();
   else if(name === 'tables') clubLoadTables();
   else if(name === 'members') clubLoadMembers();
-  else if(name === 'admins') clubLoadAdmins();
   else if(name === 'users') clubLoadUsers();
   else if(name === 'games_history') clubLoadGamesHistory();
 }
@@ -970,78 +928,6 @@ function clubLoadGamesHistory(){
         '</div>';
       box.appendChild(card);
     });
-  });
-}
-
-// ========= 管理员管理(俱乐部管理员/超级管理员均可,但 club 角色接口端只返回本俱乐部的) =========
-var editingClubAdminId = null;
-function clubLoadAdmins(){
-  api('/admin/admin_users').then(function(ret){
-    if(ret.code !== 0){ alert(ret.msg); return; }
-    var list = ret.data || [];
-    var box = document.getElementById('adminList'); box.innerHTML = '';
-    if(list.length === 0){ box.innerHTML = '<div class="card-empty">本俱乐部暂无其他管理员</div>'; return; }
-    list.forEach(function(a){
-      var time = a.created_at ? new Date(a.created_at * 1000).toLocaleString() : '-';
-      var card = document.createElement('div'); card.className = 'list-card';
-      card.innerHTML =
-        '<div class="list-card-head">'+
-          '<div><div class="list-card-title">'+a.username+'</div>'+
-          '<div style="font-size:12px;color:#888;margin-top:4px">ID: '+a.id+'</div></div>'+
-          '<span class="tag tag-green">'+(a.role==='super'?'超级管理员':'俱乐部管理员')+'</span>'+
-        '</div>'+
-        '<div class="list-card-body">'+
-          '<div class="list-card-row"><span class="k">绑定俱乐部</span><span class="v">'+(a.club_id?('ID:'+a.club_id):'-')+'</span></div>'+
-          '<div class="list-card-row"><span class="k">创建时间</span><span class="v">'+time+'</span></div>'+
-        '</div>'+
-        '<div class="list-card-foot">'+
-          '<button class="btn btn-default btn-sm" onclick="clubShowAdminModal('+a.id+')">编辑</button>'+
-          '<button class="btn btn-danger btn-sm" onclick="clubDelAdmin('+a.id+')">删除</button>'+
-        '</div>';
-      box.appendChild(card);
-    });
-  });
-}
-function clubShowAdminModal(id){
-  if(id){
-    // 编辑模式
-    api('/admin/admin_users').then(function(ret){
-      var a = (ret.data||[]).find(function(x){ return x.id === id; });
-      if(!a){ alert('管理员不存在'); return; }
-      editingClubAdminId = id;
-      document.getElementById('clubAdminModalTitle').textContent = '编辑管理员 ('+a.username+')';
-      document.getElementById('club_adm_username').value = a.username;
-      document.getElementById('club_adm_username').disabled = true;
-      document.getElementById('club_adm_password').value = '';
-      document.getElementById('club_adm_pass_tip').textContent = '留空则不修改密码';
-      document.getElementById('clubAdminModal').style.display = 'flex';
-    });
-  } else {
-    alert('请联系超级管理后台新建管理员'); return;
-  }
-}
-function clubCloseAdminModal(){ document.getElementById('clubAdminModal').style.display = 'none'; }
-function clubSaveAdmin(){
-  var username = document.getElementById('club_adm_username').value.trim();
-  var password = document.getElementById('club_adm_password').value;
-  if(editingClubAdminId){
-    // 编辑:club 角色只能改密码,role/club_id 由接口端强制校验
-    var fields = {};
-    if(password) fields.password = password;
-    api('/admin/admin_user/' + editingClubAdminId, putBody(fields)).then(function(ret){
-      if(ret.code === 0){ clubCloseAdminModal(); clubLoadAdmins(); }
-      else alert(ret.msg);
-    });
-  } else {
-    // 管理后台不允许新建管理员(只能超级管理后台新建)
-    alert('请联系超级管理后台新建管理员'); return;
-  }
-}
-function clubDelAdmin(id){
-  if(!confirm('确认删除该管理员账号？')) return;
-  api('/admin/admin_user/' + id, {method:'DELETE'}).then(function(ret){
-    if(ret.code === 0){ clubLoadAdmins(); }
-    else alert(ret.msg);
   });
 }
 

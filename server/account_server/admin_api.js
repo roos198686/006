@@ -689,9 +689,14 @@ app.delete('/admin/club/:id', auth, requireSuper, function(req, res){
 });
 
 // ============ 管理员账号管理 ============
-// GET 列表:所有管理员(不分角色)看全部
+// GET 列表:super 看全部; club 只看非 super 的管理员(不能看超级管理员)
 app.get('/admin/admin_users', auth, function(req, res){
-    db.admin_user_list(function(rows){ send(res, 0, "ok", rows); });
+    db.admin_user_list(function(rows){
+        if(req.adminUser.role !== 'super'){
+            rows = (rows || []).filter(function(u){ return u.role !== 'super'; });
+        }
+        send(res, 0, "ok", rows);
+    });
 });
 
 // POST 新建:新建管理员,不绑定俱乐部
@@ -708,20 +713,26 @@ app.post('/admin/admin_user', auth, function(req, res){
     });
 });
 
-// PUT 更新:所有角色都能改任意管理员的密码;super 还能改 role/club_id
+// PUT 更新:super 可改任意管理员密码/role/club_id; club 只能改非 super 的密码
 app.put('/admin/admin_user/:id', auth, function(req, res){
     var id = parseInt(req.params.id);
     var c = req.body || {};
     var fields = {};
-    if(c.password){ fields.password = crypto.md5(c.password); }
-    if(req.adminUser.role === 'super'){
-        if(c.role){ fields.role = c.role === 'club' ? 'club' : 'super'; }
-        if(c.club_id !== undefined && c.club_id !== null){
-            fields.club_id = c.club_id === '' ? null : parseInt(c.club_id);
+    var isSuper = req.adminUser.role === 'super';
+    db.query('SELECT role FROM t_admin_users WHERE id=' + id + ' LIMIT 1', function(err, rows){
+        if(err){ send(res, 500, "数据库错误"); return; }
+        if(!rows || rows.length === 0){ send(res, 1, "管理员不存在"); return; }
+        if(!isSuper && rows[0].role === 'super'){ send(res, 403, "无权修改超级管理员"); return; }
+        if(c.password){ fields.password = crypto.md5(c.password); }
+        if(isSuper){
+            if(c.role){ fields.role = c.role === 'club' ? 'club' : 'super'; }
+            if(c.club_id !== undefined && c.club_id !== null){
+                fields.club_id = c.club_id === '' ? null : parseInt(c.club_id);
+            }
         }
-    }
-    db.admin_user_update(id, fields, function(ok){
-        send(res, ok ? 0 : 1, ok ? "ok" : "更新失败");
+        db.admin_user_update(id, fields, function(ok){
+            send(res, ok ? 0 : 1, ok ? "ok" : "更新失败");
+        });
     });
 });
 
