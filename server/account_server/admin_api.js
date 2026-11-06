@@ -628,7 +628,7 @@ app.get('/admin/clubs', auth, function(req, res){
     });
 });
 
-app.post('/admin/club', auth, requireSuper, function(req, res){
+app.post('/admin/club', auth, function(req, res){
     var c = req.body || {};
     var owner = parseInt(c.owner_userid);
     if(!c.name || !(owner > 0)){ send(res, 1, "俱乐部名称和社长用户ID不能为空"); return; }
@@ -638,7 +638,7 @@ app.post('/admin/club', auth, requireSuper, function(req, res){
     });
 });
 
-app.put('/admin/club/:id', auth, requireSuper, function(req, res){
+app.put('/admin/club/:id', auth, function(req, res){
     var id = parseInt(req.params.id);
     var c = req.body || {};
     db.admin_club_update(id, c.name || null, c.owner_userid ? parseInt(c.owner_userid) : null, function(ok){
@@ -646,7 +646,7 @@ app.put('/admin/club/:id', auth, requireSuper, function(req, res){
     });
 });
 
-app.delete('/admin/club/:id', auth, requireSuper, function(req, res){
+app.delete('/admin/club/:id', auth, function(req, res){
     var id = parseInt(req.params.id);
     var priKey = (config && config.ROOM_PRI_KEY) ? config.ROOM_PRI_KEY : '~!@#$(*&^%$&';
     // 先查出所有该俱乐部的牌桌,逐个清场(解散运行中房间)

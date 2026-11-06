@@ -117,7 +117,8 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
 <div id="mainView" style="display:none">
   <div class="sidebar">
     <div class="logo">俱乐部管理后台</div>
-    <div class="nav-item active" data-tab="games" onclick="switchTab('games', this)">玩法列表</div>
+    <div class="nav-item active" data-tab="clubs" onclick="switchTab('clubs', this)">俱乐部管理</div>
+    <div class="nav-item" data-tab="games" onclick="switchTab('games', this)">玩法列表</div>
     <div class="nav-item" data-tab="tables" onclick="switchTab('tables', this)">牌桌管理</div>
     <div class="nav-item" data-tab="members" onclick="switchTab('members', this)">成员房卡</div>
     <div class="nav-item" data-tab="users" onclick="switchTab('users', this)">用户管理</div>
@@ -129,6 +130,16 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
       <span class="user"><span id="adminName"></span> <a onclick="clubOpenChangePwd()">修改密码</a> <a onclick="doLogout()">退出登录</a></span>
     </div>
     <div class="content">
+
+      <!-- 俱乐部管理 -->
+      <div id="tab-clubs" class="panel">
+        <div class="toolbar">
+          <input type="text" id="clubKw" placeholder="搜索俱乐部名称/社长/ID">
+          <button class="btn btn-primary btn-sm" onclick="clubLoadClubs()">刷新</button>
+          <button class="btn btn-success btn-sm" onclick="clubShowClubModal()">+ 添加俱乐部</button>
+        </div>
+        <div class="card-grid" id="clubListBox"></div>
+      </div>
 
       <!-- 俱乐部信息头 -->
       <div class="club-header">
@@ -146,7 +157,7 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
       </div>
 
       <!-- 玩法列表 -->
-      <div id="tab-games" class="panel">
+      <div id="tab-games" class="panel" style="display:none">
         <div class="toolbar">
           <button class="btn btn-success btn-sm" onclick="clubShowAddGameModal()">+ 添加玩法</button>
           <button class="btn btn-primary btn-sm" onclick="clubLoadGames()">刷新</button>
@@ -278,6 +289,28 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
     <div class="modal-footer">
       <button class="btn btn-default" onclick="clubCloseGemModal()">取消</button>
       <button class="btn btn-primary" onclick="clubConfirmGemChange()">确认</button>
+    </div>
+  </div>
+</div>
+
+<!-- 俱乐部弹窗 -->
+<div id="club_cmModal" class="modal">
+  <div class="modal-content">
+    <h3 id="club_cmTitle">添加俱乐部</h3>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>俱乐部名称</label>
+        <input type="text" id="club_cm_name">
+      </div>
+      <div class="form-group">
+        <label>社长用户ID</label>
+        <input type="number" id="club_cm_owner" placeholder="填用户ID" oninput="club_cm_showOwner()">
+        <div id="club_cm_ownerTip" style="margin-top:6px;color:#1976d2;font-size:13px"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="club_cm_close()">取消</button>
+      <button class="btn btn-primary" onclick="club_cm_save()">保存</button>
     </div>
   </div>
 </div>
@@ -580,23 +613,30 @@ function enterMain(data){
   }
   currentClubId = localStorage.getItem('admin_club_id') || null;
   document.getElementById('adminName').textContent = data.username + (data.role==='club' ? '  [管理员]' : '');
-  // 加载俱乐部列表
-  api('/admin/clubs').then(function(ret){
-    if(ret.code !== 0){ alert(ret.msg); return; }
-    var list = ret.data || [];
-    if(list.length === 0){ alert('系统还没有俱乐部，请联系超级管理后台创建'); return; }
-    var sel = document.getElementById('clubSelector'); sel.innerHTML = '';
-    list.forEach(function(c){ var o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); });
-    // 选之前选过的或第一个
-    if(!currentClubId || !list.find(function(c){ return c.id == currentClubId; })){
-      currentClubId = list[0].id;
-    }
-    sel.value = currentClubId;
-    localStorage.setItem('admin_club_id', currentClubId);
+  // 加载俱乐部下拉
+  clubLoadClubsListInSelector(function(){
+    if(!currentClubId){ alert('系统还没有俱乐部，请先在"俱乐部管理"里创建'); }
     clubLoadHeader();
     document.getElementById('loginView').style.display = 'none';
     document.getElementById('mainView').style.display = 'flex';
-    switchTab('games', document.querySelector('.nav-item.active'));
+    switchTab('clubs', document.querySelector('.sidebar .nav-item.active'));
+  });
+}
+
+// 把俱乐部列表填进顶部下拉, 可选cb回调(加载完后currentClubId已设好)
+function clubLoadClubsListInSelector(cb){
+  api('/admin/clubs').then(function(ret){
+    if(ret.code !== 0){ alert(ret.msg); if(cb) cb(); return; }
+    var list = ret.data || [];
+    var sel = document.getElementById('clubSelector'); sel.innerHTML = '';
+    list.forEach(function(c){ var o = document.createElement('option'); o.value = c.id; o.textContent = c.name; sel.appendChild(o); });
+    // 如果之前的currentClubId还在列表里就保持, 否则挑第一个
+    if(!currentClubId || !list.find(function(c){ return String(c.id)===String(currentClubId); })){
+      currentClubId = list.length > 0 ? String(list[0].id) : null;
+    }
+    if(currentClubId) sel.value = currentClubId;
+    localStorage.setItem('admin_club_id', currentClubId);
+    if(cb) cb();
   });
 }
 
@@ -622,15 +662,128 @@ function clubLoadHeader(){
   });
 }
 
+// ========= 俱乐部管理 =========
+var club_allClubs = [];
+function clubLoadClubs(){
+  api('/admin/clubs').then(function(ret){
+    if(ret.code !== 0){ alert(ret.msg); return; }
+    club_allClubs = ret.data || [];
+    club_renderClubs();
+  });
+}
+function club_renderClubs(){
+  var kw = (document.getElementById('clubKw').value || '').trim();
+  var grid = document.getElementById('clubListBox');
+  grid.innerHTML = '';
+  var list = club_allClubs.filter(function(c){
+    if(!kw) return true;
+    return (c.name||'').indexOf(kw)>=0 || (c.owner_account||'').indexOf(kw)>=0
+      || (c.owner_name||'').indexOf(kw)>=0 || String(c.id)===kw;
+  });
+  if(list.length === 0){ grid.innerHTML = '<div class="card-empty">暂无俱乐部</div>'; return; }
+  list.forEach(function(c){
+    var time = c.create_time ? new Date(c.create_time*1000).toLocaleString() : '-';
+    var card = document.createElement('div'); card.className = 'card';
+    card.innerHTML =
+      '<div class="card-header">'+
+        '<div><div class="card-title">'+(c.name||'-')+'</div>'+
+        '<div class="card-sub">ID: '+c.id+'</div></div>'+
+        '<span class="card-tag">'+(c.owner_name||'-')+'</span></div>'+
+      '<div class="card-body">'+
+        '<div class="row"><span class="k">社长</span><span class="v">'+(c.owner_account||'')+' ('+c.owner_userid+')</span></div>'+
+        '<div class="row"><span class="k">成员</span><span class="v">'+c.member_count+'</span></div>'+
+        '<div class="row"><span class="k">玩法/牌桌</span><span class="v">'+c.game_count+'/'+c.table_count+'</span></div>'+
+        '<div class="row"><span class="k">创建时间</span><span class="v">'+time+'</span></div>'+
+      '</div>'+
+      '<div class="card-actions">'+
+        '<button class="btn btn-default btn-sm" onclick="club_cm_edit('+c.id+')">编辑</button>'+
+        '<button class="btn btn-primary btn-sm" onclick="club_cm_enter('+c.id+')">进入管理</button>'+
+        '<button class="btn btn-danger btn-sm" onclick="club_cm_del('+c.id+')">删除</button>'+
+      '</div>';
+    grid.appendChild(card);
+  });
+}
+
+var club_cm_editing = null;
+function clubShowClubModal(){
+  club_cm_editing = null;
+  document.getElementById('club_cmTitle').textContent = '添加俱乐部';
+  document.getElementById('club_cm_name').value = '';
+  document.getElementById('club_cm_owner').value = '';
+  document.getElementById('club_cm_ownerTip').textContent = '';
+  document.getElementById('club_cmModal').style.display = 'flex';
+}
+function club_cm_edit(id){
+  var c = club_allClubs.find(function(x){ return x.id === id; });
+  if(!c) return;
+  club_cm_editing = id;
+  document.getElementById('club_cmTitle').textContent = '编辑俱乐部 (ID:'+id+')';
+  document.getElementById('club_cm_name').value = c.name || '';
+  document.getElementById('club_cm_owner').value = c.owner_userid || '';
+  club_cm_showOwner();
+  document.getElementById('club_cmModal').style.display = 'flex';
+}
+function club_cm_enter(id){
+  var c = club_allClubs.find(function(x){ return x.id === id; });
+  if(!c) return;
+  currentClubId = String(c.id);
+  localStorage.setItem('admin_club_id', currentClubId);
+  clubLoadClubsListInSelector(function(){
+    switchTab('games', document.querySelector('.sidebar .nav-item[data-tab="games"]'));
+    clubLoadHeader();
+  });
+}
+function club_cm_showOwner(){
+  var v = document.getElementById('club_cm_owner').value.trim();
+  var tip = document.getElementById('club_cm_ownerTip');
+  if(!v){ tip.textContent = ''; return; }
+  api('/admin/users?keyword=' + v + '&pageSize=10').then(function(ret){
+    var hit = null;
+    (ret.data && ret.data.list || []).forEach(function(u){ if(String(u.userid)===v){ hit=u; } });
+    tip.textContent = hit ? ('社长: '+(hit.name||'-')+' ('+hit.account+')') : ('用户ID '+v+' 不存在');
+  });
+}
+function club_cm_close(){ document.getElementById('club_cmModal').style.display = 'none'; }
+function club_cm_save(){
+  var name = document.getElementById('club_cm_name').value.trim();
+  var owner = parseInt(document.getElementById('club_cm_owner').value);
+  if(!name || !(owner>0)){ alert('请填写俱乐部名称和社长用户ID'); return; }
+  var opt;
+  if(club_cm_editing){
+    opt = api('/admin/club/' + club_cm_editing, putBody({name:name, owner_userid:owner}));
+  } else {
+    opt = api('/admin/club', postBody({name:name, owner_userid:owner}));
+  }
+  opt.then(function(ret){
+    if(ret.code===0){ club_cm_close(); clubLoadClubs(); }
+    else alert(ret.msg);
+  });
+}
+function club_cm_del(id){
+  if(!confirm('确认删除该俱乐部？成员、玩法、牌桌将一并删除，正在运行的房间会被解散')) return;
+  api('/admin/club/' + id, {method:'DELETE'}).then(function(ret){
+    if(ret.code===0){
+      // 如果删的是当前选中的俱乐部,清掉currentClubId
+      if(String(currentClubId) === String(id)){
+        currentClubId = null;
+        localStorage.removeItem('admin_club_id');
+        clubLoadClubsListInSelector();
+      }
+      clubLoadClubs();
+    } else alert(ret.msg);
+  });
+}
+
 // ========= Tab 切换 =========
-var TAB_TITLES = {games:'玩法列表', tables:'牌桌管理', members:'成员房卡', users:'用户管理', games_history:'战绩查询'};
+var TAB_TITLES = {clubs:'俱乐部管理', games:'玩法列表', tables:'牌桌管理', members:'成员房卡', users:'用户管理', games_history:'战绩查询'};
 function switchTab(name, el){
-  var tabs = ['games', 'tables', 'members', 'users', 'games_history'];
+  var tabs = ['clubs', 'games', 'tables', 'members', 'users', 'games_history'];
   document.querySelectorAll('.sidebar .nav-item').forEach(function(n){ n.classList.remove('active'); });
   if(el) el.classList.add('active');
   document.getElementById('pageTitle').textContent = TAB_TITLES[name] || name;
   tabs.forEach(function(n){ document.getElementById('tab-' + n).style.display = (n === name ? '' : 'none'); });
-  if(name === 'games') clubLoadGames();
+  if(name === 'clubs') clubLoadClubs();
+  else if(name === 'games') clubLoadGames();
   else if(name === 'tables') clubLoadTables();
   else if(name === 'members') clubLoadMembers();
   else if(name === 'users') clubLoadUsers();
