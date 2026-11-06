@@ -90,28 +90,47 @@ jobs:
           cmake --build "$OAL/build-ios" --parallel
           ls -la "$OAL/build-ios/libopenal.a"
 
-      - name: Build cocos2d engine (libcocos2d iOS.a)
-        working-directory: client/build/jsb-default/frameworks/cocos2d-x/build
+      - name: List Xcode projects and targets
         run: |
-          xcodebuild -project cocos2d_libs.xcodeproj \
+          echo "=== cocos2d_libs targets ==="
+          xcodebuild -project client/build/jsb-default/frameworks/cocos2d-x/build/cocos2d_libs.xcodeproj -list 2>&1 | head -20
+          echo "=== SCMJ targets ==="
+          xcodebuild -project client/build/jsb-default/frameworks/runtime-src/proj.ios_mac/SCMJ.xcodeproj -list 2>&1 | head -20
+
+      - name: Build cocos2d engine (libcocos2d iOS.a)
+        run: |
+          set -e
+          XPROJ="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build/cocos2d_libs.xcodeproj"
+          OUT_DIR="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build/build/Release-iphoneos"
+          echo "Building cocos2d_libs..."
+          xcodebuild -project "$XPROJ" \
             -target "libcocos2d iOS" \
             -configuration Release \
             -sdk iphoneos \
             -arch arm64 \
+            -derivedDataPath "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/build" \
             CODE_SIGNING_ALLOWED=NO \
-            build
-          # 把产出的 .a 拷到 SCMJ 能找到的地方
-          BUILT_A=$(find build -name "libcocos2d iOS.a" 2>/dev/null | head -1)
-          echo "BUILT_A=$BUILT_A"
-          ls -la "$BUILT_A"
-          # 软链到 external/ios/libs/ 让链接器通过 -L../../cocos2d-x/external/ios/libs 能找到
-          ln -sf "$BUILT_A" "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/libcocos2d iOS.a"
-          ls -la "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/libcocos2d iOS.a"
+            build 2>&1 | tail -20
+          echo "--- Looking for libcocos2d iOS.a ---"
+          find "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x" -name "libcocos2d iOS.a" 2>/dev/null
+          echo "--- Copying to ios/libs ---"
+          SRC=$(find "$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x" -name "libcocos2d iOS.a" 2>/dev/null | head -1)
+          if [ -z "$SRC" ]; then echo "ERROR: libcocos2d iOS.a not found!"; exit 1; fi
+          DST="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs/libcocos2d iOS.a"
+          cp -f "$SRC" "$DST"
+          ls -la "$DST"
+          echo "Verifying architecture:"
+          lipo -info "$DST"
 
       - name: Build unsigned iOS app
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
         run: |
+          set -e
           OAL="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/openal-soft"
+          LIBS_DIR="$GITHUB_WORKSPACE/client/build/jsb-default/frameworks/cocos2d-x/external/ios/libs"
+          echo "=== Verify libcocos2d iOS.a exists ==="
+          ls -la "$LIBS_DIR/libcocos2d iOS.a"
+          echo "=== Building SCMJ ==="
           xcodebuild -project SCMJ.xcodeproj \
             -target SCMJ-mobile \
             -configuration Release \
@@ -122,7 +141,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             HEADER_SEARCH_PATHS="\$(inherited) $OAL/include" \
             OTHER_LDFLAGS="\$(inherited) -lwebp -L$OAL/build-ios -lopenal -framework CoreAudio -Wl,-sectcreate,__TEXT,__entitlements,ios/SCMJ-mobile.entitlements" \
-            build
+            build 2>&1 | tail -30
 
       - name: Package unsigned IPA
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
