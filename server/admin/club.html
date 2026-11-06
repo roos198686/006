@@ -142,7 +142,7 @@ th { background: #fafbfc; color: #555; font-weight: 600; }
       </div>
 
       <!-- 俱乐部信息头 -->
-      <div class="club-header">
+      <div class="club-header" style="display:none">
         <div>
           <h2>
             <select id="clubSelector" onchange="onClubSelectorChange()" style="font-size:18px;font-weight:700;border:none;background:transparent;outline:none;cursor:pointer"></select>
@@ -683,19 +683,19 @@ function club_renderClubs(){
   if(list.length === 0){ grid.innerHTML = '<div class="card-empty">暂无俱乐部</div>'; return; }
   list.forEach(function(c){
     var time = c.create_time ? new Date(c.create_time*1000).toLocaleString() : '-';
-    var card = document.createElement('div'); card.className = 'card';
+    var card = document.createElement('div'); card.className = 'list-card';
     card.innerHTML =
-      '<div class="card-header">'+
-        '<div><div class="card-title">'+(c.name||'-')+'</div>'+
-        '<div class="card-sub">ID: '+c.id+'</div></div>'+
-        '<span class="card-tag">'+(c.owner_name||'-')+'</span></div>'+
-      '<div class="card-body">'+
-        '<div class="row"><span class="k">社长</span><span class="v">'+(c.owner_account||'')+' ('+c.owner_userid+')</span></div>'+
-        '<div class="row"><span class="k">成员</span><span class="v">'+c.member_count+'</span></div>'+
-        '<div class="row"><span class="k">玩法/牌桌</span><span class="v">'+c.game_count+'/'+c.table_count+'</span></div>'+
-        '<div class="row"><span class="k">创建时间</span><span class="v">'+time+'</span></div>'+
+      '<div class="list-card-head">'+
+        '<div><div class="list-card-title">'+(c.name||'-')+'</div>'+
+        '<div style="font-size:12px;color:#999;margin-top:2px">ID: '+c.id+'</div></div>'+
+        '<span class="list-card-type">'+(c.owner_name||'-')+'</span></div>'+
+      '<div class="list-card-body">'+
+        '<div class="list-card-row"><span class="k">社长</span><span class="v">'+(c.owner_account||'')+' ('+c.owner_userid+')</span></div>'+
+        '<div class="list-card-row"><span class="k">成员</span><span class="v">'+c.member_count+'</span></div>'+
+        '<div class="list-card-row"><span class="k">玩法/牌桌</span><span class="v">'+c.game_count+'/'+c.table_count+'</span></div>'+
+        '<div class="list-card-row"><span class="k">创建时间</span><span class="v">'+time+'</span></div>'+
       '</div>'+
-      '<div class="card-actions">'+
+      '<div class="list-card-foot">'+
         '<button class="btn btn-default btn-sm" onclick="club_cm_edit('+c.id+')">编辑</button>'+
         '<button class="btn btn-primary btn-sm" onclick="club_cm_enter('+c.id+')">进入管理</button>'+
         '<button class="btn btn-danger btn-sm" onclick="club_cm_del('+c.id+')">删除</button>'+
@@ -782,6 +782,8 @@ function switchTab(name, el){
   if(el) el.classList.add('active');
   document.getElementById('pageTitle').textContent = TAB_TITLES[name] || name;
   tabs.forEach(function(n){ document.getElementById('tab-' + n).style.display = (n === name ? '' : 'none'); });
+  // club-header 只在非俱乐部列表tab显示(进入具体俱乐部管理后才需要)
+  document.querySelector('.club-header').style.display = (name === 'clubs' ? 'none' : '');
   if(name === 'clubs') clubLoadClubs();
   else if(name === 'games') clubLoadGames();
   else if(name === 'tables') clubLoadTables();
