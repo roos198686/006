@@ -125,7 +125,6 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
   <div class="sidebar">
     <div class="logo">麻将管理后台</div>
     <div class="nav-item active" data-tab="clubs" onclick="switchTab('clubs', this)">俱乐部管理</div>
-    <div class="nav-item" data-tab="club_detail" onclick="switchTab('club_detail', this)">俱乐部详情</div>
     <div class="nav-item" data-tab="admins" onclick="switchTab('admins', this)">管理员管理</div>
     <div class="nav-item" data-tab="config" onclick="switchTab('config', this)">玩法配置</div>
     <div class="nav-item" data-tab="users" onclick="switchTab('users', this)">用户管理</div>
@@ -148,59 +147,6 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <button class="btn btn-success" onclick="showClubModal()">+ 添加俱乐部</button>
       </div>
       <div class="card-grid" id="clubList"></div>
-    </div>
-
-    <!-- 俱乐部详情 -->
-    <div id="tab-club_detail" class="panel" style="display:none">
-      <div class="toolbar">
-        <span style="font-size:14px;color:#555;margin-right:10px">选择俱乐部:</span>
-        <select id="clubDetailSel" onchange="onClubDetailChange()" style="padding:8px 12px;border:1px solid #dcdfe6;border-radius:4px;min-width:260px">
-          <option value="">-- 请先选择一个俱乐部 --</option>
-        </select>
-        <span id="clubDetailInfo" style="margin-left:12px;color:#1976d2;font-size:13px"></span>
-      </div>
-      <div id="clubDetailEmpty" style="color:#999;padding:40px;text-align:center">请选择一个俱乐部以查看其玩法、牌桌和成员</div>
-
-      <div id="clubDetailBody" style="display:none;margin-top:12px">
-        <div class="tabs" style="margin-bottom:14px">
-          <div class="tab active" id="cdTabGames" onclick="switchCdTab('games')">玩法列表</div>
-          <div class="tab" id="cdTabTables" onclick="switchCdTab('tables')">牌桌管理</div>
-          <div class="tab" id="cdTabMembers" onclick="switchCdTab('members')">成员房卡</div>
-        </div>
-
-        <!-- 玩法列表(不可添加, 可编辑/禁用/删除) -->
-        <div id="cdPanelGames" class="panel" style="padding:16px">
-          <div class="toolbar">
-            <button class="btn btn-success btn-sm" onclick="clubShowAddGameModal()">+ 添加玩法</button>
-            <button class="btn btn-primary btn-sm" onclick="clubLoadGames()">刷新</button>
-          </div>
-          <div class="card-grid" id="cdGameList"></div>
-        </div>
-
-        <!-- 牌桌管理 -->
-        <div id="cdPanelTables" class="panel" style="padding:16px;display:none">
-          <div class="toolbar">
-            <div class="tabs" id="cdTableTabs"></div>
-            <button class="btn btn-success btn-sm" onclick="clubShowTableModal()">+ 添加牌桌</button>
-            <button class="btn btn-primary btn-sm" onclick="clubLoadTables()">刷新</button>
-          </div>
-          <div class="card-grid" id="cdTableList"></div>
-        </div>
-
-        <!-- 成员房卡 -->
-        <div id="cdPanelMembers" class="panel" style="padding:16px;display:none">
-          <div class="toolbar">
-            <input type="text" id="cdMemberKeyword" placeholder="搜索用户ID/账号/昵称" oninput="clubRenderMembers()" style="padding:8px;border:1px solid #dcdfe6;border-radius:4px">
-            <button class="btn btn-primary btn-sm" onclick="clubLoadMembers()">刷新</button>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>用户ID</th><th>账号</th><th>昵称</th><th>房卡</th><th>加入时间</th><th>操作</th></tr></thead>
-              <tbody id="cdMemberList"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- 管理员管理 -->
@@ -509,122 +455,7 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
     </div>
   </div>
 
-<!-- 添加玩法弹窗 -->
-<div id="clubAddGameModal" class="modal">
-  <div class="modal-content">
-    <h3>添加玩法</h3>
-    <div class="form-group">
-      <label>选择玩法</label>
-      <select id="club_add_game_type"></select>
-    </div>
-    <div class="form-group">
-      <label>玩法名称</label>
-      <input type="text" id="club_add_game_name">
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-default" onclick="clubCloseAddGameModal()">取消</button>
-      <button class="btn btn-primary" onclick="clubDoAddGame()">确定</button>
-    </div>
-  </div>
-</div>
 
-<!-- === 俱乐部详情弹窗 === -->
-<!-- 编辑玩法弹窗 (总管理端无添加玩法入口) -->
-<div id="clubGameModal" class="modal">
-  <div class="modal-content">
-    <h3 id="clubGameModalTitle">编辑玩法</h3>
-    <div class="form-group">
-      <label>玩法名称</label>
-      <input type="text" id="club_game_name">
-    </div>
-    <div class="form-group">
-      <a href="javascript:void(0)" onclick="var d=document.getElementById('clubGameAdvanced'); d.style.display=(d.style.display==='none'?'block':'none');" style="font-size:13px; color:#1976d2;">高级选项（底分/局数/房卡）▾</a>
-    </div>
-    <div id="clubGameAdvanced" style="display:none">
-      <div class="form-group">
-        <label>底分选项</label>
-        <div class="array-input" id="club_gdifenArr"></div>
-      </div>
-      <div class="form-group">
-        <label>局数选项</label>
-        <div class="array-input" id="club_gjushuArr"></div>
-      </div>
-      <div class="form-group">
-        <label>对应房卡消耗</label>
-        <div class="array-input" id="club_gcostArr"></div>
-      </div>
-    </div>
-    <div class="form-group">
-      <label>排序</label>
-      <input type="number" id="club_game_sort" value="0">
-    </div>
-    <div class="form-group">
-      <label class="inline"><input type="checkbox" id="club_game_enabled" checked> 启用</label>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-default" onclick="clubCloseGameModal()">取消</button>
-      <button class="btn btn-primary" onclick="clubSaveGame()">保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- 牌桌弹窗 -->
-<div id="clubTableModal" class="modal">
-  <div class="modal-content">
-    <h3>添加牌桌</h3>
-    <div class="form-group">
-      <label>所属玩法</label>
-      <input type="text" id="club_tbl_game_label" readonly>
-    </div>
-    <div class="form-group">
-      <label>人数上限</label>
-      <input type="text" id="club_tbl_players" readonly disabled style="background:#eee;color:#666;">
-    </div>
-    <div class="form-group">
-      <label>有无庄</label>
-      <select id="club_tbl_banker_mode"><option value="1">有庄</option><option value="0">无庄</option></select>
-    </div>
-    <div class="form-group">
-      <label>底分</label>
-      <input type="number" id="club_tbl_difen" min="1">
-    </div>
-    <div class="form-group">
-      <label>局数</label>
-      <select id="club_tbl_jushu"></select>
-    </div>
-    <div class="form-group">
-      <label>最低宝宝豆</label>
-      <input type="number" id="club_tbl_min_bean" value="0" min="0">
-    </div>
-    <div class="form-group">
-      <label>请出阈值</label>
-      <input type="number" id="club_tbl_kick_bean" value="0" min="0">
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-default" onclick="clubCloseTableModal()">取消</button>
-      <button class="btn btn-primary" onclick="clubSaveTable()">保存</button>
-    </div>
-  </div>
-</div>
-
-<!-- 调整房卡弹窗 -->
-<div id="clubGemModal" class="modal">
-  <div class="modal-content" style="max-width:360px">
-    <h3>调整房卡</h3>
-    <p>用户ID: <span id="club_gemUserId"></span></p>
-    <p>当前房卡: <span id="club_gemCurrent"></span></p>
-    <div class="form-group">
-      <label>变动数量 (正数增加，负数减少)</label>
-      <input type="number" id="club_gemChange" value="0">
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-default" onclick="clubCloseGemModal()">取消</button>
-      <button class="btn btn-primary" onclick="clubConfirmGemChange()">确认</button>
-    </div>
-  </div>
-</div>
-
-</div>
 
 <script>
 var API_BASE = '';
@@ -833,7 +664,6 @@ function switchTab(name, btn){
   document.getElementById('tab-' + name).style.display = 'block';
   document.getElementById('pageTitle').textContent = TAB_TITLES[name] || '';
   if(name === 'clubs') loadClubs();
-  if(name === 'club_detail') enterClubDetail();
   if(name === 'admins') loadAdmins();
   if(name === 'config') loadConfigs();
   if(name === 'users') loadUsers();
@@ -880,7 +710,7 @@ function renderClubs(){
       '<div class="row"><span class="k">创建时间</span><span class="v">'+time+'</span></div></div>'+
       '<div class="card-actions">'+
       '<button class="btn btn-default btn-sm" onclick="editClub('+c.id+')">编辑</button>'+
-      '<button class="btn btn-primary btn-sm" onclick="manageClubContent('+c.id+')">玩法/牌桌</button>'+
+      '<button class="btn btn-primary btn-sm" onclick="location.href=\'club.html?club_id='+c.id+'\'">俱乐部管理</button>'+
       '<button class="btn btn-danger btn-sm" onclick="delClub('+c.id+')">删除</button></div>';
     grid.appendChild(card);
   });
