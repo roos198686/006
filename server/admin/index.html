@@ -63,8 +63,17 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
 .array-input .del-btn { padding: 8px 11px; background: #e53935; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
 .pagination { margin-top: 16px; text-align: center; }
 .pagination button { padding: 6px 12px; margin: 0 4px; }
-.toolbar { margin-bottom: 16px; display: flex; gap: 8px; align-items: center; }
+.toolbar { margin-bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .toolbar input { flex: 1; padding: 10px; border: 1px solid #dcdfe6; border-radius: 4px; }
+/* Tab 导航(俱乐部详情 + 玩法配置 共用) */
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid #e4e8ef; margin-bottom: 16px; flex-wrap: wrap; }
+.tabs .tab { padding: 10px 22px; font-size: 14px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: color .15s, border-color .15s; background: transparent; }
+.tabs .tab:hover { color: #1976d2; }
+.tabs .tab.active { color: #1976d2; border-bottom-color: #1976d2; font-weight: 600; }
+/* 牌桌管理内二级 tab (按玩法分组的小 tab) */
+#cdTableTabs { border-bottom: none; margin-bottom: 0; gap: 2px; }
+#cdTableTabs .tab { padding: 6px 14px; font-size: 13px; border-bottom: none; border-radius: 4px; margin-bottom: 0; border: 1px solid transparent; }
+#cdTableTabs .tab.active { background: #1976d2; color: #fff; border-color: #1976d2; }
 /* 玩法配置弹窗:加宽+分区布局 */
 #configModal .modal-content { max-width: 700px; }
 .cfg-section { border: 1px solid #e4e8ef; border-radius: 6px; padding: 12px 14px 2px; margin-bottom: 14px; background: #fcfdfe; }
