@@ -795,6 +795,10 @@ function doGameOver(game){
     var details = []; // 每场/每道明细(结算弹窗展示)
     if(isShou(game)){
         var tf = tongdianMode(game);
+        // 三道聚合倍数(后台 tai_rules 可配): 缺省 赢两道×1 / 赢三道(打枪)×3
+        var tr = taiRules(game);
+        var win2Rate = Number(tr.s_win2) > 0 ? Number(tr.s_win2) : 1;
+        var win3Rate = Number(tr.s_win3) > 0 ? Number(tr.s_win3) : 3;
         pairs.forEach(function(pr){
             var A = game.gameSeats[pr[0]], B = game.gameSeats[pr[1]];
             // 1) 双方都免摆: 整手比大小, 赢方得分=底分×赢方牌型倍率
@@ -835,7 +839,7 @@ function doGameOver(game){
             var wSeat = winA >= 2 ? pr[0] : pr[1];
             var lSeat = winA >= 2 ? pr[1] : pr[0];
             var winDaos = winA >= 2 ? winA : winB;
-            var rate = winDaos >= 3 ? 3 : 1;
+            var rate = winDaos >= 3 ? win3Rate : win2Rate;
             var score = base * rate;
             deltas[wSeat] += score;
             deltas[lSeat] -= score;

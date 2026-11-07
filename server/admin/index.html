@@ -1074,7 +1074,10 @@ var BB_SHOU_FIELDS = [
   {key:'s_dian9', label:'9点 倍率', def:4},
   {key:'s_dian8', label:'8点 倍率', def:3},
   {key:'s_dian7', label:'7点 倍率', def:2},
-  {key:'s_dianlow', label:'6~0点 倍率', def:1}
+  {key:'s_dianlow', label:'6~0点 倍率', def:1},
+  // 三道聚合结算: 同一对手赢2道 / 赢3道(打枪) 的倍数
+  {key:'s_win2', label:'赢两道 倍率', def:1},
+  {key:'s_win3', label:'赢三道(打枪) 倍率', def:3}
 ];
 function getTaiRuleFields(){
   var type = document.getElementById('cfg_type').value;
