@@ -483,8 +483,11 @@ function revealFxMs(game){
     var tr = taiRules(game);
     // 打枪/全垒打: 客户端只在后台开启动画开关时才播
     var dq = calcDaqiang(game);
-    if(Number(tr.anim_dq) > 0) ms += dq.list.length * 1500;
-    if(Number(tr.anim_qld) > 0 && dq.quanleida.length) ms += 2000;
+    // 开关缺失(老配置没这两个键)时按开启计, 与客户端 _animOn(...,1) 的默认值保持一致
+    var dqOn = tr.anim_dq == null ? true : Number(tr.anim_dq) > 0;
+    var qldOn = tr.anim_qld == null ? true : Number(tr.anim_qld) > 0;
+    if(dqOn) ms += dq.list.length * 1500;
+    if(qldOn && dq.quanleida.length) ms += 2000;
     // 牌型特效: 同样按后台开关计
     for(var i = 0; i < game.gameSeats.length; ++i){
         var s = game.gameSeats[i];

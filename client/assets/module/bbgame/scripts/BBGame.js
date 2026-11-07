@@ -2288,19 +2288,21 @@ cc.Class({
 
     // 后台动画开关: t_game_config.tai_rules 里 anim_xxx 值
     // withVal=true 时返回实际值(0/1/2), false 时返回 bool(兼容旧调用)
-    _animOn: function (key, withVal) {
+    // defVal: 字段缺失时的默认值(不传=0, 即默认关); 打枪/全垒打传 1, 老配置没这两个键也能播
+    _animOn: function (key, withVal, defVal) {
         var nm = cc.vv && cc.vv.gameNetMgr;
         var tr = nm && nm.conf && nm.conf.taiRules;
         if (typeof tr === "string") { try { tr = JSON.parse(tr); } catch (e) { tr = null; } }
-        var val = tr ? Number(tr[key]) || 0 : 0;
+        var raw = tr ? tr[key] : null;
+        var val = (raw == null || isNaN(Number(raw))) ? (defVal != null ? defVal : 0) : Number(raw);
         return withVal ? val : val > 0;
     },
 
     // 打枪/全垒打(图六后): 由后台开关控制启动; 按对轮播, 每对1.5秒, 播报打枪语音+三连枪声
     _playDaqiangFx: function (done) {
         var self = this;
-        var list = this._animOn("anim_dq") ? (this._daqiangList || []) : [];
-        var ql = this._animOn("anim_qld") ? (this._quanleidaList || []) : [];
+        var list = this._animOn("anim_dq", false, 1) ? (this._daqiangList || []) : [];
+        var ql = this._animOn("anim_qld", false, 1) ? (this._quanleidaList || []) : [];
         if (!list.length && !ql.length) { if (done) done(); return; }
         var i = 0;
         function step() {
@@ -2955,6 +2957,9 @@ cc.Class({
     // 老配置 tongdian_flower 兼容: 1→1(比花色), 0→3(老的"和"改为完整比法)
     _applyBbConf: function (data) {
         var nm = cc.vv && cc.vv.gameNetMgr;
+        // 开局推送里的 conf 是最新的(taiRules 可能含俱乐部牌桌自配): 同步到 gameNetMgr,
+        // 否则只认 login_result 的旧 conf, 后台改了开关本局不生效
+        if (data && data.conf && nm) nm.conf = data.conf;
         var conf = data && data.conf;
         if (!conf && nm) conf = nm.conf;
         var tr = conf ? conf.taiRules : null;
