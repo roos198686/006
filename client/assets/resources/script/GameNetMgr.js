@@ -234,6 +234,7 @@ cc.Class({
         var name = "宝宝";
         if(conf.type == "baobao_mian") name = "宝宝免摆";
         else if(conf.type == "baobao_shou") name = "宝宝手动摆";
+        else if(conf.club_table_name) name = conf.club_table_name; //俱乐部牌桌:显示玩家录入的真实牌桌名,不再显示英文玩法码
         else if(conf.type) name = conf.type;
         var strArr = [name];
         // 底分:优先 conf.baseScore (roommgr驼峰),fallback conf.base_score/conf.base (兼容旧版)
@@ -942,6 +943,15 @@ cc.Class({
 
         cc.vv.net.addHandler("emoji_push",function(data){
             self.dispatchEvent("emoji_push",data);
+        });
+
+        //洗牌/表情扣豆后, 服务端把最新宝宝豆推到座位, 让房间里立刻看到分数变化
+        cc.vv.net.addHandler("bb_gems_push",function(data){
+            if(!data || data.userid == null) return;
+            var seat = self.getSeatByID(data.userid);
+            if(seat == null) return;
+            if(data.score != null) seat.score = data.score;
+            self.dispatchEvent("user_state_changed",seat);
         });
 
         cc.vv.net.addHandler("dissolve_notice_push",function(data){

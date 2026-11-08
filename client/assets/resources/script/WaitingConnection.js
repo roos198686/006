@@ -25,8 +25,8 @@ cc.Class({
         //等待提示文字统一深色
         if(this.lblContent){
             this.lblContent.node.color = cc.color(90,50,20);
-            // 记录场景原始布局: 加载态(转圈)用, 错误态要改黑框尺寸包住文字
-            this._frame = this.lblContent.node.parent;
+            // 黑框是文字的兄弟节点 public_frame_a(13个场景结构一致), 不是父节点; 父节点是WaitingConnection根, 改它无效
+            this._frame = this.node.getChildByName("public_frame_a") || this.lblContent.node.parent;
             if(this._frame){ this._origFrameW = this._frame.width; this._origFrameH = this._frame.height; }
             this._origLblX = this.lblContent.node.x;
             this._origLblY = this.lblContent.node.y;

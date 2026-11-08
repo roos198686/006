@@ -650,6 +650,249 @@ app.post('/admin/club_member/gems', auth, function(req, res){
     });
 });
 
+// ============ 俱乐部成员扩展操作 ============
+// 添加成员
+app.post('/admin/club_member/add', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var c = req.body || {};
+    var userid = parseInt(c.userid);
+    if(!(userid > 0)){ send(res, 1, "参数错误"); return; }
+    db.club_member_add(cid, userid, function(ok){
+        send(res, ok ? 0 : 1, ok ? "ok" : "添加失败");
+    });
+});
+
+// 删除成员
+app.post('/admin/club_member/delete', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var c = req.body || {};
+    var userid = parseInt(c.userid);
+    if(!(userid > 0)){ send(res, 1, "参数错误"); return; }
+    db.club_member_delete(cid, userid, function(ok){
+        send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+    });
+});
+
+// 踢出成员(从房间中踢出,不删成员关系)
+app.post('/admin/club_member/kick', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var c = req.body || {};
+    var userid = parseInt(c.userid);
+    if(!(userid > 0)){ send(res, 1, "参数错误"); return; }
+    // 通过游戏服踢人
+    var priKey = (config && config.ROOM_PRI_KEY) ? config.ROOM_PRI_KEY : '~!@#$(*&^%$&';
+    var sign = crypto.md5(String(userid) + priKey);
+    // 先查用户所在房间
+    db.query('SELECT roomid FROM t_users WHERE userid = ' + userid, function(err, rows){
+        if(err || !rows || rows.length == 0 || !rows[0].roomid){
+            send(res, 0, "ok"); return; // 不在房间也算成功
+        }
+        var roomId = rows[0].roomid;
+        var rsign = crypto.md5(String(roomId) + priKey);
+        http.get(roomData.ip, roomData.port, '/kick_user?roomid=' + roomId + '&userid=' + userid + '&sign=' + rsign, null, function(ret, data){
+            send(res, 0, "ok");
+        });
+    });
+});
+
+// 成员战绩
+app.get('/admin/club_member/records', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var userid = parseInt(req.query.userid);
+    var fromTime = parseInt(req.query.from_time) || 0;
+    if(!(userid > 0)){ send(res, 1, "参数错误"); return; }
+    db.club_member_records(cid, userid, fromTime, function(rows){
+        send(res, 0, "ok", rows);
+    });
+});
+
+// 成员豆豆明细
+app.get('/admin/club_member/bean_logs', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var userid = parseInt(req.query.userid);
+    var fromTime = parseInt(req.query.from_time) || 0;
+    if(!(userid > 0)){ send(res, 1, "参数错误"); return; }
+    db.club_member_bean_logs(cid, userid, fromTime, function(rows){
+        send(res, 0, "ok", rows);
+    });
+});
+
+// 设为合伙人
+app.post('/admin/club_member/set_partner', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var c = req.body || {};
+    var userid = parseInt(c.userid);
+    var name = c.name || null;
+    if(!(userid > 0)){ send(res, 1, "参数错误"); return; }
+    db.club_member_set_partner(cid, userid, name, function(newClubId){
+        if(newClubId == null){ send(res, 1, "设置失败"); return; }
+        send(res, 0, "ok", {partner_club_id: newClubId});
+    });
+});
+
+// ============ 玩法配置管理(多配置) ============
+// 玩法配置列表
+app.get('/admin/club_game_configs', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    db.club_game_get_configs(cid, function(rows){
+        send(res, 0, "ok", rows);
+    });
+});
+
+// 新建玩法配置(自动加牌桌)
+app.post('/admin/club_game_config', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    if(!checkClubOwn(req, res, cid)) return;
+    var c = req.body || {};
+    if(!c.game_type || !c.name){ send(res, 1, "玩法类型和名称不能为空"); return; }
+    db.club_game_add_with_config(cid, c.game_type, c.name, c, function(id){
+        if(id == null){ send(res, 1, "添加失败(该玩法可能已存在)"); return; }
+        send(res, 0, "ok", {id: id});
+    });
+});
+
+// 修改玩法配置
+app.put('/admin/club_game_config/:id', auth, function(req, res){
+    var id = parseInt(req.params.id);
+    db.club_game_get_config(id, function(g){
+        if(!g){ send(res, 1, "玩法配置不存在"); return; }
+        if(!checkClubOwn(req, res, g.club_id)) return;
+        db.club_game_update_config(id, req.body || {}, function(ok){
+            send(res, ok ? 0 : 1, ok ? "ok" : "更新失败");
+        });
+    });
+});
+
+// 删除玩法配置
+app.delete('/admin/club_game_config/:id', auth, function(req, res){
+    var id = parseInt(req.params.id);
+    db.club_game_get_config(id, function(g){
+        if(!g){ send(res, 1, "玩法配置不存在"); return; }
+        if(!checkClubOwn(req, res, g.club_id)) return;
+        db.club_game_delete(id, function(ok){
+            send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+        });
+    });
+});
+
+// 关闭/开启玩法配置
+app.post('/admin/club_game_config/:id/close', auth, function(req, res){
+    var id = parseInt(req.params.id);
+    var enabled = parseInt(req.body.enabled);
+    db.club_game_get_config(id, function(g){
+        if(!g){ send(res, 1, "玩法配置不存在"); return; }
+        if(!checkClubOwn(req, res, g.club_id)) return;
+        db.club_game_update_config(id, {enabled: enabled}, function(ok){
+            send(res, ok ? 0 : 1, ok ? "ok" : "操作失败");
+        });
+    });
+});
+
+// ============ 合伙人管理 ============
+// 合伙人列表
+app.get('/admin/partners', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    db.partner_list(cid, function(rows){
+        send(res, 0, "ok", rows);
+    });
+});
+
+// 合伙人加减豆豆(给合伙人俱乐部社长加)
+app.post('/admin/partner/gems', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var c = req.body || {};
+    var partnerClubId = parseInt(c.partner_club_id);
+    var gems = parseInt(c.gems);
+    if(!(partnerClubId > 0) || isNaN(gems)){ send(res, 1, "参数错误"); return; }
+    // 查合伙人俱乐部社长
+    db.query('SELECT owner_userid FROM t_clubs WHERE id = ' + partnerClubId + ' AND parent_clubid = ' + cid, function(err, rows){
+        if(err || !rows || rows.length == 0){ send(res, 1, "合伙人不存在"); return; }
+        var ownerId = rows[0].owner_userid;
+        db.add_user_gems(ownerId, gems, function(ok){
+            send(res, ok ? 0 : 1, ok ? "ok" : "操作失败");
+        }, {changeType: "合伙人豆豆调整", clubId: cid, partnerClubId: partnerClubId});
+    });
+});
+
+// 调整合伙人比例
+app.put('/admin/partner/ratio', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var c = req.body || {};
+    var partnerClubId = parseInt(c.partner_club_id);
+    var ratio = parseFloat(c.ratio);
+    if(!(partnerClubId > 0) || isNaN(ratio) || ratio < 0 || ratio > 100){ send(res, 1, "参数错误"); return; }
+    db.partner_upsert(cid, partnerClubId, {profit_ratio: ratio}, function(ok){
+        send(res, ok ? 0 : 1, ok ? "ok" : "操作失败");
+    });
+});
+
+// 合伙人收益详情
+app.get('/admin/partner/profit', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var partnerClubId = parseInt(req.query.partner_club_id);
+    var fromTime = parseInt(req.query.from_time) || 0;
+    if(!(partnerClubId > 0)){ send(res, 1, "参数错误"); return; }
+    db.partner_profit_detail(cid, partnerClubId, fromTime, function(rows){
+        send(res, 0, "ok", rows);
+    });
+});
+
+// 删除合伙人
+app.delete('/admin/partner/:id', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var partnerClubId = parseInt(req.params.id);
+    // 验证归属
+    db.query('SELECT id FROM t_clubs WHERE id = ' + partnerClubId + ' AND parent_clubid = ' + cid, function(err, rows){
+        if(err || !rows || rows.length == 0){ send(res, 1, "合伙人不存在"); return; }
+        db.admin_club_delete(partnerClubId, function(ok){
+            send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+        });
+    });
+});
+
+// 合伙人统计
+app.get('/admin/partner/stats', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    db.partner_stats_overview(cid, function(data){
+        send(res, 0, "ok", data || {});
+    });
+});
+
+// ============ 奖励明细 ============
+app.get('/admin/rewards', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    var partnerClubId = parseInt(req.query.partner_club_id) || 0;
+    var rewardType = req.query.reward_type || null;
+    var fromTime = parseInt(req.query.from_time) || 0;
+    db.reward_logs(cid, partnerClubId, rewardType, fromTime, function(rows){
+        send(res, 0, "ok", rows);
+    });
+});
+
+// ============ 俱乐部总览 ============
+app.get('/admin/club/overview', auth, function(req, res){
+    var cid = resolveClubId(req, res);
+    if(!cid) return;
+    db.club_overview(cid, function(data){
+        send(res, 0, "ok", data || {});
+    });
+});
+
 // ============ 俱乐部管理(仅超级管理员增删改,所有管理员可读列表) ============
 app.get('/admin/clubs', auth, function(req, res){
     db.admin_club_list(function(rows){
@@ -664,6 +907,19 @@ app.post('/admin/club', auth, function(req, res){
     db.admin_club_add(c.name, owner, function(id){
         if(id == null){ send(res, 1, "创建失败"); return; }
         send(res, 0, "ok", {id: id});
+    });
+});
+
+//录入/取消一级俱乐部: 一级俱乐部的社长增减豆豆不受自身豆豆数量限制
+app.post('/admin/club/top_level', auth, function(req, res){
+    var c = req.body || {};
+    var id = parseInt(c.id);
+    if(!(id > 0)){ send(res, 1, "俱乐部ID不能为空"); return; }
+    db.club_get(id, function(club){
+        if(club == null){ send(res, 1, "俱乐部不存在"); return; }
+        db.admin_club_set_top_level(id, !!Number(c.is_top_level), function(ok){
+            send(res, ok ? 0 : 1, ok ? "ok" : "设置失败");
+        });
     });
 });
 

@@ -849,6 +849,13 @@ cc.Class({
         if(btn && !btn._hallBound){
             btn._hallBound = true;
             btn.on(cc.Node.EventType.TOUCH_END,function(){
+                //从大厅主动进俱乐部:清掉所有来源标记,确保club场景显示clubPage列表页而不是旧详情页
+                cc.vv.fromClub = false;
+                cc.vv.fromClubId = null;
+                if(cc.vv.gameNetMgr){
+                    cc.vv.gameNetMgr.roomBackScene = "";
+                    cc.vv.gameNetMgr.roomBackClubId = null;
+                }
                 if(cc.vv.sceneMgr){
                     cc.vv.sceneMgr.load("club");
                 }else{

@@ -26,7 +26,8 @@ function taiRule(game, key, def){
 
 // 三台起胡门槛：后台可配，缺省 3 台
 function getMinTai(game){
-    return taiRule(game, 'min_tai', 3);
+    //自选玩法三台起胡为规则下限:后台配置只能调高,低于3按3算(曾误存min_tai=1导致二台可胡)
+    return Math.max(taiRule(game, 'min_tai', 3), 3);
 }
 
 // 牌型定义
@@ -237,7 +238,7 @@ function canFormMelds(countMap, caishenCount){
             }
         }
         else if(v == 7){
-            // 最小牌是8(八万/八筒/八条): 唯一合法顺子是"8+9+财神当7"
+            // 最小牌是8(八万/八筒/八条): 顺子可"8+9+财神当7", 也可两财补(678/789)
             var q2 = first + 1;
             if((countMap[q2] || 0) > 0 && caishenCount >= 1){
                 countMap[first]--;
@@ -249,6 +250,25 @@ function canFormMelds(countMap, caishenCount){
                 }
                 countMap[first]++;
                 countMap[q2]++;
+            }
+            if(caishenCount >= 2){
+                countMap[first]--;
+                if(canFormMelds(countMap, caishenCount - 2)){
+                    countMap[first]++;
+                    return true;
+                }
+                countMap[first]++;
+            }
+        }
+        else if(v == 8){
+            // 最小牌是9: 唯一合法顺子是"财神当7+财神当8+9"
+            if(caishenCount >= 2){
+                countMap[first]--;
+                if(canFormMelds(countMap, caishenCount - 2)){
+                    countMap[first]++;
+                    return true;
+                }
+                countMap[first]++;
             }
         }
     }
@@ -370,12 +390,29 @@ function _splitDfs(cm, cs, cur, results){
                 cur.shuns.pop(); cm[first]++;
             }
         } else if(v == 7){
-            // first=8万/8筒/8条: 唯一 8+9+cs(当7)
+            // first=8万/8筒/8条: 8+9+cs(当7), 或两财补(财8财=789 / 财财8=678)
             var q2 = first + 1;
             if((cm[q2] || 0) > 0 && cs >= 1){
                 cm[first]--; cm[q2]--; cur.shuns.push([-1,first,q2]);
                 _splitDfs(cm, cs - 1, cur, results);
                 cur.shuns.pop(); cm[first]++; cm[q2]++;
+            }
+            if(cs >= 2){
+                cm[first]--; cur.shuns.push([-1,first,-1]);
+                _splitDfs(cm, cs - 2, cur, results);
+                cur.shuns.pop(); cm[first]++;
+            }
+            if(cs >= 2){
+                cm[first]--; cur.shuns.push([-1,-1,first]);
+                _splitDfs(cm, cs - 2, cur, results);
+                cur.shuns.pop(); cm[first]++;
+            }
+        } else if(v == 8){
+            // first=9万/9筒/9条: 唯一 财财9(当7当8)
+            if(cs >= 2){
+                cm[first]--; cur.shuns.push([-1,-1,first]);
+                _splitDfs(cm, cs - 2, cur, results);
+                cur.shuns.pop(); cm[first]++;
             }
         }
     }
@@ -1844,6 +1881,10 @@ function bestZiKeSplit(countMap, caishenCount){
             else if(v == 7){
                 var q2 = first + 1;
                 if((cm[q2] || 0) > 0 && cs >= 1){ cm[first]--; cm[q2]--; meldDfs(cm, cs - 1, kes, ziScore); cm[first]++; cm[q2]++; }
+                if(cs >= 2){ cm[first]--; meldDfs(cm, cs - 2, kes, ziScore); cm[first]++; }
+            }
+            else if(v == 8){
+                if(cs >= 2){ cm[first]--; meldDfs(cm, cs - 2, kes, ziScore); cm[first]++; }
             }
         }
         // 3财神替代 first 刻(不计字刻)
@@ -2233,9 +2274,9 @@ function canFormShunPure(countMap, caishenCount, needShun){
             countMap[first]++;
             if(r6) return true;
         }
-        if(v === 8 && caishenCount >= 1){
+        if(v === 8 && caishenCount >= 2){
             countMap[first]--;
-            var r7 = canFormShunPure(countMap, caishenCount - 1, needShun - 1);
+            var r7 = canFormShunPure(countMap, caishenCount - 2, needShun - 1);
             countMap[first]++;
             if(r7) return true;
         }

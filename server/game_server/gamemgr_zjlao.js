@@ -305,7 +305,7 @@ function canFormMelds(countMap, caishenCount){
             }
         }
         else if(v == 7){
-            // 最小牌是8(八万/八筒/八条): 唯一合法顺子是"8+9+财神当7"
+            // 最小牌是8(八万/八筒/八条): 顺子可"8+9+财神当7", 也可两财补(678/789)
             var q2 = first + 1;
             if((countMap[q2] || 0) > 0 && caishenCount >= 1){
                 countMap[first]--;
@@ -317,6 +317,25 @@ function canFormMelds(countMap, caishenCount){
                 }
                 countMap[first]++;
                 countMap[q2]++;
+            }
+            if(caishenCount >= 2){
+                countMap[first]--;
+                if(canFormMelds(countMap, caishenCount - 2)){
+                    countMap[first]++;
+                    return true;
+                }
+                countMap[first]++;
+            }
+        }
+        else if(v == 8){
+            // 最小牌是9: 唯一合法顺子是"财神当7+财神当8+9"
+            if(caishenCount >= 2){
+                countMap[first]--;
+                if(canFormMelds(countMap, caishenCount - 2)){
+                    countMap[first]++;
+                    return true;
+                }
+                countMap[first]++;
             }
         }
     }
@@ -1622,6 +1641,10 @@ function bestZiKeSplit(countMap, caishenCount){
             else if(v == 7){
                 var q2 = first + 1;
                 if((cm[q2] || 0) > 0 && cs >= 1){ cm[first]--; cm[q2]--; meldDfs(cm, cs - 1, kes, ziScore); cm[first]++; cm[q2]++; }
+                if(cs >= 2){ cm[first]--; meldDfs(cm, cs - 2, kes, ziScore); cm[first]++; }
+            }
+            else if(v == 8){
+                if(cs >= 2){ cm[first]--; meldDfs(cm, cs - 2, kes, ziScore); cm[first]++; }
             }
         }
         // 3财神替代 first 刻(不计字刻)

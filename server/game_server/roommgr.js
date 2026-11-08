@@ -208,6 +208,8 @@ function constructRoomFromDb(dbdata){
 		s.userId = dbdata["user_id" + i] || 0;
 		s.score = dbdata["user_score" + i] || 0;
 		s.name = dbdata["user_name" + i] || "";
+		//t_rooms.user_name 存的是 base64, 房间从DB恢复时必须解码, 否则牌桌广播的座位昵称是一串英文
+		if(s.name){ try{ s.name = require('../utils/crypto').fromBase64(s.name); }catch(e){} }
 		s.ready = false;
 		s.seatIndex = i;
 		s.numZiMo = 0;
@@ -276,7 +278,8 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 			}
 		}
 
-		var cost = JU_SHU_COST[roomConf.jushuxuanze] || 0;
+		//俱乐部牌桌在conf里带了自己的房卡单价时以它为准(后台弹窗里配的房卡), 否则按全局局数选项取
+		var cost = (roomConf.cost != null && Number(roomConf.cost) > 0) ? Number(roomConf.cost) : (JU_SHU_COST[roomConf.jushuxuanze] || 0);
 		// 宝宝玩法已改为宝宝豆(gems)结算, 建房不再校验房卡费用
 		if(type != "baobao_mian" && type != "baobao_shou" && cost > gems){
 			callback(2222,null);
@@ -312,6 +315,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 						if(roomConf.clubid != null){ conf.clubid = roomConf.clubid; }
 						if(roomConf.game_type != null){ conf.game_type = roomConf.game_type; }
 						if(roomConf.club_table_id != null){ conf.club_table_id = roomConf.club_table_id; } //牌桌id随conf入房,推送人数时直接定位牌桌卡片
+						if(roomConf.club_table_name != null){ conf.club_table_name = roomConf.club_table_name; } //玩家录入的真实牌桌名
 
 						// 诸暨麻将特有配置
 						if(type == "zj" || type == "zj_lao" || type == "zj_bt" || type == "zj4" || type == "zj4_bt" || type == "zj_zx" || type == "zj4_zx"){
@@ -368,68 +372,111 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							// 牌桌级宝宝豆: 进场最低 / 结算后低于该值请出
 							conf.min_bean = Number(roomConf.min_bean) || 0;
 							conf.kick_bean = Number(roomConf.kick_bean) || 0;
+							// 表情分/洗牌分: 同样来自牌桌conf(俱乐部玩法配置同步), 0=不扣
+							conf.face_score = Number(roomConf.face_score) || 0;
+							conf.shuffle_score = Number(roomConf.shuffle_score) || 0;
 							conf.cost = 0;  // 宝宝玩法不再扣房卡
+
+							// 俱乐部玩法配置(抽水/暗水/房费/几人开局/最多几人)
+							if(roomConf.clubid != null){
+								var onClubCfg = function(clubCfg){
+									if(clubCfg){
+										//牌桌自身conf优先(每张牌桌参数独立), 缺失的字段才用玩法配置兜底
+										var pick = function(k, def){
+											if(roomConf[k] == null || roomConf[k] === ''){ return def; }
+											var v = Number(roomConf[k]);
+											return isNaN(v) ? def : v;
+										};
+										conf.clubGameConfig = {
+											minPlayers: pick('min_players', clubCfg.min_players || 2),
+											maxPlayers: pick('max_players', clubCfg.max_players_custom || 6),
+											rakePercent: pick('rake_percent', clubCfg.rake_percent || 0),
+											hiddenRakePercent: pick('hidden_rake_percent', clubCfg.hidden_rake_percent || 0),
+											rakePerRound: pick('rake_per_round', clubCfg.rake_per_round != null ? clubCfg.rake_per_round : 1),
+											roomFee: pick('room_fee', clubCfg.room_fee || 0),
+											roomFeePayer: pick('room_fee_payer', clubCfg.room_fee_payer || 0),
+											clubId: clubCfg.club_id || 0
+										};
+										conf.face_score = pick('face_score', conf.face_score);
+										conf.shuffle_score = pick('shuffle_score', conf.shuffle_score);
+										//记录配置id, 结算/扣费时按它实时重读DB, 馆主改配置后无需重建房间即可生效
+										conf.game_config_id = clubCfg.id || cfgId || 0;
+										// 俱乐部配置覆盖全局人数限制
+										if(conf.clubGameConfig.maxPlayers > 0){
+											maxPlayers = conf.clubGameConfig.maxPlayers;
+											conf.maxPlayers = maxPlayers;
+										}
+									}
+									// 继续创建房间(异步拿到配置后再建)
+									finishCreateRoom();
+								};
+								// 优先用牌桌绑定的玩法配置id(同类型多套玩法时避免取错); 老牌桌回退按俱乐部+类型查
+								var cfgId = Number(roomConf.game_config_id) || 0;
+								if(cfgId > 0){
+									db.club_game_get_config(cfgId, function(cfgById){
+										if(cfgById){ onClubCfg(cfgById); }
+										else { db.club_game_get_config_by_club_type(roomConf.clubid, type, onClubCfg); }
+									});
+								} else {
+									db.club_game_get_config_by_club_type(roomConf.clubid, type, onClubCfg);
+								}
+							} else {
+								finishCreateRoom();
+							}
+						} else {
+							// 非宝宝玩法直接创建
+							finishCreateRoom();
 						}
 
-						// 跑得快/关牌: 牌型开关全部走后台 gp_* 配置
-						if(type == "guanpai2" || type == "guanpai3"){
-							conf.gp_four_two = cfg.gp_four_two != null ? cfg.gp_four_two : 1;
-							conf.gp_four_three = cfg.gp_four_three != null ? cfg.gp_four_three : 1;
-							conf.gp_three_one = cfg.gp_three_one != null ? cfg.gp_three_one : 1;
-							conf.gp_last_three_one = cfg.gp_last_three_one != null ? cfg.gp_last_three_one : 0;
-							conf.gp_last_four_two_three = cfg.gp_last_four_two_three != null ? cfg.gp_last_four_two_three : 0;
-							conf.gp_bomb = cfg.gp_bomb != null ? cfg.gp_bomb : 1;
-							conf.gp_bomb_four = cfg.gp_bomb_four != null ? cfg.gp_bomb_four : 1;
-							conf.gp_card_history = cfg.gp_card_history != null ? cfg.gp_card_history : 0;
-							conf.gp_straight_a2 = cfg.gp_straight_a2 != null ? cfg.gp_straight_a2 : 1;
-							conf.taiRules = cfg.tai_rules || null; //出牌倒计时 chupai_timeout 走 tai_rules
-						}
+						function finishCreateRoom(){
+							var roomInfo = {
+								uuid:"",
+								id:roomId,
+								numOfGames:0,
+								createTime:createTime,
+								nextButton:0,
+								seats:[],
+								conf:conf
+							};
+							//非宝宝玩法(如跑得快/关牌)没有taiRules, JSON.stringify(undefined)是undefined, 直接.substring会崩掉建房
+							var _taiDebug = conf.taiRules ? JSON.stringify(conf.taiRules) : "";
+							console.log("[createRoom] roomId=", roomId, " type=", type, " conf keys=", Object.keys(conf), " baseScore=", conf.baseScore, " maxTai=", conf.maxTai, " maxGames=", conf.maxGames, " taiRules=", _taiDebug.substring(0,80));
 
-						var roomInfo = {
-							uuid:"",
-							id:roomId,
-							numOfGames:0,
-							createTime:createTime,
-							nextButton:0,
-							seats:[],
-							conf:conf
-						};
-						console.log("[createRoom] roomId=", roomId, " type=", type, " conf keys=", Object.keys(conf), " baseScore=", conf.baseScore, " maxTai=", conf.maxTai, " maxGames=", conf.maxGames, " taiRules=", JSON.stringify(conf.taiRules).substring(0,80));
+							roomInfo.gameMgr = getGameMgrByType(type);
+							console.log(roomInfo.conf);
 
-						roomInfo.gameMgr = getGameMgrByType(type);
-						console.log(roomInfo.conf);
+							for(var i = 0; i < maxPlayers; ++i){
+								roomInfo.seats.push({
+									userId:0,
+									score:0,
+									name:"",
+									ready:false,
+									seatIndex:i,
+									numZiMo:0,
+									numJiePao:0,
+									numDianPao:0,
+									numAnGang:0,
+									numMingGang:0,
+									numChaJiao:0,
+								});
+							}
 
-						for(var i = 0; i < maxPlayers; ++i){
-							roomInfo.seats.push({
-								userId:0,
-								score:0,
-								name:"",
-								ready:false,
-								seatIndex:i,
-								numZiMo:0,
-								numJiePao:0,
-								numDianPao:0,
-								numAnGang:0,
-								numMingGang:0,
-								numChaJiao:0,
+
+							//写入数据库
+							db.create_room(roomInfo.id,roomInfo.conf,ip,port,createTime,function(uuid){
+								delete creatingRooms[roomId];
+								if(uuid != null){
+									roomInfo.uuid = uuid;
+									console.log(uuid);
+									rooms[roomId] = roomInfo;
+									totalRooms++;
+									callback(0,roomId);
+								}
+								else{
+									callback(3,null);
+								}
 							});
 						}
-
-
-						//写入数据库
-						db.create_room(roomInfo.id,roomInfo.conf,ip,port,createTime,function(uuid){
-							delete creatingRooms[roomId];
-							if(uuid != null){
-								roomInfo.uuid = uuid;
-								console.log(uuid);
-								rooms[roomId] = roomInfo;
-								totalRooms++;
-								callback(0,roomId);
-							}
-							else{
-								callback(3,null);
-							}
-						});
 					}
 				});
 			}
@@ -608,6 +655,24 @@ exports.getUserSeat = function(userId){
 		return location.seatIndex;
 	}
 	return null;
+};
+
+//扣费(洗牌/表情)或加豆后, 把最新宝宝豆同步到房间座位分数并广播, 让房间里立刻看到分数变化
+exports.refreshSeatGems = function(roomId,userId,done){
+	var roomInfo = rooms[roomId];
+	if(roomInfo == null){ if(done){ done(); } return; }
+	db.get_user_data_by_userid(userId,function(ud){
+		var score = (ud && ud.gems != null) ? (Number(ud.gems) || 0) : null;
+		if(score != null){
+			var seatIndex = exports.getUserSeat(userId);
+			if(seatIndex != null && roomInfo.seats[seatIndex] && roomInfo.seats[seatIndex].userId == userId){
+				roomInfo.seats[seatIndex].score = score;
+			}
+			var userMgr = require('./usermgr'); //函数内加载,避免与usermgr循环依赖
+			userMgr.brocastInRoom(roomId,"bb_gems_push",{userid:userId,score:score});
+		}
+		if(done){ done(); }
+	});
 };
 
 exports.getUserLocations = function(){

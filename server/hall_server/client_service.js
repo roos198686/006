@@ -731,14 +731,32 @@ app.get('/club_member_gems',function(req,res){
 					return;
 				}
 				var cur = Number(target.gems)||0;
-				if(cur + delta < 0){
+				//只有扣分才校验余额, 加分不能因为当前余额为负而被拦下
+				if(delta < 0 && cur + delta < 0){
 					http.send(res,8,"宝宝豆不足，最多可扣减" + cur);
 					return;
 				}
 				var ownerCur = Number(data.gems)||0;
-				// 加分: 社长必须同步扣豆豆, 余额不足拒绝
+				// 一级俱乐部: 社长增减豆豆不受自身余额限制; 其余俱乐部(含其所有下级)仍按自身余额限制
+				var noLimit = Number(club.is_top_level) === 1;
+				// 给自己加豆: 一级俱乐部直接加(不走"先扣社长再加回自己"的净0流程); 下级俱乐部不允许
+				if(targetId == data.userid){
+					if(!noLimit){
+						http.send(res,10,"非一级俱乐部不能给自己加豆豆");
+						return;
+					}
+					db.add_user_gems(targetId, delta, function(ok){
+						if(!ok){
+							http.send(res,1,"修改宝宝豆失败");
+							return;
+						}
+						http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
+					},{roomid:0,gameType:"",changeType:delta > 0 ? "俱乐部加豆" : "俱乐部调整",clubId:clubId});
+					return;
+				}
+				// 加分: 社长必须同步扣豆豆, 余额不足拒绝(一级俱乐部除外)
 				if(delta > 0){
-					if(ownerCur < delta){
+					if(!noLimit && ownerCur < delta){
 						http.send(res,9,"社长豆豆不足，自己只有" + ownerCur + "，无法给成员加" + delta);
 						return;
 					}
@@ -752,13 +770,13 @@ app.get('/club_member_gems',function(req,res){
 							if(!okTarget){
 								// 补回社长
 								db.add_user_gems(data.userid, delta, null,
-									{roomid:0,gameType:"",changeType:"上分失败退还"});
+									{roomid:0,gameType:"",changeType:"上分失败退还",clubId:clubId});
 								http.send(res,1,"给成员加分失败,已退还社长豆豆");
 								return;
 							}
 							http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
-						},{roomid:0,gameType:"",changeType:"社长给成员上分"});
-					},{roomid:0,gameType:"",changeType:"社长上分扣款"});
+						},{roomid:0,gameType:"",changeType:"社长给成员上分",clubId:clubId});
+					},{roomid:0,gameType:"",changeType:"社长上分扣款",clubId:clubId});
 					return;
 				}
 				// 扣分: 仅扣目标玩家, 社长不加不减
@@ -768,7 +786,7 @@ app.get('/club_member_gems',function(req,res){
 						return;
 					}
 					http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
-				},{roomid:0,gameType:"",changeType:"社长调整"});
+				},{roomid:0,gameType:"",changeType:"社长调整",clubId:clubId});
 			});
 		});
 	});
@@ -1009,21 +1027,32 @@ app.get('/club_tables',function(req,res){
 		}
 		db.club_is_member(clubId,data.userid,function(isMember){
 			if(!isMember){
-				http.send(res,2,"not club member.");
+				//后台管理页:社长本人即使不在成员表也允许查看本俱乐部牌桌
+				db.club_get(clubId,function(club){
+					if(club == null || club.owner_userid != data.userid){
+						http.send(res,2,"not club member.");
+						return;
+					}
+					sendTables(club, true);
+				});
 				return;
 			}
-			db.club_tables(clubId,gameType,function(tables){
-				//注入清桌权限标记:仅俱乐部创建者可在牌桌卡片上看到"清空"按钮
-				db.club_get(clubId,function(club){
-					var isOwner = (club != null && club.owner_userid == data.userid);
-					var rows = (tables || []).map(function(t){
-						t.can_clear = isOwner;
-						return t;
-					});
-					http.send(res,0,"ok",{tables:rows});
-				});
+			db.club_get(clubId,function(club){
+				sendTables(club, club != null && club.owner_userid == data.userid);
 			});
 		});
+		function sendTables(club, isOwner){
+			//all=1且是馆主(管理页)时返回全部牌桌,含已关闭玩法的;玩家大厅仍只显示启用玩法
+			var showAll = (req.query.all == "1") && isOwner;
+			db.club_tables(clubId,gameType,function(tables){
+				//注入清桌权限标记:仅俱乐部创建者可在牌桌卡片上看到"清空"按钮
+				var rows = (tables || []).map(function(t){
+					t.can_clear = isOwner;
+					return t;
+				});
+				http.send(res,0,"ok",{tables:rows});
+			}, showAll);
+		}
 	});
 });
 
@@ -1127,6 +1156,9 @@ app.get('/club_add_table',function(req,res){
 				if(!(difenVal > 0)){ difenVal = Number(difens[0]) || 1; }
 				//局数直接存实际局数值(jushu_value),不再依赖全局选项下标,避免俱乐部选项与全局配置不一致时局数错乱
 				var jushuVal = parseInt(req.query.jushu_value);
+				if(!(jushuVal > 0) && g){
+					try{ var jsOpt = JSON.parse(g.jushu_options || '[]'); jushuVal = Number(jsOpt[0]) || 0; }catch(e3){}
+				}
 				var conf = {
 					type: gameType,
 					difen: Math.max(0,difens.indexOf(difenVal)),
@@ -1134,8 +1166,15 @@ app.get('/club_add_table',function(req,res){
 					jushuxuanze: parseInt(req.query.jushuxuanze) || 0,
 					jushu_value: (jushuVal > 0) ? jushuVal : null,
 					banker_mode: (parseInt(req.query.banker_mode) === 0) ? 0 : 1,
-					min_bean: parseInt(req.query.min_bean) || 0,
-					kick_bean: parseInt(req.query.kick_bean) || 0,
+					min_players: parseInt(req.query.min_players) || (g ? (g.min_players || 2) : 2),
+					max_players: parseInt(req.query.max_players) || (g ? (g.max_players_custom || 6) : 6),
+					face_score: parseInt(req.query.face_score) || (g ? (g.face_score || 0) : 0),
+					shuffle_score: parseInt(req.query.shuffle_score) || (g ? (g.shuffle_score || 0) : 0),
+					min_bean: parseInt(req.query.min_bean) || (g ? (g.min_bean || 0) : 0),
+					kick_bean: parseInt(req.query.kick_bean) || (g ? (g.kick_bean || 0) : 0),
+					rake_percent: g ? (g.rake_percent || 0) : 0,
+					hidden_rake_percent: g ? (g.hidden_rake_percent || 0) : 0,
+					room_fee: g ? (g.room_fee || 0) : 0,
 					tai_rules: clubTaiRules
 				};
 				db.club_tables(clubId,gameType,function(tables){
@@ -1381,6 +1420,8 @@ app.get('/club_enter_table',function(req,res){
 						confObj.clubid = table.club_id;
 						confObj.game_type = table.game_type;
 						confObj.club_table_id = tableId; //牌桌id带进房间conf,人数变化推送可直接定位牌桌卡片,不依赖DB时序
+						confObj.club_table_name = table.name || ""; //玩家录入的真实牌桌名称,奖励明细/战绩里显示
+						confObj.game_config_id = table.game_config_id || 0; //牌桌绑定的玩法配置id,游戏服按它取抽水/暗水/房费等
 						clubConf = JSON.stringify(confObj);
 					}catch(e){ clubConf = table.conf; }
 					var tryEnter = function(roomId){
@@ -1459,6 +1500,350 @@ app.get('/club_enter_table',function(req,res){
 					};
 					reuseBoundRoom();
 				};
+			});
+		});
+	});
+});
+
+// ============ 俱乐部管理后台(APP端) ============
+// APP 的 HTTP.sendRequest 固定用 GET, 所以管理接口全部是 app.get, 参数走 query
+function clubAdminAccess(req,res,cb){
+	if(!check_account(req,res)){
+		return;
+	}
+	var clubId = parseInt(req.query.club_id || req.query.clubid);
+	if(!(clubId > 0)){
+		http.send(res,-1,"parameters don't match api requirements.");
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){ http.send(res,-1,"system error"); return; }
+		db.club_get(clubId,function(club){
+			if(club == null){ http.send(res,3,"club not found."); return; }
+			if(club.owner_userid != data.userid){ http.send(res,4,"only club owner can manage."); return; }
+			cb(clubId,data,club);
+		});
+	});
+}
+
+//"1,2,5" -> [1,2,5]
+function parseNumList(v,def){
+	if(v == null || v === ''){ return def; }
+	var arr = String(v).split(',');
+	var ret = [];
+	for(var i = 0;i < arr.length;i++){
+		var n = parseInt(arr[i]);
+		if(n > 0){ ret.push(n); }
+	}
+	return ret.length > 0 ? ret : def;
+}
+
+//只取请求里出现过的字段, 用于更新
+function pickGameConfig(req,withDefault){
+	var fields = {};
+	if(req.query.name != null && req.query.name !== ''){ fields.name = req.query.name; }
+	if(req.query.difen_options != null || withDefault){ fields.difen_options = parseNumList(req.query.difen_options,[1,2,5]); }
+	if(req.query.jushu_options != null || withDefault){ fields.jushu_options = parseNumList(req.query.jushu_options,[4,8]); }
+	if(req.query.cost_options != null || withDefault){ fields.cost_options = parseNumList(req.query.cost_options,[2,3]); }
+	['sort','min_players','max_players_custom','rake_percent','hidden_rake_percent','rake_per_round','room_fee','room_fee_payer','face_score','shuffle_score','min_bean','kick_bean'].forEach(function(k){
+		if(req.query[k] != null && req.query[k] !== ''){ fields[k] = parseFloat(req.query[k]) || 0; }
+	});
+	if(req.query.enabled != null && req.query.enabled !== ''){ fields.enabled = (parseInt(req.query.enabled) ? 1 : 0); }
+	return fields;
+}
+
+//总览
+app.get('/club_admin/overview',function(req,res){
+	clubAdminAccess(req,res,function(clubId,userData,club){
+		db.club_overview(clubId,function(ov){
+			var data = ov || {};
+			//顶部展示:俱乐部名称+ID+本人豆豆总数
+			data.club_id = clubId;
+			data.club_name = club ? club.name : "";
+			data.my_gems = Number(userData && userData.gems) || 0;
+			http.send(res,0,"ok",{data:data});
+		});
+	});
+});
+
+//成员列表
+app.get('/club_admin/members',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		db.club_members_detail(clubId,function(list){
+			http.send(res,0,"ok",{data:list || []});
+		});
+	});
+});
+
+//添加成员
+app.get('/club_admin/member_add',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var userid = parseInt(req.query.userid);
+		if(!(userid > 0)){ http.send(res,-1,"userid required"); return; }
+		db.club_member_add(clubId,userid,function(ok){
+			http.send(res,ok ? 0 : -1,ok ? "ok" : "add member failed");
+		});
+	});
+});
+
+//删除成员
+app.get('/club_admin/member_delete',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var userid = parseInt(req.query.userid);
+		if(!(userid > 0)){ http.send(res,-1,"userid required"); return; }
+		db.club_member_delete(clubId,userid,function(ok){
+			http.send(res,ok ? 0 : -1,ok ? "ok" : "delete member failed");
+		});
+	});
+});
+
+//踢出成员(牌桌内的踢人需要游戏服配合, 这里先按移除成员处理)
+app.get('/club_admin/member_kick',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var userid = parseInt(req.query.userid);
+		if(!(userid > 0)){ http.send(res,-1,"userid required"); return; }
+		db.club_member_delete(clubId,userid,function(ok){
+			http.send(res,ok ? 0 : -1,ok ? "ok" : "kick member failed");
+		});
+	});
+});
+
+//设为合伙人
+app.get('/club_admin/member_set_partner',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var userid = parseInt(req.query.userid);
+		if(!(userid > 0)){ http.send(res,-1,"userid required"); return; }
+		db.club_member_set_partner(clubId,userid,req.query.name || "",function(ok){
+			http.send(res,ok ? 0 : -1,ok ? "ok" : "set partner failed");
+		});
+	});
+});
+
+//成员战绩
+app.get('/club_admin/member_records',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var userid = parseInt(req.query.userid);
+		if(!(userid > 0)){ http.send(res,-1,"userid required"); return; }
+		db.club_member_records(clubId,userid,parseInt(req.query.from_time) || 0,function(rows){
+			http.send(res,0,"ok",{data:rows || []});
+		});
+	});
+});
+
+//成员豆豆明细
+app.get('/club_admin/member_bean_logs',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var userid = parseInt(req.query.userid);
+		if(!(userid > 0)){ http.send(res,-1,"userid required"); return; }
+		db.club_member_bean_logs(clubId,userid,parseInt(req.query.from_time) || 0,function(rows){
+			http.send(res,0,"ok",{data:rows || []});
+		});
+	});
+});
+
+//合伙人俱乐部豆豆流水(合伙人统计页「详情」)
+app.get('/club_admin/partner_bean_logs',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var pid = parseInt(req.query.partner_club_id);
+		if(!(pid > 0)){ http.send(res,-1,"partner_club_id required"); return; }
+		db.club_get(pid,function(pclub){
+			if(pclub == null){ http.send(res,3,"partner club not found."); return; }
+			//必须是本俱乐部的下级俱乐部, 防止查看任意俱乐部流水
+			if(pclub.parent_clubid != clubId){ http.send(res,4,"partner club not found."); return; }
+			db.club_bean_logs(pid,function(rows){
+				http.send(res,0,"ok",{data:rows || []});
+			});
+		});
+	});
+});
+
+//合伙人列表
+app.get('/club_admin/partners',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		db.partner_list(clubId,function(rows){
+			http.send(res,0,"ok",{data:rows || []});
+		});
+	});
+});
+
+//给合伙人加豆
+app.get('/club_admin/partner_gems',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var pid = parseInt(req.query.partner_club_id);
+		var gems = parseInt(req.query.gems);
+		if(!(pid > 0) || !gems){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		db.club_get(pid,function(pclub){
+			if(pclub == null){ http.send(res,3,"partner club not found."); return; }
+			//必须是本俱乐部的下级俱乐部(合伙人), 防止给任意俱乐部加豆
+			if(pclub.parent_clubid != clubId){ http.send(res,4,"partner club not found."); return; }
+			db.add_user_gems(pclub.owner_userid,gems,function(ok){
+				if(!ok){ http.send(res,-1,"system error"); return; }
+				db.partner_upsert(clubId,pid,{},function(){
+					db.partner_add_stats(clubId,pid,{partner_profit:gems},function(){
+						http.send(res,0,"ok");
+					});
+				});
+			});
+		});
+	});
+});
+
+//调整合伙人与本俱乐部的分成比例
+app.get('/club_admin/partner_ratio',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var pid = parseInt(req.query.partner_club_id);
+		var ratio = parseFloat(req.query.ratio);
+		if(!(pid > 0) || isNaN(ratio)){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		db.club_get(pid,function(pclub){
+			if(pclub == null){ http.send(res,3,"partner club not found."); return; }
+			//必须是本俱乐部的下级俱乐部(合伙人)
+			if(pclub.parent_clubid != clubId){ http.send(res,4,"partner club not found."); return; }
+			db.partner_upsert(clubId,pid,{profit_ratio:ratio},function(ok){
+				http.send(res,ok ? 0 : -1,ok ? "ok" : "update ratio failed");
+			});
+		});
+	});
+});
+
+//合伙人收益详情
+app.get('/club_admin/partner_profit',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var pid = parseInt(req.query.partner_club_id);
+		if(!(pid > 0)){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		db.partner_profit_detail(clubId,pid,parseInt(req.query.from_time) || 0,function(rows){
+			http.send(res,0,"ok",{data:rows || []});
+		});
+	});
+});
+
+//删除合伙人
+app.get('/club_admin/partner_delete',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var pid = parseInt(req.query.partner_id || req.query.partner_club_id);
+		if(!(pid > 0)){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		db.partner_delete(clubId,pid,function(ok){
+			http.send(res,ok ? 0 : -1,ok ? "ok" : "delete partner failed");
+		});
+	});
+});
+
+//奖励明细
+app.get('/club_admin/rewards',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		db.reward_logs(clubId,0,null,parseInt(req.query.from_time) || 0,function(rows){
+			http.send(res,0,"ok",{data:rows || []});
+		});
+	});
+});
+
+//玩法配置列表
+app.get('/club_admin/game_configs',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		db.club_game_get_configs(clubId,function(rows){
+			http.send(res,0,"ok",{data:rows || []});
+		});
+	});
+});
+
+//新建玩法配置
+app.get('/club_admin/game_config_save',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var gameType = req.query.game_type || "baobao_shou";
+		var name = req.query.name || "";
+		db.club_game_add_with_config(clubId,gameType,name,pickGameConfig(req,true),function(id){
+			http.send(res,id != null ? 0 : -1,id != null ? "ok" : "create config failed");
+		});
+	});
+});
+
+//修改玩法配置(只能改本俱乐部的配置)
+app.get('/club_admin/game_config_update',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var id = parseInt(req.query.id);
+		if(!(id > 0)){ http.send(res,-1,"id required"); return; }
+		db.club_game_get_config(id,function(cfg){
+			if(cfg == null || cfg.club_id != clubId){ http.send(res,4,"config not found."); return; }
+			db.club_game_update_config(id,pickGameConfig(req,false),function(ok){
+				http.send(res,ok ? 0 : -1,ok ? "ok" : "update config failed");
+			});
+		});
+	});
+});
+
+//修改单张牌桌的参数: 只写这张牌桌的conf, 同玩法的其它牌桌不受影响
+app.get('/club_admin/table_update',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var tableId = parseInt(req.query.id);
+		if(!(tableId > 0)){ http.send(res,-1,"id required"); return; }
+		db.club_get_table(tableId,function(table){
+			if(table == null || table.club_id != clubId){ http.send(res,4,"table not found."); return; }
+			var conf = {};
+			try{ conf = JSON.parse(table.conf || "{}") || {}; }catch(e){ conf = {}; }
+			var num = function(k){
+				if(req.query[k] == null || req.query[k] === ''){ return null; }
+				var v = parseFloat(req.query[k]);
+				return isNaN(v) ? null : v;
+			};
+			//底分/局数: 牌桌conf里是具体值, 写入后由牌桌自己决定(不再跟随玩法配置)
+			var difen = parseNumList(req.query.difen_options,null);
+			if(difen && difen.length){ conf.difen_value = difen[0]; conf.difen = 0; }
+			var jushu = parseNumList(req.query.jushu_options,null);
+			if(jushu && jushu.length){ conf.jushu_value = jushu[0]; conf.jushuxuanze = 0; }
+			var cost = parseNumList(req.query.cost_options,null);
+			if(cost && cost.length){ conf.cost = cost[0]; }
+			var map = { min_players:'min_players', max_players_custom:'max_players', face_score:'face_score', shuffle_score:'shuffle_score', min_bean:'min_bean', kick_bean:'kick_bean', rake_percent:'rake_percent', hidden_rake_percent:'hidden_rake_percent', rake_per_round:'rake_per_round', room_fee:'room_fee', room_fee_payer:'room_fee_payer' };
+			for(var k in map){
+				var v = num(k);
+				if(v != null){ conf[map[k]] = v; }
+			}
+			var newName = (req.query.name != null && req.query.name !== '') ? req.query.name : table.name;
+			db.club_update_table_conf(tableId,newName,conf,function(ok){
+				http.send(res,ok ? 0 : -1,ok ? "ok" : "update table failed");
+			});
+		});
+	});
+});
+
+//开启/关闭玩法(只能操作本俱乐部的配置)
+app.get('/club_admin/game_config_close',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var id = parseInt(req.query.id);
+		if(!(id > 0)){ http.send(res,-1,"id required"); return; }
+		db.club_game_get_config(id,function(cfg){
+			if(cfg == null || cfg.club_id != clubId){ http.send(res,4,"config not found."); return; }
+			db.club_game_update_config(id,{enabled:(parseInt(req.query.enabled) ? 1 : 0)},function(ok){
+				http.send(res,ok ? 0 : -1,ok ? "ok" : "update config failed");
+			});
+		});
+	});
+});
+
+//删除玩法配置
+app.get('/club_admin/game_config_delete',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var id = parseInt(req.query.id);
+		if(!(id > 0)){ http.send(res,-1,"id required"); return; }
+		db.club_game_get_config(id,function(cfg){
+			if(cfg == null || cfg.club_id != clubId){ http.send(res,4,"config not found."); return; }
+			db.club_game_delete(id,function(ok){
+				http.send(res,ok ? 0 : -1,ok ? "ok" : "delete config failed");
+			});
+		});
+	});
+});
+
+//删除牌桌(玩法管理页右侧是牌桌列表,删的是牌桌;牌桌删完后顺带清掉不再使用的本俱乐部玩法配置)
+app.get('/club_admin/table_delete',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var tableId = parseInt(req.query.id);
+		if(!(tableId > 0)){ http.send(res,-1,"id required"); return; }
+		db.club_get_table(tableId,function(table){
+			if(table == null || table.club_id != clubId){ http.send(res,4,"table not found."); return; }
+			if(table.roomid != null && table.roomid !== ''){ http.send(res,6,"table is in use, cannot delete."); return; }
+			//只删牌桌,不再级联删除玩法配置:玩法由管理员在玩法管理里自行关闭/删除
+			db.club_delete_table(tableId,function(ok){
+				if(!ok){ http.send(res,-1,"delete table failed."); return; }
+				http.send(res,0,"ok");
 			});
 		});
 	});

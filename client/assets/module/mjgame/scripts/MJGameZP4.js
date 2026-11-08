@@ -1,4 +1,24 @@
 // 漳浦麻将(4人)游戏主脚本：克隆自翻财神(MJGameLDH)，新增补花/金牌/抢金/游金玩法
+// 财神手牌金色固定: 同步Button过渡色, 防止鼠标滑过(hover)被按钮过渡重置回原色
+function tintHandCard(node, isCs){
+    var col = isCs ? cc.color(255, 208, 90) : cc.Color.WHITE;
+    node.color = col;
+    var btn = node.getComponent(cc.Button);
+    if (btn && btn.transition === cc.Button.Transition.COLOR) {
+        if (!btn._mjOrigCol) {
+            btn._mjOrigCol = { n: btn.normalColor, h: btn.hoverColor, p: btn.pressedColor, d: btn.disabledColor };
+        }
+        var o = btn._mjOrigCol;
+        if (isCs) {
+            btn.normalColor = col;
+            btn.hoverColor = col;
+            btn.pressedColor = cc.color(235, 185, 75);
+        } else {
+            btn.normalColor = o.n; btn.hoverColor = o.h; btn.pressedColor = o.p; btn.disabledColor = o.d;
+        }
+    }
+}
+
 cc.Class({
     extends: cc.Component,
 
@@ -613,20 +633,25 @@ cc.Class({
             if(data.hu){
                 this.addOption("btnHu",data.pai);
             }
-            if(data.peng){
-                this.addOption("btnPeng",data.pai);
-            }
-
-            if(data.gang){
-                for(var i = 0; i < data.gangpai.length;++i){
-                    var gp = data.gangpai[i];
-                    this.addOption("btnGang",gp);
+            //吃碰杠：在手牌上方直接展示可操作的牌型组合，玩家点击组合即完成
+            var combos = [];
+            if(data.chi && data.chipai){
+                for(var ci = 0; ci < data.chipai.length; ++ci){
+                    //升序排列展示为顺子形态;服务端校验与顺序无关
+                    combos.push({type:"chi", pais:data.chipai[ci].slice().sort(function(a,b){return a-b;}), pai:data.pai});
                 }
             }
-
-            if(data.chi){
-                //吃：显示"吃"按钮，点击后从手牌中自选两张（服务端已保证存在可吃组合，否则chi为false按钮不显示）
-                this.addChiOption(data.pai);
+            if(data.peng){
+                combos.push({type:"peng", pais:[data.pai, data.pai, data.pai]});
+            }
+            if(data.gang && data.gangpai){
+                for(var gi = 0; gi < data.gangpai.length; ++gi){
+                    var gp = data.gangpai[gi];
+                    combos.push({type:"gang", pais:[gp, gp, gp, gp], pai:gp});
+                }
+            }
+            if(combos.length > 0){
+                this.showChiPanel(combos);
             }
             //漳浦:抢金(等同胡,点击发hu)
             if(data.qiangjin){
@@ -1202,6 +1227,12 @@ cc.Class({
             }
             var sprite = nc.getComponent(cc.Sprite);
             sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,pai);
+            //自己的摸牌若为财神同样金色区分
+            if(localIndex == 0){
+                var conf = cc.vv.gameNetMgr.conf || {};
+                var isCs = (conf.caishen >= 0 && pai == conf.caishen) || (conf.caishen2 != null && conf.caishen2 >= 0 && pai == conf.caishen2);
+                tintHandCard(nc, isCs);
+            }
         }
         else if(pai != null){
             nc.active = true;
@@ -1407,6 +1438,10 @@ cc.Class({
     setSpriteFrameByMJID:function(pre,sprite,mjid){
         sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
         sprite.node.active = true;
+        //财神手牌用金色区分显示,非财神复位为原色
+        var conf = cc.vv.gameNetMgr.conf || {};
+        var isCs = (mjid != null && mjid >= 0) && ((conf.caishen >= 0 && mjid == conf.caishen) || (conf.caishen2 != null && conf.caishen2 >= 0 && mjid == conf.caishen2));
+        tintHandCard(sprite.node, isCs);
     },
 
     //自己座位数据:优先 seatIndex 命中,异常时用 userId 兜底(2人房/4人房都适用)
@@ -1432,19 +1467,26 @@ cc.Class({
     },
 
     // ===== 吃牌组合选择面板（以麻将牌图案展示，可点选） =====
-    showChiPanel:function(chipai){
+    showChiPanel:function(combos){
         this.hideChiPanel();
-        //面板挂在game节点下，居中靠下
+        //面板挂在game节点下，居中位于手牌上方
         var parent = this.node.getChildByName("game");
         if(parent == null){ parent = this.node; }
         //固定尺寸布局：2.4下嵌套Layout有时序问题会导致面板整体不渲染
         var TW = 46, TH = 66, TGAP = 4, CGAP = 30, PADX = 18, PADY = 14, CAPH = 26;
-        var perW = TW * 3 + TGAP * 2;
-        var w = PADX * 2 + chipai.length * perW + (chipai.length - 1) * CGAP;
+        //每组宽度按实际牌数计算(吃/碰3张、杠4张)
+        var itemW = [];
+        var w = PADX * 2;
+        for(var ci = 0; ci < combos.length; ++ci){
+            if(ci > 0){ w += CGAP; }
+            var iw = combos[ci].pais.length * TW + (combos[ci].pais.length - 1) * TGAP;
+            itemW.push(iw);
+            w += iw;
+        }
         var h = PADY * 2 + TH + CAPH;
         var panel = new cc.Node("chiPanel");
         panel.setContentSize(w, h);
-        panel.setPosition(0, -30);
+        panel.setPosition(0, -140);
         parent.addChild(panel);
         //底板（独立bg子节点，避免父节点Graphics覆盖内容子节点）
         var bgn = new cc.Node("bg");
@@ -1463,22 +1505,28 @@ cc.Class({
         cap.setPosition(0, h / 2 - PADY - CAPH / 2 + 4);
         panel.addChild(cap);
         var capLbl = cap.addComponent(cc.Label);
-        capLbl.string = "选择吃牌组合";
+        capLbl.string = "点击组合完成操作";
         capLbl.fontSize = 22;
         capLbl.lineHeight = CAPH;
         capLbl.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
         capLbl.verticalAlign = cc.Label.VerticalAlign.CENTER;
         cap.color = cc.color(255, 225, 150);
 
-        for(var c = 0; c < chipai.length; ++c){
-            var pais = chipai[c];
+        var x = PADX;
+        for(var c = 0; c < combos.length; ++c){
+            var combo = combos[c];
+            var pais = combo.pais;
+            var perW = itemW[c];
             //每个组合一个可点击节点
-            var item = new cc.Node("chiItem" + c);
+            var item = new cc.Node("cpgItem" + c);
             item.setContentSize(perW, TH);
-            item.setPosition(-w / 2 + PADX + perW / 2 + c * (perW + CGAP), -h / 2 + PADY + TH / 2);
+            item.setPosition(-w / 2 + x + perW / 2, -h / 2 + PADY + TH / 2);
+            x += perW + CGAP;
             panel.addChild(item);
             item.addComponent(cc.Button);
+            item.actType = combo.type;
             item.paiList = pais;
+            item.targetPai = combo.pai;
             cc.vv.utils.addClickEvent(item, this.node, "MJGameZP4", "onChiItemClicked");
             for(var p = 0; p < pais.length; ++p){
                 var pn = new cc.Node("p" + p);
@@ -1501,9 +1549,40 @@ cc.Class({
     },
 
     onChiItemClicked:function(event){
-        var pais = event.target.paiList;
-        if(pais){
-            cc.vv.net.send("chi", pais);
+        //Button回调传组件,触摸回调传事件,统一解析出组合节点
+        var t = (event && (event.node || event.currentTarget || event.target)) || null;
+        if(t == null){ return; }
+        if(t.actType == "peng"){
+            cc.vv.net.send("peng");
+        }
+        else if(t.actType == "gang"){
+            cc.vv.net.send("gang", t.targetPai);
+        }
+        else if(t.paiList){
+            //吃:组合按顺子面值展示,缺失面值需换成手中真实财神牌再发(服务端校验真实牌/财神)
+            var target = t.targetPai;
+            var send = [];
+            var sd = cc.vv.gameNetMgr.getSelfData();
+            var holds = (sd && sd.holds) ? sd.holds : [];
+            var conf = cc.vv.gameNetMgr.conf || {};
+            var cs = conf.caishen, cs2 = conf.caishen2;
+            for(var k = 0; k < t.paiList.length; ++k){
+                var f = t.paiList[k];
+                if(f == target){ continue; }
+                if(f != cs && f != cs2 && holds.indexOf(f) != -1){
+                    send.push(f);
+                }
+                else if(cs >= 0 && holds.indexOf(cs) != -1){
+                    send.push(cs);
+                }
+                else if(cs2 != null && cs2 >= 0 && holds.indexOf(cs2) != -1){
+                    send.push(cs2);
+                }
+            }
+            send.push(target);
+            if(send.length == 3){
+                cc.vv.net.send("chi", send);
+            }
         }
         this.hideChiPanel();
         this.hideOptions();

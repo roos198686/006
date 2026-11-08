@@ -781,7 +781,7 @@ function renderClubs(){
     var card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = '<div class="card-header">'+
-      '<div><div class="card-title">'+(c.name||'-')+'</div>'+
+      '<div><div class="card-title">'+(c.name||'-')+(Number(c.is_top_level)===1?' <span class="tag tag-green">一级俱乐部</span>':'')+'</div>'+
       '<div class="card-sub">ID: '+c.id+'</div></div>'+
       '<span class="card-tag">'+(c.owner_name||'-')+'</span></div>'+
       '<div class="card-body">'+
@@ -789,8 +789,12 @@ function renderClubs(){
       '<div class="row"><span class="k">成员数</span><span class="v">'+c.member_count+'</span></div>'+
       '<div class="row"><span class="k">玩法 / 牌桌</span><span class="v">'+c.game_count+' / '+c.table_count+'</span></div>'+
       '<div class="row"><span class="k">管理员</span><span class="v">'+(c.admin_names||'-')+'</span></div>'+
+      '<div class="row"><span class="k">俱乐部等级</span><span class="v">'+(Number(c.is_top_level)===1?'一级俱乐部(增减豆豆不受自身限制)':'普通俱乐部')+'</span></div>'+
       '<div class="row"><span class="k">创建时间</span><span class="v">'+time+'</span></div></div>'+
       '<div class="card-actions">'+
+      (Number(c.is_top_level)===1
+        ? '<button class="btn btn-default btn-sm" onclick="setTopLevel('+c.id+',0)">取消一级</button>'
+        : '<button class="btn btn-success btn-sm" onclick="setTopLevel('+c.id+',1)">设为一级俱乐部</button>')+
       '<button class="btn btn-default btn-sm" onclick="editClub('+c.id+')">编辑</button>'+
       '<button class="btn btn-primary btn-sm" onclick="location.href=\'club.html?club_id='+c.id+'\'">俱乐部管理</button>'+
       '<button class="btn btn-danger btn-sm" onclick="delClub('+c.id+')">删除</button></div>';
@@ -845,6 +849,14 @@ function saveClub(){
       if(ret.code === 0){ closeClubModal(); loadClubs(); } else alert(ret.msg);
     });
   }
+}
+// 录入/取消一级俱乐部: 一级俱乐部的社长增减豆豆不受自身豆豆数量限制, 其下级仍受限
+function setTopLevel(id, flag){
+  var tip = flag ? '确认将该俱乐部录入为一级俱乐部？其社长增减豆豆将不受自身豆豆数量限制' : '确认取消该俱乐部的一级俱乐部资格？';
+  if(!confirm(tip)) return;
+  api('/admin/club/top_level', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:id, is_top_level:flag})}).then(function(ret){
+    if(ret.code === 0){ loadClubs(); } else alert(ret.msg);
+  });
 }
 function delClub(id){
   if(!confirm('确认删除该俱乐部？其成员、玩法、牌桌将一并删除，且绑定该俱乐部的管理员会被解绑')) return;
@@ -1023,33 +1035,33 @@ var BB_MIAN_FIELDS = [
   {key:'banker_mode', label:'有无庄(1有庄/0无庄)', def:1},
   {key:'arrange_timeout', label:'确认弹窗倒计时(秒)', def:60},
   {key:'result_timeout', label:'结算倒计时(秒)', def:30},
-  {key:'m_sf6', label:'6同花顺 倍率', def:12},
-  {key:'m_sf5', label:'5同花顺带1 倍率', def:10},
-  {key:'m_4', label:'4条带2单 倍率', def:8},
-  {key:'m_33', label:'3条带3条 倍率', def:6},
-  {key:'m_3p1', label:'3条带对带1 倍率', def:5},
+  {key:'m_sf6', label:'6同花顺 倍率', def:4},
+  {key:'m_sf5', label:'5同花顺带1 倍率', def:4},
+  {key:'m_4', label:'4条带2单 倍率', def:4},
+  {key:'m_33', label:'3条带3条 倍率', def:4},
+  {key:'m_3p1', label:'3条带对带1 倍率', def:4},
   {key:'m_f6', label:'6同花 倍率', def:4},
   {key:'m_s6', label:'6连顺 倍率', def:4},
-  {key:'m_f5', label:'5同花带1 倍率', def:3},
-  {key:'m_s5', label:'5连顺带1 倍率', def:3},
-  {key:'m_p3', label:'3对 倍率', def:2},
-  {key:'m_n9', label:'3组9 倍率', def:2},
+  {key:'m_f5', label:'5同花带1 倍率', def:4},
+  {key:'m_s5', label:'5连顺带1 倍率', def:4},
+  {key:'m_p3', label:'3对 倍率', def:4},
+  {key:'m_n9', label:'3组9 倍率', def:4},
   {key:'m_san', label:'散牌 倍率', def:1},
-  // 每个免摆牌型选动画: 0=关 1=动画1 2=动画2
-  {key:'anim_sf6', label:'6同花顺', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_sf5', label:'5同花顺带1', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_4', label:'4条带2单', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_33', label:'3条带3条', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_3p1', label:'3条带对带1', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_f6', label:'6同花', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_s6', label:'6连顺', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_f5', label:'5同花带1', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_s5', label:'5连顺带1', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_p3', label:'3对', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
-  {key:'anim_n9', label:'3组9', def:0, opts:[[0,'关'],[1,'动画1'],[2,'动画2']]},
+  // 每个免摆牌型选动画: 0=关 1=打枪 2=全垒打, 默认开启(打枪)
+  {key:'anim_sf6', label:'6同花顺', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_sf5', label:'5同花顺带1', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_4', label:'4条带2单', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_33', label:'3条带3条', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_3p1', label:'3条带对带1', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_f6', label:'6同花', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_s6', label:'6连顺', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_f5', label:'5同花带1', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_s5', label:'5连顺带1', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_p3', label:'3对', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_n9', label:'3组9', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
   // 手摆打枪/全垒打特效开关: 缺省=开(老配置没有这两个键也播)
-  {key:'anim_dq', label:'打枪', def:1, opts:[[1,'开'],[0,'关']]},
-  {key:'anim_qld', label:'全垒打', def:1, opts:[[1,'开'],[0,'关']]}
+  {key:'anim_dq', label:'打枪(三道全赢单个对手)', def:1, opts:[[1,'开'],[0,'关']]},
+  {key:'anim_qld', label:'全垒打(三道全赢全部对手)', def:1, opts:[[1,'开'],[0,'关']]}
 ];
 // 宝宝手动摆配置字段（type == "baobao_shou" 时使用）
 var BB_SHOU_FIELDS = [
@@ -1058,22 +1070,22 @@ var BB_SHOU_FIELDS = [
   {key:'result_timeout', label:'结算倒计时(秒)', def:30},
   {key:'wulong_check', label:'乌龙校验(1开/0关)', def:1},
   {key:'tongdian_mode', label:'同点比较方式', def:3, opts:[[3,'先比最大单张点数再比花色'],[1,'比最大牌花色'],[2,'和(打平)']]},
-  {key:'s_bao_14', label:'宝A 倍率', def:10},
-  {key:'s_bao_13', label:'宝K 倍率', def:6},
-  {key:'s_bao_12', label:'宝Q 倍率', def:6},
-  {key:'s_bao_11', label:'宝J 倍率', def:6},
-  {key:'s_bao_10', label:'宝10 倍率', def:5},
-  {key:'s_bao_9', label:'宝9 倍率', def:5},
-  {key:'s_bao_8', label:'宝8 倍率', def:5},
-  {key:'s_bao_7', label:'宝7 倍率', def:5},
-  {key:'s_bao_6', label:'宝6 倍率', def:5},
-  {key:'s_bao_5', label:'宝5 倍率', def:5},
-  {key:'s_bao_4', label:'宝4 倍率', def:5},
-  {key:'s_bao_3', label:'宝3 倍率', def:5},
-  {key:'s_bao_2', label:'宝2 倍率', def:5},
-  {key:'s_dian9', label:'9点 倍率', def:4},
-  {key:'s_dian8', label:'8点 倍率', def:3},
-  {key:'s_dian7', label:'7点 倍率', def:2},
+  {key:'s_bao_14', label:'宝A 倍率', def:1},
+  {key:'s_bao_13', label:'宝K 倍率', def:1},
+  {key:'s_bao_12', label:'宝Q 倍率', def:1},
+  {key:'s_bao_11', label:'宝J 倍率', def:1},
+  {key:'s_bao_10', label:'宝10 倍率', def:1},
+  {key:'s_bao_9', label:'宝9 倍率', def:1},
+  {key:'s_bao_8', label:'宝8 倍率', def:1},
+  {key:'s_bao_7', label:'宝7 倍率', def:1},
+  {key:'s_bao_6', label:'宝6 倍率', def:1},
+  {key:'s_bao_5', label:'宝5 倍率', def:1},
+  {key:'s_bao_4', label:'宝4 倍率', def:1},
+  {key:'s_bao_3', label:'宝3 倍率', def:1},
+  {key:'s_bao_2', label:'宝2 倍率', def:1},
+  {key:'s_dian9', label:'9点 倍率', def:1},
+  {key:'s_dian8', label:'8点 倍率', def:1},
+  {key:'s_dian7', label:'7点 倍率', def:1},
   {key:'s_dianlow', label:'6~0点 倍率', def:1},
   // 三道聚合结算: 同一对手赢2道 / 赢3道(打枪) 的倍数
   {key:'s_win2', label:'赢两道 倍率', def:1},

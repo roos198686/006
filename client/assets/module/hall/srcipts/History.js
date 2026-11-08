@@ -220,7 +220,7 @@ cc.Class({
                 var gm = games[g];
                 this._flat.push({room: r, game: gm});
                 var node = this.getItem(idx);
-                this.setItemText(node, this.typeName(r.type), "房间:" + r.roomid, this.dateFormat(gm.create_time),
+                this.setItemText(node, r.table_name || this.typeName(r.type), "房间:" + r.roomid, this.dateFormat(gm.create_time),
                     ["第" + gm.index + "局", "", "", ""], "详情", idx);
                 idx++;
             }

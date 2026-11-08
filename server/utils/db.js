@@ -66,6 +66,7 @@ exports.init = function(config){
         '`type` varchar(32) NOT NULL,' +
         '`roomid` int(11) NOT NULL DEFAULT 0,' +
         '`players` varchar(255) NOT NULL,' +
+        '`table_name` varchar(64) NOT NULL DEFAULT "",' +
         '`data` longtext NOT NULL,' +
         '`create_time` int(11) NOT NULL DEFAULT 0,' +
         'PRIMARY KEY (`room_uuid`,`game_index`)' +
@@ -90,6 +91,13 @@ exports.init = function(config){
         });
     }, 1200);
 
+    //一级俱乐部标记: 社长增减豆豆不受自身余额限制(0=普通俱乐部)
+    setTimeout(function(){
+        query('ALTER TABLE `t_clubs` ADD COLUMN `is_top_level` TINYINT(1) NOT NULL DEFAULT 0 COMMENT "1=一级俱乐部,增减豆豆不受自身余额限制"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_clubs.is_top_level failed:" + err.message); }
+        });
+    }, 1400);
+
     //乐豆(宝宝豆)变动流水,用于俱乐部"我的乐豆详情"记录页
     var sql3 = 'CREATE TABLE IF NOT EXISTS `t_bean_logs` (' +
         '`id` int(11) unsigned NOT NULL AUTO_INCREMENT,' +
@@ -98,6 +106,7 @@ exports.init = function(config){
         '`room_uuid` char(20) NOT NULL DEFAULT "",' +
         '`game_index` smallint(6) NOT NULL DEFAULT 0,' +
         '`game_type` varchar(32) NOT NULL DEFAULT "",' +
+        '`table_name` varchar(64) NOT NULL DEFAULT "",' +
         '`change_type` varchar(32) NOT NULL DEFAULT "",' +
         '`amount` int(11) NOT NULL DEFAULT 0,' +
         '`create_time` int(11) NOT NULL DEFAULT 0,' +
@@ -132,18 +141,146 @@ exports.init = function(config){
             if(err && !/Duplicate key name/i.test(err.message)){ console.log("add t_admin_users.uniq_token failed:" + err.message); }
         });
     }, 2700);
+
+    //俱乐部玩法配置扩展列(几人开局/最多几人/抽水/暗水/房费)
+    setTimeout(function(){
+        var alters = [
+            'ALTER TABLE `t_club_games` ADD COLUMN `min_players` TINYINT(4) NOT NULL DEFAULT 2 COMMENT "几人开局(最少人数)"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `max_players_custom` TINYINT(4) NOT NULL DEFAULT 6 COMMENT "最多几人(自定义,覆盖全局)"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `rake_percent` DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT "抽水比例(%)"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `hidden_rake_percent` DECIMAL(5,2) NOT NULL DEFAULT 0 COMMENT "暗水比例(%)"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `rake_per_round` TINYINT(1) NOT NULL DEFAULT 1 COMMENT "1=每小局抽 0=整场抽"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `room_fee` INT(11) NOT NULL DEFAULT 0 COMMENT "房费数量"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `room_fee_payer` TINYINT(1) NOT NULL DEFAULT 0 COMMENT "0=比赛场出(不扣) 1=大赢家出"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `face_score` INT(11) NOT NULL DEFAULT 0 COMMENT "表情分"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `shuffle_score` INT(11) NOT NULL DEFAULT 0 COMMENT "洗牌分"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `min_bean` INT(11) NOT NULL DEFAULT 0 COMMENT "进场豆豆"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `kick_bean` INT(11) NOT NULL DEFAULT 0 COMMENT "出场豆豆"'
+        ];
+        alters.forEach(function(sql, i){
+            setTimeout(function(){
+                query(sql, function(err){
+                    if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_club_games failed:" + err.message); }
+                });
+            }, 3000 + i * 300);
+        });
+    }, 3000);
+
+    //牌桌关联玩法配置id
+    setTimeout(function(){
+        query('ALTER TABLE `t_club_tables` ADD COLUMN `game_config_id` INT(11) NOT NULL DEFAULT 0 COMMENT "关联的玩法配置id"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_club_tables.game_config_id failed:" + err.message); }
+        });
+    }, 5400);
+
+    //老库补列:录像记录牌桌真实名称(战绩列表"玩法"列显示)
+    setTimeout(function(){
+        query('ALTER TABLE `t_replays` ADD COLUMN `table_name` VARCHAR(64) NOT NULL DEFAULT "" COMMENT "牌桌真实名称"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_replays.table_name failed:" + err.message); }
+        });
+    }, 5700);
+
+    //老库补列:乐豆流水记录牌桌真实名称(乐豆记录/战绩"玩法"列显示)
+    setTimeout(function(){
+        query('ALTER TABLE `t_bean_logs` ADD COLUMN `table_name` VARCHAR(64) NOT NULL DEFAULT "" COMMENT "牌桌真实名称"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_bean_logs.table_name failed:" + err.message); }
+        });
+    }, 6000);
+
+    //合伙人收益统计表
+    var sqlPartner = 'CREATE TABLE IF NOT EXISTS `t_partner_stats` (' +
+        '`id` int(11) unsigned NOT NULL AUTO_INCREMENT,' +
+        '`club_id` int(11) NOT NULL DEFAULT 0 COMMENT "上级俱乐部",' +
+        '`partner_club_id` int(11) NOT NULL DEFAULT 0 COMMENT "下级俱乐部/合伙人",' +
+        '`profit_ratio` decimal(5,2) NOT NULL DEFAULT 0 COMMENT "下级留成比例(%)"' +
+        ',`today_game_score` int(11) NOT NULL DEFAULT 0 COMMENT "今日整链游戏分",' +
+        '`today_rake` decimal(14,2) NOT NULL DEFAULT 0 COMMENT "今日抽水",' +
+        '`today_hidden_rake` decimal(14,2) NOT NULL DEFAULT 0 COMMENT "今日暗水",' +
+        '`today_partner_profit` decimal(14,2) NOT NULL DEFAULT 0 COMMENT "今日合伙人收益",' +
+        '`yesterday_game_score` int(11) NOT NULL DEFAULT 0,' +
+        '`yesterday_rake` decimal(14,2) NOT NULL DEFAULT 0,' +
+        '`yesterday_hidden_rake` decimal(14,2) NOT NULL DEFAULT 0,' +
+        '`yesterday_partner_profit` decimal(14,2) NOT NULL DEFAULT 0,' +
+        '`total_game_score` int(11) NOT NULL DEFAULT 0 COMMENT "整链总游戏分",' +
+        '`total_rake` decimal(14,2) NOT NULL DEFAULT 0 COMMENT "累计抽水",' +
+        '`total_hidden_rake` decimal(14,2) NOT NULL DEFAULT 0 COMMENT "累计暗水",' +
+        '`total_partner_profit` decimal(14,2) NOT NULL DEFAULT 0 COMMENT "累计合伙人收益",' +
+        '`member_count` int(11) NOT NULL DEFAULT 0 COMMENT "成员数",' +
+        '`direct_member_count` int(11) NOT NULL DEFAULT 0 COMMENT "直属成员数",' +
+        '`chain_member_count` int(11) NOT NULL DEFAULT 0 COMMENT "整链成员数",' +
+        '`total_gems` int(11) NOT NULL DEFAULT 0 COMMENT "整链总乐豆",' +
+        '`warning_value` int(11) NOT NULL DEFAULT 0 COMMENT "警戒值",' +
+        '`create_time` int(11) NOT NULL DEFAULT 0,' +
+        '`update_time` int(11) NOT NULL DEFAULT 0,' +
+        'PRIMARY KEY (`id`),UNIQUE KEY `club_partner` (`club_id`,`partner_club_id`),KEY `partner_club_id` (`partner_club_id`)' +
+        ') ENGINE=InnoDB DEFAULT CHARSET=utf8';
+    setTimeout(function(){
+        query(sqlPartner, function(err){
+            if(err){ console.log("create t_partner_stats failed:" + err.message); }
+        });
+    }, 5700);
+
+    //奖励明细表
+    var sqlReward = 'CREATE TABLE IF NOT EXISTS `t_reward_logs` (' +
+        '`id` int(11) unsigned NOT NULL AUTO_INCREMENT,' +
+        '`club_id` int(11) NOT NULL DEFAULT 0,' +
+        '`partner_club_id` int(11) NOT NULL DEFAULT 0 COMMENT "获得奖励的合伙人",' +
+        '`reward_type` varchar(32) NOT NULL DEFAULT "" COMMENT "奖励类型:游戏奖励/保底奖励/切牌奖励/表情奖励/门票奖励/暗水奖励",' +
+        '`amount` decimal(14,2) NOT NULL DEFAULT 0 COMMENT "奖励数量",' +
+        '`game_type` varchar(32) NOT NULL DEFAULT "" COMMENT "所属玩法",' +
+        '`roomid` int(11) NOT NULL DEFAULT 0 COMMENT "房间号",' +
+        '`room_uuid` char(20) NOT NULL DEFAULT "",' +
+        '`game_index` smallint(6) NOT NULL DEFAULT 0,' +
+        '`create_time` int(11) NOT NULL DEFAULT 0,' +
+        'PRIMARY KEY (`id`),KEY `club_time` (`club_id`,`create_time`),KEY `partner_time` (`partner_club_id`,`create_time`)' +
+        ') ENGINE=InnoDB DEFAULT CHARSET=utf8';
+    setTimeout(function(){
+        query(sqlReward, function(err){
+            if(err){ console.log("create t_reward_logs failed:" + err.message); }
+        });
+    }, 6000);
+
+    //乐豆流水关联俱乐部和合伙人
+    setTimeout(function(){
+        query('ALTER TABLE `t_bean_logs` ADD COLUMN `club_id` INT(11) NOT NULL DEFAULT 0 COMMENT "所属俱乐部"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_bean_logs.club_id failed:" + err.message); }
+        });
+    }, 6300);
+    setTimeout(function(){
+        query('ALTER TABLE `t_bean_logs` ADD COLUMN `partner_club_id` INT(11) NOT NULL DEFAULT 0 COMMENT "分成合伙人"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_bean_logs.partner_club_id failed:" + err.message); }
+        });
+    }, 6600);
+
+    //老库升级: 合伙人收益/奖励明细金额改成2位小数(逐级分成可能出现小数点)
+    setTimeout(function(){
+        var cols = ['today_rake','today_hidden_rake','today_partner_profit',
+            'yesterday_rake','yesterday_hidden_rake','yesterday_partner_profit',
+            'total_rake','total_hidden_rake','total_partner_profit'];
+        cols.forEach(function(col, i){
+            setTimeout(function(){
+                query('ALTER TABLE `t_partner_stats` MODIFY COLUMN `' + col + '` DECIMAL(14,2) NOT NULL DEFAULT 0', function(err){
+                    if(err){ console.log("alter t_partner_stats." + col + " failed:" + err.message); }
+                });
+            }, i * 200);
+        });
+        query('ALTER TABLE `t_reward_logs` MODIFY COLUMN `amount` DECIMAL(14,2) NOT NULL DEFAULT 0', function(err){
+            if(err){ console.log("alter t_reward_logs.amount failed:" + err.message); }
+        });
+    }, 6900);
 };
 
 //写入一条乐豆流水(对局结算/保险柜存取等),失败不影响主流程
 //roomUuid/gameIndex 用于「详情」按钮直接打开该局回放(取不到时为空,按钮不可点)
-exports.add_bean_log = function(userid,roomid,gameType,changeType,amount,callback,roomUuid,gameIndex){
+//tableName=牌桌真实名称,记录弹窗"玩法"列显示用
+exports.add_bean_log = function(userid,roomid,gameType,changeType,amount,callback,roomUuid,gameIndex,clubId,partnerClubId,tableName){
     callback = callback == null? nop:callback;
     if(userid == null || amount == null || amount === 0){ callback(false); return; }
     var t = Math.ceil(Date.now()/1000);
-    var sql = 'INSERT INTO t_bean_logs(userid,roomid,room_uuid,game_index,game_type,change_type,amount,create_time) VALUES(' +
+    var sql = 'INSERT INTO t_bean_logs(userid,roomid,room_uuid,game_index,game_type,table_name,change_type,amount,create_time,club_id,partner_club_id) VALUES(' +
         parseInt(userid) + ',' + (parseInt(roomid) || 0) + ',"' + (roomUuid || '') + '",' + (parseInt(gameIndex) || 0) + ',"' +
-        (gameType || '') + '","' + (changeType || '') + '",' +
-        parseInt(amount) + ',' + t + ')';
+        (gameType || '') + '","' + String(tableName || '').replace(/\\/g, "\\\\").replace(/'/g, "\\'") + '","' + (changeType || '') + '",' +
+        parseInt(amount) + ',' + t + ',' + (parseInt(clubId) || 0) + ',' + (parseInt(partnerClubId) || 0) + ')';
     query(sql,function(err,rows){
         if(err){ console.log("add_bean_log failed:" + err.message); callback(false); return; }
         callback(true);
@@ -154,7 +291,7 @@ exports.add_bean_log = function(userid,roomid,gameType,changeType,amount,callbac
 exports.get_bean_logs = function(userid,fromTime,callback){
     callback = callback == null? nop:callback;
     if(userid == null){ callback([]); return; }
-    var sql = 'SELECT roomid,room_uuid,game_index,game_type,change_type,amount,create_time FROM t_bean_logs WHERE userid = ' + parseInt(userid);
+    var sql = 'SELECT roomid,room_uuid,game_index,game_type,table_name,change_type,amount,create_time FROM t_bean_logs WHERE userid = ' + parseInt(userid);
     if(fromTime > 0){ sql += ' AND create_time >= ' + parseInt(fromTime); }
     sql += ' ORDER BY create_time DESC,id DESC LIMIT 60';
     query(sql,function(err,rows){
@@ -328,9 +465,9 @@ exports.add_user_gems = function(userid,gems,callback,extra){
             return;
         }
         else{
-            //extra={roomid,gameType,changeType,roomUuid,gameIndex}:记录一条乐豆流水(有额外信息时才写)
+            //extra={roomid,gameType,changeType,roomUuid,gameIndex,clubId,partnerClubId,tableName}:记录一条乐豆流水(有额外信息时才写)
             if(extra){
-                exports.add_bean_log(userid,extra.roomid,extra.gameType,extra.changeType,gems,null,extra.roomUuid,extra.gameIndex);
+                exports.add_bean_log(userid,extra.roomid,extra.gameType,extra.changeType,gems,null,extra.roomUuid,extra.gameIndex,extra.clubId,extra.partnerClubId,extra.tableName);
             }
             callback(rows.affectedRows > 0);
             return; 
@@ -933,16 +1070,18 @@ exports.update_game_result = function(room_uuid,index,result,callback){
     });
 };
 
-//保存单局录像(覆盖同房间同局号)
-exports.save_replay = function(room_uuid,index,type,roomid,players,data,callback){
+//保存单局录像(覆盖同房间同局号);tableName=牌桌真实名称,战绩列表显示用
+exports.save_replay = function(room_uuid,index,type,roomid,players,data,tableName,callback){
+    if(callback == null && typeof tableName === 'function'){ callback = tableName; tableName = ''; }
     callback = callback == null? nop:callback;
     if(room_uuid == null || index == null || data == null){
         callback(false);
         return;
     }
-    var sql = "INSERT INTO t_replays(room_uuid,game_index,type,roomid,players,data,create_time) VALUES('" +
-        room_uuid + "'," + index + ",'" + type + "'," + roomid + ",'" + players + "','" + data + "',unix_timestamp(now()))" +
-        " ON DUPLICATE KEY UPDATE type=VALUES(type),roomid=VALUES(roomid),players=VALUES(players),data=VALUES(data),create_time=VALUES(create_time)";
+    var tn = String(tableName || '').replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+    var sql = "INSERT INTO t_replays(room_uuid,game_index,type,roomid,players,table_name,data,create_time) VALUES('" +
+        room_uuid + "'," + index + ",'" + type + "'," + roomid + ",'" + players + "','" + tn + "','" + data + "',unix_timestamp(now()))" +
+        " ON DUPLICATE KEY UPDATE type=VALUES(type),roomid=VALUES(roomid),players=VALUES(players),table_name=VALUES(table_name),data=VALUES(data),create_time=VALUES(create_time)";
     query(sql,function(err,rows,fields){
         if(err){
             console.log("save_replay error:", err.message);
@@ -984,7 +1123,7 @@ exports.get_replay_list = function(userid,days,callback){
         return;
     }
     var span = (days || 3) * 86400;
-    var sql = 'SELECT room_uuid,game_index,type,roomid,create_time FROM t_replays' +
+    var sql = 'SELECT room_uuid,game_index,type,roomid,table_name,create_time FROM t_replays' +
         ' WHERE FIND_IN_SET(' + userid + ',players) AND create_time >= unix_timestamp(now()) - ' + span +
         ' ORDER BY create_time DESC';
     query(sql, function(err, rows){
@@ -999,7 +1138,7 @@ exports.get_replay_list = function(userid,days,callback){
             var r = rows[i];
             var g = map[r.room_uuid];
             if(g == null){
-                g = {uuid: r.room_uuid, roomid: r.roomid, type: r.type, create_time: r.create_time, games: []};
+                g = {uuid: r.room_uuid, roomid: r.roomid, type: r.type, table_name: r.table_name || "", create_time: r.create_time, games: []};
                 map[r.room_uuid] = g;
                 list.push(g);
             }
@@ -1320,8 +1459,10 @@ exports.get_user_agent = function(userid,callback){
 exports.club_list_of_user = function(userid,callback){
     callback = callback == null? nop:callback;
     var sql = 'SELECT c.id,c.name,c.owner_userid,c.parent_clubid,c.create_time,'
-        + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count '
+        + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count,'
+        + 'u.name AS owner_name '
         + 'FROM t_clubs c JOIN t_club_members m2 ON m2.club_id = c.id AND m2.userid = ' + userid
+        + ' LEFT JOIN t_users u ON u.userid = c.owner_userid'
         + ' ORDER BY c.id DESC';
     query(sql, function(err, rows){
         if(err){
@@ -1359,7 +1500,7 @@ exports.club_members_detail = function(clubId,callback){
 exports.club_bean_logs = function(clubId,callback){
     callback = callback == null? nop:callback;
     if(!(clubId > 0)){ callback([]); return; }
-    var sql = 'SELECT l.userid,u.name,l.roomid,l.game_type,l.change_type,l.amount,l.create_time FROM t_bean_logs l'
+    var sql = 'SELECT l.userid,u.name,l.roomid,l.game_type,l.table_name,l.change_type,l.amount,l.create_time FROM t_bean_logs l'
         + ' JOIN t_club_members m ON m.club_id = ' + parseInt(clubId) + ' AND m.userid = l.userid'
         + ' LEFT JOIN t_users u ON u.userid = l.userid'
         + ' ORDER BY l.create_time DESC,l.id DESC LIMIT 200';
@@ -1446,6 +1587,22 @@ exports.club_delete_table = function(tableId,callback){
     });
 };
 
+//统计某个玩法配置下还剩多少张牌桌(后台删桌后判断是否可以顺带清掉空玩法)
+exports.club_table_count_by_config = function(configId,callback){
+    callback = callback == null? nop:callback;
+    queryP('SELECT COUNT(*) AS cnt FROM t_club_tables WHERE game_config_id = ?',[configId],function(err,rows){
+        callback(!err && rows && rows.length ? (Number(rows[0].cnt) || 0) : 0);
+    });
+};
+
+//只删除玩法配置行(不动牌桌;用于牌桌删完后清理空玩法,不影响同类型的其它配置)
+exports.club_game_delete_config_only = function(id,callback){
+    callback = callback == null? nop:callback;
+    queryP('DELETE FROM t_club_games WHERE id = ?',[id],function(err,rows){
+        callback(!err && rows.affectedRows > 0);
+    });
+};
+
 //俱乐部玩法列表(去重)
 exports.club_game_types = function(clubId,callback){
     callback = callback == null? nop:callback;
@@ -1460,13 +1617,22 @@ exports.club_game_types = function(clubId,callback){
 };
 
 //俱乐部某玩法的桌面列表(带当前人数);gameType为空时返回该俱乐部全部玩法的桌面
-exports.club_tables = function(clubId,gameType,callback){
+//玩法关闭(enabled=0)后,该玩法绑定的牌桌不再下发,客户端看不到也无法进入
+exports.club_tables = function(clubId,gameType,callback,includeDisabled){
     callback = callback == null? nop:callback;
+    //includeDisabled=true时(俱乐部管理页)不过滤已关闭玩法的牌桌;玩家大厅默认只显示启用玩法的牌桌
     var where = 'WHERE t.club_id = ' + clubId;
+    if(!includeDisabled){
+        where += ' AND ('
+        + '  (t.game_config_id > 0 AND EXISTS(SELECT 1 FROM t_club_games g1 WHERE g1.id = t.game_config_id AND g1.enabled = 1))'
+        + '  OR (t.game_config_id = 0 AND EXISTS(SELECT 1 FROM t_club_games g2 WHERE g2.club_id = t.club_id AND g2.game_type = t.game_type AND g2.enabled = 1))'
+        + '  OR (t.game_config_id = 0 AND NOT EXISTS(SELECT 1 FROM t_club_games g3 WHERE g3.club_id = t.club_id AND g3.game_type = t.game_type))'
+        + ')';
+    }
     if(gameType){
         where += ' AND t.game_type = "' + gameType + '"';
     }
-    var sql = 'SELECT t.id,t.name,t.game_type,t.roomid,t.conf,c.max_players AS max_players,'
+    var sql = 'SELECT t.id,t.name,t.game_type,t.roomid,t.conf,t.game_config_id,c.max_players AS max_players,'
         + 'IF(r.id IS NULL,0,(r.user_id0 > 0) + (r.user_id1 > 0) + (r.user_id2 > 0) + (r.user_id3 > 0)'
         + ' + (r.user_id4 > 0) + (r.user_id5 > 0)) AS player_count,'
         + 'r.num_of_turns,r.user_id0,r.user_id1,r.user_id2,r.user_id3,r.user_id4,r.user_id5,'
@@ -1487,7 +1653,23 @@ exports.club_tables = function(clubId,gameType,callback){
             callback([]);
             return;
         }
+        //t_users.name 存的是 base64, 直接返给客户端会显示成一串英文, 这里统一解码
+        (rows || []).forEach(function(r){
+            for(var i = 0; i <= 5; ++i){
+                var k = "user_name" + i;
+                if(r[k]){ try{ r[k] = crypto.fromBase64(r[k]); }catch(e){} }
+            }
+        });
         callback(rows);
+    });
+};
+
+//更新牌桌自身参数(桌名+conf), 只影响这一张牌桌, 不影响同玩法的其它牌桌
+exports.club_update_table_conf = function(tableId,name,conf,callback){
+    callback = callback == null? nop:callback;
+    if(!(tableId > 0)){ callback(false); return; }
+    queryP('UPDATE t_club_tables SET name = ?, conf = ? WHERE id = ?',[name || "",JSON.stringify(conf || {}),tableId],function(err){
+        callback(!err);
     });
 };
 
@@ -1548,6 +1730,35 @@ function queryP(sql,params,callback){
     });
 }
 
+//解析俱乐部的顶级(一级)俱乐部:沿 parent_clubid 上溯, parent_clubid=0 即一级俱乐部
+function resolve_top_club_id(clubId,callback,depth){
+    callback = callback == null? nop:callback;
+    depth = depth || 0;
+    if(!(clubId > 0) || depth > 10){ callback(0); return; }
+    queryP('SELECT id,parent_clubid FROM t_clubs WHERE id = ?',[clubId],function(err,rows){
+        if(err || !rows || rows.length == 0){ callback(0); return; }
+        var pid = parseInt(rows[0].parent_clubid) || 0;
+        if(!(pid > 0) || pid == clubId){ callback(parseInt(rows[0].id) || 0); return; }
+        resolve_top_club_id(pid,callback,depth + 1);
+    });
+}
+
+//一级俱乐部的玩法对下级俱乐部全部继承:本俱乐部玩法优先, 同名(game_type)不重复下发
+function merge_inherited_games(rows,clubId,topClubId){
+    var ownTypes = {};
+    (rows || []).forEach(function(r){
+        if(Number(r.club_id) == Number(clubId)){ ownTypes[String(r.game_type)] = 1; }
+    });
+    var out = [];
+    (rows || []).forEach(function(r){
+        var inherited = (Number(r.club_id) != Number(clubId));
+        if(inherited && topClubId && ownTypes[String(r.game_type)]){ return; }
+        r.inherited = inherited ? 1 : 0;
+        out.push(r);
+    });
+    return out;
+}
+
 //俱乐部玩法列表(含该玩法下的牌桌数/人数上限)
 exports.club_games_with_count = function(clubId,callback){
     callback = callback == null? nop:callback;
@@ -1558,11 +1769,23 @@ exports.club_games_with_count = function(clubId,callback){
         + 'c.gp_bomb AS gp_bomb, c.gp_bomb_four AS gp_bomb_four, c.gp_four_two AS gp_four_two, c.gp_four_three AS gp_four_three, '
         + 'c.gp_three_one AS gp_three_one, c.gp_last_three_one AS gp_last_three_one, c.gp_last_four_two_three AS gp_last_four_two_three, '
         + 'c.gp_straight_a2 AS gp_straight_a2, c.gp_card_history AS gp_card_history, '
-        + '(SELECT COUNT(*) FROM t_club_tables t WHERE t.club_id = g.club_id AND t.game_type = g.game_type) AS table_count '
-        + 'FROM t_club_games g LEFT JOIN t_game_config c ON c.type = g.game_type WHERE g.club_id = ? ORDER BY g.sort,g.id';
-    queryP(sql,[clubId],function(err,rows){
-        if(err){ console.log(err); callback([]); return; }
-        callback(rows);
+        //牌桌数按"当前俱乐部"统计:继承来的玩法也要显示本俱乐部已开的桌数
+        + '(SELECT COUNT(*) FROM t_club_tables t WHERE t.club_id = ? AND t.game_type = g.game_type) AS table_count '
+        + 'FROM t_club_games g LEFT JOIN t_game_config c ON c.type = g.game_type ';
+    resolve_top_club_id(clubId,function(topClubId){
+        var where, params;
+        if(topClubId > 0 && topClubId != clubId){
+            //本俱乐部 + 一级俱乐部(祖先)的玩法一起返回, 本俱乐部排前面
+            where = 'WHERE (g.club_id = ? OR g.club_id = ?) ORDER BY (g.club_id = ?) DESC, g.sort, g.id';
+            params = [clubId, clubId, topClubId, clubId];
+        }else{
+            where = 'WHERE g.club_id = ? ORDER BY g.sort, g.id';
+            params = [clubId, clubId];
+        }
+        queryP(sql + where,params,function(err,rows){
+            if(err){ console.log(err); callback([]); return; }
+            callback(merge_inherited_games(rows,clubId,topClubId));
+        });
     });
 };
 
@@ -1629,6 +1852,440 @@ exports.club_game_delete = function(id,callback){
                 callback(rows.affectedRows > 0);
             });
         });
+    });
+};
+
+// ============ 俱乐部玩法配置(多配置/抽水/暗水/房费) ============
+
+//牌桌conf:把玩法配置里与牌桌展示/开局相关的数据一起写进牌桌,保证牌桌直接可用
+function buildTableConf(gameType,config){
+    var difens = config.difen_options || [];
+    var jushus = config.jushu_options || [];
+    return JSON.stringify({
+        type: gameType,
+        difen: 0,
+        difen_value: difens.length > 0 ? Number(difens[0]) : 0,
+        jushuxuanze: 0,
+        jushu_value: jushus.length > 0 ? Number(jushus[0]) : 0,
+        //房卡单价: 俱乐部为本桌单独配置的扣费(开局按局扣), 未配置时由游戏服按全局option取
+        cost: (config.cost_options && config.cost_options.length) ? Number(config.cost_options[0]) : 0,
+        banker_mode: 1,
+        min_players: config.min_players || 2,
+        max_players: config.max_players_custom || 6,
+        min_bean: config.min_bean || 0,
+        kick_bean: config.kick_bean || 0,
+        face_score: config.face_score || 0,
+        shuffle_score: config.shuffle_score || 0,
+        rake_percent: config.rake_percent || 0,
+        hidden_rake_percent: config.hidden_rake_percent || 0,
+        rake_per_round: config.rake_per_round != null ? Number(config.rake_per_round) : 1,
+        room_fee: config.room_fee || 0,
+        room_fee_payer: config.room_fee_payer || 0
+    });
+}
+
+//新增俱乐部玩法配置并自动创建一张牌桌
+exports.club_game_add_with_config = function(clubId,gameType,name,config,callback){
+    callback = callback == null? nop:callback;
+    var createTime = Math.ceil(Date.now()/1000);
+    var taiRulesStr = config.tai_rules ? JSON.stringify(config.tai_rules) : null;
+    //同一俱乐部同一玩法只允许一条配置(club_type唯一键): 已存在时更新配置并再开一张牌桌, 不再插入
+    queryP('SELECT id FROM t_club_games WHERE club_id = ? AND game_type = ?',[clubId,gameType],function(e0,ex){
+        if(e0){ console.log(e0); callback(null); return; }
+        if(ex && ex.length){
+            var oldId = ex[0].id;
+            //不把 name 传给配置: 避免把该玩法下已有牌桌一起改名(桌名只属于牌桌)
+            var cfgFields = {};
+            for(var k in config){ if(k !== 'name'){ cfgFields[k] = config[k]; } }
+            exports.club_game_update_config(oldId,cfgFields,function(){
+                exports.club_add_table(clubId,gameType,name,buildTableConf(gameType,config),function(tableId){
+                    if(tableId != null){
+                        queryP('UPDATE t_club_tables SET game_config_id = ? WHERE id = ?',[oldId,tableId],function(){});
+                    }
+                    callback(oldId);
+                });
+            });
+            return;
+        }
+        var sql = 'INSERT INTO t_club_games(club_id,game_type,name,difen_options,jushu_options,cost_options,sort,tai_rules,enabled,create_time,min_players,max_players_custom,rake_percent,hidden_rake_percent,rake_per_round,room_fee,room_fee_payer,face_score,shuffle_score,min_bean,kick_bean) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)';
+        queryP(sql,[
+            clubId, gameType, name,
+            JSON.stringify(config.difen_options || [1,2,5]),
+            JSON.stringify(config.jushu_options || [4,8]),
+            JSON.stringify(config.cost_options || [2,3]),
+            config.sort || 0, taiRulesStr, createTime,
+            config.min_players || 2,
+            config.max_players_custom || 6,
+            config.rake_percent || 0,
+            config.hidden_rake_percent || 0,
+            config.rake_per_round != null ? config.rake_per_round : 1,
+            config.room_fee || 0,
+            config.room_fee_payer || 0,
+            config.face_score || 0,
+            config.shuffle_score || 0,
+            config.min_bean || 0,
+            config.kick_bean || 0
+        ],function(err,rows){
+            if(err){ console.log(err); callback(null); return; }
+            var configId = rows.insertId;
+            //自动创建一张牌桌:桌名=用户输入的玩法名,配置数据一并写进牌桌conf
+            exports.club_add_table(clubId, gameType, name, buildTableConf(gameType,config), function(tableId){
+                if(tableId != null){
+                    queryP('UPDATE t_club_tables SET game_config_id = ? WHERE id = ?',[configId, tableId],function(){});
+                }
+                callback(configId);
+            });
+        });
+    });
+};
+
+//更新俱乐部玩法配置(含扩展字段)
+exports.club_game_update_config = function(id,fields,callback){
+    callback = callback == null? nop:callback;
+    var sets = [];
+    var params = [];
+    if(fields.name != null){ sets.push('name = ?'); params.push(fields.name); }
+    if(fields.difen_options){ sets.push('difen_options = ?'); params.push(JSON.stringify(fields.difen_options)); }
+    if(fields.jushu_options){ sets.push('jushu_options = ?'); params.push(JSON.stringify(fields.jushu_options)); }
+    if(fields.cost_options){ sets.push('cost_options = ?'); params.push(JSON.stringify(fields.cost_options)); }
+    if(fields.tai_rules !== undefined){ sets.push('tai_rules = ?'); params.push(fields.tai_rules == null ? null : JSON.stringify(fields.tai_rules)); }
+    if(fields.sort != null){ sets.push('sort = ?'); params.push(fields.sort); }
+    if(fields.enabled != null){ sets.push('enabled = ?'); params.push(fields.enabled ? 1 : 0); }
+    if(fields.min_players != null){ sets.push('min_players = ?'); params.push(fields.min_players); }
+    if(fields.max_players_custom != null){ sets.push('max_players_custom = ?'); params.push(fields.max_players_custom); }
+    if(fields.rake_percent != null){ sets.push('rake_percent = ?'); params.push(fields.rake_percent); }
+    if(fields.hidden_rake_percent != null){ sets.push('hidden_rake_percent = ?'); params.push(fields.hidden_rake_percent); }
+    if(fields.rake_per_round != null){ sets.push('rake_per_round = ?'); params.push(fields.rake_per_round); }
+    if(fields.room_fee != null){ sets.push('room_fee = ?'); params.push(fields.room_fee); }
+    if(fields.room_fee_payer != null){ sets.push('room_fee_payer = ?'); params.push(fields.room_fee_payer); }
+    if(fields.face_score != null){ sets.push('face_score = ?'); params.push(fields.face_score); }
+    if(fields.shuffle_score != null){ sets.push('shuffle_score = ?'); params.push(fields.shuffle_score); }
+    if(fields.min_bean != null){ sets.push('min_bean = ?'); params.push(fields.min_bean); }
+    if(fields.kick_bean != null){ sets.push('kick_bean = ?'); params.push(fields.kick_bean); }
+    if(sets.length == 0){ callback(false); return; }
+    params.push(id);
+    queryP('UPDATE t_club_games SET ' + sets.join(',') + ' WHERE id = ?',params,function(err,rows){
+        if(err){ console.log(err); callback(false); return; }
+        //不再把配置同步写回牌桌conf: 每张牌桌的参数独立(在牌桌编辑里单独改),
+        //否则改一张牌桌会连带把同玩法的其它牌桌参数覆盖掉
+        callback(rows.affectedRows > 0);
+    });
+};
+
+//获取俱乐部玩法配置列表(含扩展字段;一级俱乐部玩法对下级全部继承)
+exports.club_game_get_configs = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    var sql = 'SELECT g.*, c.max_players AS max_players_global, '
+        + '(SELECT COUNT(*) FROM t_club_tables t WHERE t.club_id = ? AND t.game_type = g.game_type) AS table_count '
+        + 'FROM t_club_games g LEFT JOIN t_game_config c ON c.type = g.game_type ';
+    resolve_top_club_id(clubId,function(topClubId){
+        var where, params;
+        if(topClubId > 0 && topClubId != clubId){
+            where = 'WHERE (g.club_id = ? OR g.club_id = ?) ORDER BY (g.club_id = ?) DESC, g.sort, g.id';
+            params = [clubId, clubId, topClubId, clubId];
+        }else{
+            where = 'WHERE g.club_id = ? ORDER BY g.sort, g.id';
+            params = [clubId, clubId];
+        }
+        queryP(sql + where,params,function(err,rows){
+            if(err){ console.log(err); callback([]); return; }
+            rows = merge_inherited_games(rows,clubId,topClubId);
+            rows.forEach(function(r){
+                try{ r.difen_options = JSON.parse(r.difen_options); }catch(e){}
+                try{ r.jushu_options = JSON.parse(r.jushu_options); }catch(e){}
+                try{ r.cost_options = JSON.parse(r.cost_options); }catch(e){}
+                try{ r.tai_rules = r.tai_rules ? JSON.parse(r.tai_rules) : null; }catch(e){ r.tai_rules = null; }
+            });
+            callback(rows || []);
+        });
+    });
+};
+
+//按配置id获取俱乐部玩法
+exports.club_game_get_config = function(id,callback){
+    callback = callback == null? nop:callback;
+    queryP('SELECT * FROM t_club_games WHERE id = ?',[id],function(err,rows){
+        if(err || rows.length == 0){ callback(null); return; }
+        var r = rows[0];
+        try{ r.difen_options = JSON.parse(r.difen_options); }catch(e){}
+        try{ r.jushu_options = JSON.parse(r.jushu_options); }catch(e){}
+        try{ r.cost_options = JSON.parse(r.cost_options); }catch(e){}
+        try{ r.tai_rules = r.tai_rules ? JSON.parse(r.tai_rules) : null; }catch(e){ r.tai_rules = null; }
+        callback(r);
+    });
+};
+
+//按俱乐部+玩法类型获取第一个启用的配置(房间创建时注入用)
+exports.club_game_get_config_by_club_type = function(clubId,gameType,callback){
+    callback = callback == null? nop:callback;
+    queryP('SELECT * FROM t_club_games WHERE club_id = ? AND game_type = ? AND enabled = 1 ORDER BY sort,id LIMIT 1',[clubId,gameType],function(err,rows){
+        if(err || rows.length == 0){ callback(null); return; }
+        var r = rows[0];
+        try{ r.difen_options = JSON.parse(r.difen_options); }catch(e){}
+        try{ r.jushu_options = JSON.parse(r.jushu_options); }catch(e){}
+        try{ r.cost_options = JSON.parse(r.cost_options); }catch(e){}
+        try{ r.tai_rules = r.tai_rules ? JSON.parse(r.tai_rules) : null; }catch(e){ r.tai_rules = null; }
+        callback(r);
+    });
+};
+
+// ============ 合伙人(子俱乐部)管理 ============
+
+//合伙人列表(含统计)
+exports.partner_list = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    var sql = 'SELECT c.id,c.name,c.owner_userid,c.create_time,u.headimg AS headimg,'
+        + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count,'
+        + '(SELECT IFNULL(SUM(u.gems),0) FROM t_club_members m2 JOIN t_users u ON u.userid = m2.userid WHERE m2.club_id = c.id) AS total_gems,'
+        + 'p.profit_ratio,p.today_game_score,p.today_rake,p.today_hidden_rake,p.today_partner_profit,'
+        + 'p.yesterday_game_score,p.yesterday_rake,p.yesterday_hidden_rake,p.yesterday_partner_profit,'
+        + 'p.total_game_score,p.total_rake,p.total_hidden_rake,p.total_partner_profit,'
+        + 'p.direct_member_count,p.chain_member_count,p.total_gems AS chain_total_gems,p.warning_value '
+        + 'FROM t_clubs c LEFT JOIN t_users u ON u.userid = c.owner_userid '
+        + 'LEFT JOIN t_partner_stats p ON p.club_id = ? AND p.partner_club_id = c.id '
+        + 'WHERE c.parent_clubid = ? ORDER BY c.id DESC';
+    queryP(sql,[clubId,clubId],function(err,rows){
+        if(err){ console.log(err); callback([]); return; }
+        callback(rows || []);
+    });
+};
+
+//获取单个合伙人信息
+exports.partner_get = function(clubId,partnerClubId,callback){
+    callback = callback == null? nop:callback;
+    queryP('SELECT * FROM t_partner_stats WHERE club_id = ? AND partner_club_id = ?',[clubId,partnerClubId],function(err,rows){
+        if(err || rows.length == 0){ callback(null); return; }
+        callback(rows[0]);
+    });
+};
+
+//创建/更新合伙人统计记录
+//用 INSERT ... ON DUPLICATE KEY UPDATE 单语句完成: 先 SELECT 再 INSERT/UPDATE 存在并发窗口,
+//"设为合伙人"刚建完记录时立刻改比例会因 INSERT 撞唯一键(club_id,partner_club_id)而失败
+exports.partner_upsert = function(clubId,partnerClubId,fields,callback){
+    callback = callback == null? nop:callback;
+    var now = Math.ceil(Date.now()/1000);
+    var hasRatio = fields.profit_ratio != null;
+    var hasWarn = fields.warning_value != null;
+    var cols = ['club_id','partner_club_id','profit_ratio','create_time','update_time'];
+    var params = [clubId,partnerClubId,hasRatio ? fields.profit_ratio : 0,now,now];
+    var dup = ['update_time = VALUES(update_time)'];
+    if(hasRatio){ dup.push('profit_ratio = VALUES(profit_ratio)'); }
+    if(hasWarn){
+        cols.push('warning_value'); params.push(fields.warning_value);
+        dup.push('warning_value = VALUES(warning_value)');
+    }
+    var sql = 'INSERT INTO t_partner_stats(' + cols.join(',') + ') VALUES('
+        + cols.map(function(){ return '?'; }).join(',') + ') ON DUPLICATE KEY UPDATE ' + dup.join(',');
+    queryP(sql,params,function(err){
+        if(err){ console.log(err); callback(false); return; }
+        callback(true);
+    });
+};
+
+//更新合伙人统计(累加)
+exports.partner_add_stats = function(clubId,partnerClubId,fields,callback){
+    callback = callback == null? nop:callback;
+    var now = Math.ceil(Date.now()/1000);
+    var sets = [];
+    var params = [];
+    if(fields.game_score != null){ sets.push('today_game_score = today_game_score + ?'); params.push(fields.game_score); sets.push('total_game_score = total_game_score + ?'); params.push(fields.game_score); }
+    if(fields.rake != null){ sets.push('today_rake = today_rake + ?'); params.push(fields.rake); sets.push('total_rake = total_rake + ?'); params.push(fields.rake); }
+    if(fields.hidden_rake != null){ sets.push('today_hidden_rake = today_hidden_rake + ?'); params.push(fields.hidden_rake); sets.push('total_hidden_rake = total_hidden_rake + ?'); params.push(fields.hidden_rake); }
+    if(fields.partner_profit != null){ sets.push('today_partner_profit = today_partner_profit + ?'); params.push(fields.partner_profit); sets.push('total_partner_profit = total_partner_profit + ?'); params.push(fields.partner_profit); }
+    if(sets.length == 0){ callback(true); return; }
+    sets.push('update_time = ?'); params.push(now);
+    params.push(clubId); params.push(partnerClubId);
+    queryP('UPDATE t_partner_stats SET ' + sets.join(',') + ' WHERE club_id = ? AND partner_club_id = ?',params,function(err,rows){
+        if(err){ console.log(err); callback(false); return; }
+        callback(true);
+    });
+};
+
+//合伙人收益详情(按天分组)
+exports.partner_profit_detail = function(clubId,partnerClubId,fromTime,callback){
+    callback = callback == null? nop:callback;
+    var sql = 'SELECT DATE_FORMAT(FROM_UNIXTIME(create_time),"%Y-%m-%d") AS day,'
+        + 'SUM(amount) AS total, COUNT(*) AS cnt '
+        + 'FROM t_bean_logs WHERE club_id = ? AND partner_club_id = ? AND change_type = "合伙人分成" ';
+    var params = [clubId,partnerClubId];
+    if(fromTime > 0){ sql += 'AND create_time >= ? '; params.push(fromTime); }
+    sql += 'GROUP BY day ORDER BY day DESC LIMIT 30';
+    queryP(sql,params,function(err,rows){
+        if(err){ console.log(err); callback([]); return; }
+        callback(rows || []);
+    });
+};
+
+//合伙人统计(按日/累计)
+exports.partner_stats_overview = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    var today = new Date(); today.setHours(0,0,0,0);
+    var todayTs = Math.ceil(today.getTime()/1000);
+    var yesterday = new Date(today.getTime() - 86400000);
+    var yesterdayTs = Math.ceil(yesterday.getTime()/1000);
+    var beforeYesterday = new Date(today.getTime() - 172800000);
+    var beforeYesterdayTs = Math.ceil(beforeYesterday.getTime()/1000);
+    var sql = 'SELECT '
+        + 'SUM(CASE WHEN create_time >= ? THEN amount ELSE 0 END) AS today_total,'
+        + 'SUM(CASE WHEN create_time >= ? AND create_time < ? THEN amount ELSE 0 END) AS yesterday_total,'
+        + 'SUM(CASE WHEN create_time >= ? AND create_time < ? THEN amount ELSE 0 END) AS before_yesterday_total,'
+        + 'SUM(amount) AS total '
+        + 'FROM t_bean_logs WHERE club_id = ? AND change_type = "合伙人分成"';
+    queryP(sql,[todayTs,yesterdayTs,todayTs,beforeYesterdayTs,yesterdayTs,clubId],function(err,rows){
+        if(err){ console.log(err); callback(null); return; }
+        callback(rows[0] || null);
+    });
+};
+
+//奖励明细查询
+exports.reward_logs = function(clubId,partnerClubId,rewardType,fromTime,callback){
+    callback = callback == null? nop:callback;
+    var sql = 'SELECT * FROM t_reward_logs WHERE club_id = ? ';
+    var params = [clubId];
+    if(partnerClubId > 0){ sql += 'AND partner_club_id = ? '; params.push(partnerClubId); }
+    if(rewardType){ sql += 'AND reward_type = ? '; params.push(rewardType); }
+    if(fromTime > 0){ sql += 'AND create_time >= ? '; params.push(fromTime); }
+    sql += 'ORDER BY create_time DESC LIMIT 200';
+    queryP(sql,params,function(err,rows){
+        if(err){ console.log(err); callback([]); return; }
+        callback(rows || []);
+    });
+};
+
+//写入奖励明细
+exports.add_reward_log = function(clubId,partnerClubId,rewardType,amount,gameType,roomid,roomUuid,gameIndex,tableName,callback){
+    if(callback == null && typeof tableName === 'function'){ callback = tableName; tableName = ''; }
+    callback = callback == null? nop:callback;
+    var t = Math.ceil(Date.now()/1000);
+    queryP('INSERT INTO t_reward_logs(club_id,partner_club_id,reward_type,amount,game_type,table_name,roomid,room_uuid,game_index,create_time) VALUES(?,?,?,?,?,?,?,?,?,?)',
+        [clubId,partnerClubId,rewardType,amount,gameType || '',tableName || '',roomid || 0,roomUuid || '',gameIndex || 0,t],function(err,rows){
+            if(err){ console.log(err); callback(false); return; }
+            callback(true);
+        });
+};
+
+//俱乐部总览数据
+exports.club_overview = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    var today = new Date(); today.setHours(0,0,0,0);
+    var todayTs = Math.ceil(today.getTime()/1000);
+    var yesterday = new Date(today.getTime() - 86400000);
+    var yesterdayTs = Math.ceil(yesterday.getTime()/1000);
+    var beforeYesterday = new Date(today.getTime() - 172800000);
+    var beforeYesterdayTs = Math.ceil(beforeYesterday.getTime()/1000);
+    //累收=俱乐部实际入账的收入(抽水/暗水/房费/洗牌/表情), 只统计加豆的正数流水;
+    //同一局里"抽水"会写两条(赢家扣款为负 + 俱乐部入账为正), 直接 SUM(amount) 会正负相抵变成 0
+    //人次=对局结算流水条数(每位玩家每局一条)
+    var sql = 'SELECT '
+        + 'SUM(CASE WHEN create_time >= ? AND change_type IN ("抽水","房费","洗牌扣豆","表情扣豆") AND amount > 0 THEN amount ELSE 0 END) AS today_rake,'
+        + 'SUM(CASE WHEN create_time >= ? AND create_time < ? AND change_type IN ("抽水","房费","洗牌扣豆","表情扣豆") AND amount > 0 THEN amount ELSE 0 END) AS yesterday_rake,'
+        + 'SUM(CASE WHEN create_time >= ? AND create_time < ? AND change_type IN ("抽水","房费","洗牌扣豆","表情扣豆") AND amount > 0 THEN amount ELSE 0 END) AS before_yesterday_rake,'
+        + 'SUM(CASE WHEN create_time >= ? AND change_type = "对局结算" THEN 1 ELSE 0 END) AS today_rounds,'
+        + 'SUM(CASE WHEN create_time >= ? AND create_time < ? AND change_type = "对局结算" THEN 1 ELSE 0 END) AS yesterday_rounds,'
+        + 'SUM(CASE WHEN create_time >= ? AND create_time < ? AND change_type = "对局结算" THEN 1 ELSE 0 END) AS before_yesterday_rounds '
+        + 'FROM t_bean_logs WHERE club_id = ? AND change_type IN ("抽水","房费","洗牌扣豆","表情扣豆","对局结算")';
+    queryP(sql,[todayTs,yesterdayTs,todayTs,beforeYesterdayTs,yesterdayTs,todayTs,yesterdayTs,todayTs,beforeYesterdayTs,yesterdayTs,clubId],function(err,rows){
+        if(err){ console.log(err); callback(null); return; }
+        var r = rows[0] || {};
+        //实收 = 抽水 - 分给合伙人的分成(t_bean_logs 里 change_type="合伙人分成")
+        var sqlProfit = 'SELECT '
+            + 'SUM(CASE WHEN create_time >= ? THEN amount ELSE 0 END) AS today_profit,'
+            + 'SUM(CASE WHEN create_time >= ? AND create_time < ? THEN amount ELSE 0 END) AS yesterday_profit,'
+            + 'SUM(CASE WHEN create_time >= ? AND create_time < ? THEN amount ELSE 0 END) AS before_yesterday_profit '
+            + 'FROM t_bean_logs WHERE club_id = ? AND change_type = "合伙人分成"';
+        queryP(sqlProfit,[todayTs,yesterdayTs,todayTs,beforeYesterdayTs,yesterdayTs,clubId],function(err3,rows3){
+            var r3 = (rows3 && rows3[0]) ? rows3[0] : {};
+            var todayRake = r.today_rake || 0;
+            var yestRake = r.yesterday_rake || 0;
+            var beforeRake = r.before_yesterday_rake || 0;
+            //查询成员数和总乐豆
+            queryP('SELECT COUNT(*) AS member_count, IFNULL(SUM(u.gems),0) AS total_gems FROM t_club_members m JOIN t_users u ON u.userid = m.userid WHERE m.club_id = ?',[clubId],function(err2,rows2){
+                var r2 = rows2 && rows2[0] ? rows2[0] : {};
+                callback({
+                    today_rake: todayRake,
+                    yesterday_rake: yestRake,
+                    before_yesterday_rake: beforeRake,
+                    today_net: todayRake - (r3.today_profit || 0),
+                    yesterday_net: yestRake - (r3.yesterday_profit || 0),
+                    before_yesterday_net: beforeRake - (r3.before_yesterday_profit || 0),
+                    today_rounds: r.today_rounds || 0,
+                    yesterday_rounds: r.yesterday_rounds || 0,
+                    before_yesterday_rounds: r.before_yesterday_rounds || 0,
+                    member_count: r2.member_count || 0,
+                    total_gems: r2.total_gems || 0
+                });
+            });
+        });
+    });
+};
+
+// ============ 俱乐部成员扩展操作 ============
+
+//删除成员(从俱乐部移除)
+exports.club_member_delete = function(clubId,userid,callback){
+    callback = callback == null? nop:callback;
+    queryP('DELETE FROM t_club_members WHERE club_id = ? AND userid = ?',[clubId,userid],function(err,rows){
+        if(err){ console.log(err); callback(false); return; }
+        callback(rows.affectedRows > 0);
+    });
+};
+
+//设为合伙人(创建下级俱乐部并绑定)
+exports.club_member_set_partner = function(clubId,userid,partnerName,callback){
+    callback = callback == null? nop:callback;
+    //先检查用户是否已经是合伙人
+    queryP('SELECT id FROM t_clubs WHERE owner_userid = ? AND parent_clubid = ?',[userid,clubId],function(err,rows){
+        if(err){ console.log(err); callback(null); return; }
+        if(rows.length > 0){ callback(rows[0].id); return; }
+        //创建下级俱乐部
+        var createTime = Math.ceil(Date.now()/1000);
+        var newClubId = 100000 + Math.floor(Math.random()*900000);
+        queryP('INSERT INTO t_clubs(id,name,owner_userid,parent_clubid,create_time) VALUES(?,?,?,?,?)',
+            [newClubId,partnerName || ('合伙人' + newClubId),userid,clubId,createTime],function(err2,rows2){
+            if(err2){ console.log(err2); callback(null); return; }
+            //把用户加入新俱乐部
+            queryP('INSERT IGNORE INTO t_club_members(club_id,userid,join_time) VALUES(?,?,?)',[newClubId,userid,createTime],function(){});
+            //创建合伙人统计记录
+            exports.partner_upsert(clubId,newClubId,{profit_ratio:0},function(){});
+            callback(newClubId);
+        });
+    });
+};
+
+//添加成员(已存在则忽略)
+exports.club_member_add = function(clubId,userid,callback){
+    callback = callback == null? nop:callback;
+    var joinTime = Math.ceil(Date.now()/1000);
+    queryP('INSERT IGNORE INTO t_club_members(club_id,userid,join_time) VALUES(?,?,?)',[clubId,userid,joinTime],function(err){
+        if(err){ console.log(err); callback(false); return; }
+        callback(true);
+    });
+};
+
+//成员战绩(按天汇总)
+exports.club_member_records = function(clubId,userid,fromTime,callback){
+    callback = callback == null? nop:callback;
+    var sql = 'SELECT roomid,game_type,change_type,amount,create_time FROM t_bean_logs WHERE club_id = ? AND userid = ? AND change_type = "对局结算" ';
+    var params = [clubId,userid];
+    if(fromTime > 0){ sql += 'AND create_time >= ? '; params.push(fromTime); }
+    sql += 'ORDER BY create_time DESC LIMIT 100';
+    queryP(sql,params,function(err,rows){
+        if(err){ console.log(err); callback([]); return; }
+        callback(rows || []);
+    });
+};
+
+//成员豆豆明细
+exports.club_member_bean_logs = function(clubId,userid,fromTime,callback){
+    callback = callback == null? nop:callback;
+    var sql = 'SELECT roomid,game_type,change_type,amount,create_time FROM t_bean_logs WHERE club_id = ? AND userid = ? ';
+    var params = [clubId,userid];
+    if(fromTime > 0){ sql += 'AND create_time >= ? '; params.push(fromTime); }
+    sql += 'ORDER BY create_time DESC LIMIT 100';
+    queryP(sql,params,function(err,rows){
+        if(err){ console.log(err); callback([]); return; }
+        callback(rows || []);
     });
 };
 
@@ -1724,7 +2381,7 @@ exports.club_member_gems = function(clubId,userid,gems,callback){
 //后台:俱乐部列表(含社长信息/成员数/玩法数/牌桌数)
 exports.admin_club_list = function(callback){
     callback = callback == null? nop:callback;
-    var sql = 'SELECT c.id,c.name,c.owner_userid,c.create_time,u.account AS owner_account,u.name AS owner_name,'
+    var sql = 'SELECT c.id,c.name,c.owner_userid,c.is_top_level,c.create_time,u.account AS owner_account,u.name AS owner_name,'
         + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count,'
         + '(SELECT COUNT(*) FROM t_club_games g WHERE g.club_id = c.id) AS game_count,'
         + '(SELECT COUNT(*) FROM t_club_tables t WHERE t.club_id = c.id) AS table_count,'
@@ -1755,6 +2412,16 @@ exports.admin_club_add = function(name,ownerUserid,callback){
         });
     };
     attempt();
+};
+
+//后台:设置/取消一级俱乐部(社长增减豆豆不受自身余额限制)
+exports.admin_club_set_top_level = function(id,isTop,callback){
+    callback = callback == null? nop:callback;
+    if(!(id > 0)){ callback(false); return; }
+    queryP('UPDATE t_clubs SET is_top_level = ? WHERE id = ?',[isTop ? 1 : 0,id],function(err,rows){
+        if(err){ console.log(err); callback(false); return; }
+        callback(rows.affectedRows > 0);
+    });
 };
 
 //后台:修改俱乐部(名称/社长)
@@ -1937,5 +2604,18 @@ exports.game_config_list = function(callback){
             return;
         }
         callback(rows || []);
+    });
+};
+//删除合伙人关系(连带删除其下级俱乐部, 与后台 /admin/partner/:id 行为一致)
+exports.partner_delete = function(clubId,partnerClubId,callback){
+    callback = callback == null? nop:callback;
+    queryP('DELETE FROM t_partner_stats WHERE club_id = ? AND partner_club_id = ?',[clubId,partnerClubId],function(err){
+        if(err){ console.log(err); callback(false); return; }
+        //只删挂在本俱乐部下的子俱乐部, 避免误删其他俱乐部
+        queryP('SELECT id FROM t_clubs WHERE id = ? AND parent_clubid = ?',[partnerClubId,clubId],function(err2,rows){
+            if(err2){ console.log(err2); callback(false); return; }
+            if(!rows || rows.length == 0){ callback(true); return; }
+            exports.admin_club_delete(partnerClubId,function(ok){ callback(ok); });
+        });
     });
 };

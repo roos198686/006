@@ -78,6 +78,7 @@ function startRecord(roomId, data){
             type: roomType(roomInfo),
             uuid: roomInfo.uuid,
             roomid: roomInfo.id,
+            tableName: (roomInfo.conf && roomInfo.conf.club_table_name) || "", //牌桌真实名称,战绩列表显示
             startTime: Date.now(),
             start: null,
             players: {},
@@ -137,7 +138,9 @@ function finishRecord(roomId, data){
     var text = JSON.stringify(payload);
     //单引号转义,避免拼SQL时截断
     text = text.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    db.save_replay(rec.uuid, rec.index, rec.type, rec.roomid, userIds.join(','), text, function(ok){
+    //牌桌名称以收尾时房间配置为准(老房间开局时可能还没回填桌名)
+    var tableName = rec.tableName || (roomInfo && roomInfo.conf ? (roomInfo.conf.club_table_name || "") : "");
+    db.save_replay(rec.uuid, rec.index, rec.type, rec.roomid, userIds.join(','), text, tableName, function(ok){
         if(!ok){
             console.log("[replay] 保存失败", rec.uuid, rec.index);
         }

@@ -597,7 +597,13 @@ exports.start = function(conf,mgr){
 			var rid = roomMgr.getUserRoom(socket.userId);
 			var ri = rid != null ? roomMgr.getRoom(rid) : null;
 			if(ri && ri.conf){
-				charge.charge(ri.conf.type, socket.userId, "emoji", rid);
+				var afterCharge = function(){ roomMgr.refreshSeatGems(rid, socket.userId); };
+				//俱乐部房间按玩法「表情分」扣, 普通房间按全局配置扣
+				if(ri.conf.clubGameConfig){
+					charge.chargeRoom(ri.conf, socket.userId, "emoji", rid, afterCharge);
+				} else {
+					charge.charge(ri.conf.type, socket.userId, "emoji", rid, afterCharge);
+				}
 			}
 		});
 		

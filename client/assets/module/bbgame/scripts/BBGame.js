@@ -8,8 +8,6 @@
 //                  手摆 {players:[{seat,daos[3]{cards[2],desc,rate},wulong,auto}],gameType}
 //   game_over_push {results[roomSeatIndex]={userid,name,delta,totalscore,holds,typeKey/typeName/rate,
 //                   daos/wulong},bankerSeat,bankerMode,gameType,details,endinfo?}
-// 牌型特效音效: 从美术提供的特效视频里提取(裁到特效时长); 手牌聚焦不配音
-var BB_FX_SFX = { fire: "bbfx_fire.mp3", bomb: "bbfx_bomb.mp3", pairs: "bbfx_pairs.mp3", nine: "bbfx_pairs.mp3" };
 cc.Class({
     extends: cc.Component,
 
@@ -126,7 +124,7 @@ cc.Class({
 
     // 预加载特效帧(全部来自逆向原包 gamepdk):
     //   bbfx_start 开局动画(20帧@50ms) bbfx_dq 打枪(12帧@50ms) bbfx_zq 中枪(3帧@300ms)
-    //   bbfx_qld 全垒打(19帧@60ms) bbfx_pairs 3对/3组9玩具枪(24fps)
+    //   bbfx_qld 全垒打(19帧@60ms)
     loadFireFrames: function () {
         var self = this;
         function loadDir(dir, key) {
@@ -144,7 +142,6 @@ cc.Class({
         loadDir("images/bbfx_dq", "_dqFrames");
         loadDir("images/bbfx_zq", "_zqFrames");
         loadDir("images/bbfx_qld", "_qldFrames");
-        loadDir("images/bbfx_pairs", "_pairsFrames");
         // 洗牌 spine(逆向原版 Pk_XiPaiAnimat): qiepai.json + qiepai.atlas + qiepai.png
         cc.resources.load("anims/qiepai/qiepai", sp.SkeletonData, function (err, sd) {
             if (err || !sd) { console.log("[BB] qiepai spine 加载失败", err); return; }
@@ -1246,7 +1243,7 @@ cc.Class({
         var nm = cc.vv.gameNetMgr;
         if (!this._confirmRoot || !this._confirmRoot.active) return;
         if (nm.bbMianConfirmed) return;
-        var arr = this.autoArrangeLocal((nm.bbMyCards || []).slice());
+        var arr = this._mianDaos() || this.autoArrangeLocal((nm.bbMyCards || []).slice());
         if (!arr) { this.showTip("牌数据异常，请重进"); return; }
         nm.bbMianConfirmed = true;
         cc.vv.net.send("bb_arrange", { front: arr[0].slice(), mid: arr[1].slice(), back: arr[2].slice() });
@@ -1260,19 +1257,22 @@ cc.Class({
         this.showTip("已确定，等待其他玩家…");
     },
 
-    // 弹窗: 下排是发到手的原始 6 张, 上排是排序后的最大牌型(大图)
+    // 弹窗: 下排按牌型结构排好的 6 张, 上排是排序后的最大牌型(大图)
     _fillConfirmCards: function () {
         var nm = cc.vv.gameNetMgr;
         var raw = (nm.bbMyCards || []);
         var mian = nm.bbMyMian;
         var top = (mian && mian.cards && mian.cards.length ? mian.cards : raw);
+        // 下排也按牌型结构排列(免摆牌型按免摆牌型排), 与上排一一对应, 点免摆时原地往上飞
+        var order = (mian && mian.cards && mian.cards.length ? top.slice() : raw.slice());
+        this._confirmOrder = order;
         for (var i = 0; i < 6; ++i) {
             var cn = this._confirmCards && this._confirmCards[i];
             if (cn) {
-                if (raw[i] != null) {
+                if (order[i] != null) {
                     cn.active = true;
                     var sp = cn.getComponent(cc.Sprite);
-                    if (sp) sp.spriteFrame = this.frameOf(raw[i]) || this._cardBack || null;
+                    if (sp) sp.spriteFrame = this.frameOf(order[i]) || this._cardBack || null;
                 } else cn.active = false;
             }
             var tn = this._confirmTopCards && this._confirmTopCards[i];
@@ -1295,7 +1295,8 @@ cc.Class({
         if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("sort.wav");   //免摆摆牌音效
         if (this._confirmAutoBtn) this._confirmAutoBtn.opacity = 120;
         var nm = cc.vv.gameNetMgr;
-        var raw = (nm.bbMyCards || []).slice();
+        // 下排已按牌型结构排好(_confirmOrder), 与上排顺序一致
+        var raw = (this._confirmOrder && this._confirmOrder.length ? this._confirmOrder.slice() : (nm.bbMyCards || []).slice());
         var mian = nm.bbMyMian;
         var top = (mian && mian.cards && mian.cards.length) ? mian.cards : raw;
         var used = {};   // 下排已被上移走的索引
@@ -1614,8 +1615,44 @@ cc.Class({
 
     // ===== 牌面渲染 =====
     // 免摆明牌按牌型排列: 同点牌成组(三条/对子在前), 其余按点数降序(顺子自然连续)
-    _mianOrder: function (cards) {
-        var cnt = {}, self = this;
+    // 3组9(level 2) 按三个9点分组(与服务端 mianOrder 一致): 7+2 / 6+3 / 6+3, 组间按组内最大点数降序
+    _mianOrder: function (cards, level) {
+        var self = this;
+        if (level == 2 && cards && cards.length == 6) {
+            var idx9 = [0, 1, 2, 3, 4, 5], pairs9 = [];
+            for (var a9 = 0; a9 < 6; ++a9) for (var b9 = a9 + 1; b9 < 6; ++b9) pairs9.push([a9, b9]);
+            var v9 = cards.map(function (c) { return self.dianVal(self.rankOf(c)); });
+            for (var i9 = 0; i9 < pairs9.length; ++i9) {
+                var p19 = pairs9[i9];
+                var rest9 = idx9.filter(function (x) { return x != p19[0] && x != p19[1]; });
+                for (var j9 = 0; j9 < rest9.length; ++j9) {
+                    for (var k9 = j9 + 1; k9 < rest9.length; ++k9) {
+                        var p29 = [rest9[j9], rest9[k9]];
+                        var p39 = rest9.filter(function (x) { return x != p29[0] && x != p29[1]; });
+                        if (v9[p19[0]] + v9[p19[1]] == 9 && v9[p29[0]] + v9[p29[1]] == 9 && v9[p39[0]] + v9[p39[1]] == 9) {
+                            var gs9 = [
+                                [cards[p19[0]], cards[p19[1]]],
+                                [cards[p29[0]], cards[p29[1]]],
+                                [cards[p39[0]], cards[p39[1]]]
+                            ];
+                            gs9.sort(function (g1, g2) {
+                                var m1 = Math.max(self.rankOf(g1[0]), self.rankOf(g1[1]));
+                                var m2 = Math.max(self.rankOf(g2[0]), self.rankOf(g2[1]));
+                                if (m1 != m2) return m2 - m1;
+                                return self.suitOf(g1[0]) - self.suitOf(g2[0]);
+                            });
+                            var out9 = [];
+                            gs9.forEach(function (g) {
+                                g.sort(function (x, y) { return self.rankOf(y) - self.rankOf(x) || self.suitOf(x) - self.suitOf(y); });
+                                out9 = out9.concat(g);
+                            });
+                            return out9;
+                        }
+                    }
+                }
+            }
+        }
+        var cnt = {};
         for (var i = 0; i < cards.length; ++i) {
             var r = self.rankOf(cards[i]);
             (cnt[r] = cnt[r] || []).push(cards[i]);
@@ -1676,7 +1713,15 @@ cc.Class({
             var summary = "";
 
             if (p) {
-                if (p.daos) {
+                if (p.mianFree && p.cards && p.cards.length == 6) {
+                    // 手摆场景里的免摆玩家: 按牌型结构亮牌(3组9 → 前/中/后各一组9点), 不用系统最优三道
+                    for (var md = 0; md < 3; ++md) {
+                        var mdc = [p.cards[md * 2], p.cards[md * 2 + 1]];
+                        faces = faces.concat(mdc);
+                        labels[md] = this.daoDescText(mdc[0], mdc[1]);
+                    }
+                    summary = p.typeName || "";
+                } else if (p.daos) {
                     for (var i = 0; i < p.daos.length; ++i) {
                         faces = faces.concat(p.daos[i].cards || []);
                         labels[i] = p.daos[i].desc;
@@ -1690,10 +1735,6 @@ cc.Class({
                         faces = faces.concat(p.groups[g] || []);
                     }
                     // 免摆亮牌后只显示牌型(二张点数只用于手摆的三道)
-                    summary = p.typeName || "";
-                } else if (p.mianFree && p.cards) {
-                    // 手摆场景里的免摆玩家: 整手6张最优排序亮出, 只显示牌型
-                    faces = (p.cards || []).slice();
                     summary = p.typeName || "";
                 }
                 // 逐道显示: 该道两张亮出后就显示该道牌型/点数; 牌型总名(含乌龙)仍等六张全亮
@@ -1814,6 +1855,34 @@ cc.Class({
         this._gameType = data ? data.gameType : nm.bbGameType;
         this._applyBbConf(data);   // 后台同点比较方式 tongdian_mode
         nm.bbMianFree = !!(data && data.mianFree);   // 手摆场景: 本局我是否免摆(非散牌)
+        // 上面已把 bbMyMian 清空, 这里必须先从本局推送补回来, 否则下面的重排永远不生效
+        if (data && data.myMian) nm.bbMyMian = data.myMian;
+        // 免摆牌型: 手牌自身也按免摆牌型结构排, 保证摆牌弹窗的上下两排与拖动时的下标一致
+        // 其它牌型也必须排序(成组的牌挨在一起, 再按点数降序), 不能直接按发牌顺序展示
+        var selfHand = this;
+        var myHand = (nm.bbMyCards || []).slice();
+        if (nm.bbMianFree && nm.bbMyMian && nm.bbMyMian.cards && nm.bbMyMian.cards.length == myHand.length) {
+            myHand = nm.bbMyMian.cards.slice();
+        } else if (myHand.length > 1) {
+            var handCnt = {};
+            for (var hci = 0; hci < myHand.length; ++hci) {
+                var hcr = selfHand.rankOf(myHand[hci]);
+                handCnt[hcr] = (handCnt[hcr] || 0) + 1;
+            }
+            var handTmp = [];
+            for (var hti = 0; hti < myHand.length; ++hti) {
+                var hidT = myHand[hti];
+                var hrt = selfHand.rankOf(hidT);
+                handTmp.push({ id: hidT, r: hrt, s: selfHand.suitOf(hidT), n: handCnt[hrt] || 1 });
+            }
+            handTmp.sort(function (a, b) {
+                if (a.n != b.n) return b.n - a.n;   // 成组(对子/三条)的排前面
+                if (a.r != b.r) return b.r - a.r;   // 再按点数从大到小
+                return a.s - b.s;                   // 同点数按花色
+            });
+            myHand = handTmp.map(function (x) { return x.id; });
+        }
+        nm.bbMyCards = myHand;
         nm.bbMianConfirmed = false;   // 免摆确认按钮: 每局重置
         this._mySeat = (data && data.mySeat != null) ? data.mySeat : (nm.bbMySeat >= 0 ? nm.bbMySeat : 0);
         // 重连补发(bb_resend_push)会带已摆好的三道
@@ -2191,10 +2260,10 @@ cc.Class({
             self._revealDone = true;
             self.showTip("");
             console.log("[BB] 亮牌结束");
-            // 免摆: 有同花顺/炸弹先播牌型特效, 全部播完才弹结算弹窗
+            // 牌型专属特效已全部去掉: 打枪/全垒打只在亮牌结束后由 _playDaqiangFx 统一播放
             var afterFx = function () {
                 if (!cc.isValid(self.node)) return;
-                // 亮牌(含打枪/牌型特效)结束后短暂停留, 然后跳结算弹窗
+                // 亮牌(含打枪/全垒打)结束后短暂停留, 然后跳结算弹窗
                 self._fxRunning = true;   // 这段时间内到达的结算继续缓存
                 self.scheduleOnce(function () {
                     if (!cc.isValid(self.node)) return;
@@ -2210,8 +2279,7 @@ cc.Class({
                     }
                 }, 0.25);
             };
-            try { self._playHandFx(afterFx); }
-            catch (e) { console.log("[BB] 牌型特效异常:", e && e.message); self._fxRunning = false; self._clearFxNodes(); afterFx(); }
+            afterFx();
         }
         // 亮牌顺序: 道优先轮转 —— 每轮所有玩家各亮一道(2张), 全部亮完这道再亮下一道; 每轮内庄家先亮
         var total = this._total || 2;
@@ -2332,9 +2400,9 @@ cc.Class({
         step();
     },
     // 全垒打: qldAnimat 19帧@60ms 播屏幕中心
-    _fxQuanleida: function () {
+    _fxQuanleida: function (done) {
         var frames = this._qldFrames;
-        if (!frames || !frames.length) return;
+        if (!frames || !frames.length) { if (done) done(); return; }
         var center = this._tableCenter();
         var node = this._fxNode(center, "bbFxQld");
         var sp = node.addComponent(cc.Sprite);
@@ -2342,8 +2410,8 @@ cc.Class({
         node.setScale(1.5);
         var idx = 0, cnt = frames.length;
         var timer = setInterval(function () {
-            if (!cc.isValid(node)) { clearInterval(timer); return; }
-            if (++idx >= cnt) { clearInterval(timer); node.destroy(); return; }
+            if (!cc.isValid(node)) { clearInterval(timer); if (done) done(); return; }
+            if (++idx >= cnt) { clearInterval(timer); node.destroy(); if (done) done(); return; }
             sp.spriteFrame = frames[idx];
         }, 60);
     },
@@ -2413,6 +2481,15 @@ cc.Class({
         }
     },
 
+    // 免摆牌型的三道: 直接按服务端 mianOrder 的牌型结构切(如 3组9 = 72/63/63),
+    // 不能用 autoArrangeLocal 的系统最优三道(会摆成 66/33/72)
+    _mianDaos: function () {
+        var nm = cc.vv.gameNetMgr;
+        var mo = nm && nm.bbMianFree && nm.bbMyMian && nm.bbMyMian.cards;
+        if (!mo || mo.length != 6) return null;
+        return [[mo[0], mo[1]], [mo[2], mo[3]], [mo[4], mo[5]]];
+    },
+
     // ===== 手摆: 摆牌交互 =====
     showArrangeUI: function (remain) {
         this._arranging = true;
@@ -2425,8 +2502,13 @@ cc.Class({
             var empty = true;
             for (var mi = 0; mi < 3; ++mi) { if (this._daoSel[mi] && (this._daoSel[mi][0] != null || this._daoSel[mi][1] != null)) { empty = false; break; } }
             if (empty) {
-                var pre = this.autoArrangeLocal((nm.bbMyCards || []).slice());
-                if (pre) this._daoSel = [pre[0].slice(), pre[1].slice(), pre[2].slice()];
+                // 免摆牌型: 前/中/后 直接按免摆牌型的结构切(与服务端 mianOrder 一致), 不再用最优三道
+                var md = this._mianDaos();
+                if (md) this._daoSel = [md[0].slice(), md[1].slice(), md[2].slice()];
+                else {
+                    var pre = this.autoArrangeLocal((nm.bbMyCards || []).slice());
+                    if (pre) this._daoSel = [pre[0].slice(), pre[1].slice(), pre[2].slice()];
+                }
             }
         }
         if (this._n.bbMidCd) this._setMidCd(false);
@@ -2444,7 +2526,7 @@ cc.Class({
         this.renderCards();
         this._setSeatCardsVisible(false);   // 摆牌时牌桌上的牌全部收起, 只弹窗里显示
         if (nm.bbMianFree && nm.bbMyMian) {
-            this.showTip("免摆牌型：" + nm.bbMyMian.typeName + " ×" + (nm.bbMyMian.rate || 1) + "，已预填最优摆法，可调整或确定");
+            this.showTip("免摆牌型：" + nm.bbMyMian.typeName + " ×" + (nm.bbMyMian.rate || 1) + "，已按牌型预填，可调整或确定");
         } else {
             this.showTip("请摆牌：拖手牌到前/中/后道位，道内牌可再拖动换位，点道内牌退回");
         }
@@ -2819,7 +2901,9 @@ cc.Class({
         }
         // 弹窗内 6 张手牌: 全部亮牌面, 已入道的置灰不可再拖
         if (this._arrangeHandSlots) {
-            var myCards = cc.vv.gameNetMgr.bbMyCards || [];
+            var arrangeNm = cc.vv.gameNetMgr;
+            // 开局时已按显示顺序排好(免摆按牌型结构, 其它按成组优先+点数降序), 这里直接用
+            var myCards = arrangeNm.bbMyCards || [];
             for (var h = 0; h < this._arrangeHandSlots.length; ++h) {
                 var hn = this._arrangeHandSlots[h];
                 if (!hn) continue;
@@ -2859,7 +2943,8 @@ cc.Class({
             return;
         }
         // 摆法违反 前>=中>=后: 首次点击仅警告, 再点一次才确认提交(提交后判乌龙三道全输)
-        if (!this._daoOrderOkLocal() && !this._wulongWarned) {
+        // 免摆牌型的摆法由服务端按牌型统一结算, 不走乌龙判定, 这里也不提示
+        if (!this._daoOrderOkLocal() && !this._wulongWarned && !(cc.vv.gameNetMgr && cc.vv.gameNetMgr.bbMianFree)) {
             this._wulongWarned = true;
             this.showTip("摆法违反前≥中≥后, 将判乌龙全输! 再点一次确定提交");
             return;
@@ -2905,7 +2990,7 @@ cc.Class({
     onAutoArrange: function () {
         if (!this._arranging) return;
         var nm = cc.vv.gameNetMgr;
-        var best = this.autoArrangeLocal(nm.bbMyCards || []);
+        var best = this._mianDaos() || this.autoArrangeLocal(nm.bbMyCards || []);
         if (best) { this._daoSel = best; this._wulongWarned = false; this.renderCards(); }
         else this.showTip("自动摆牌失败，请手动摆牌");
     },
@@ -3478,7 +3563,7 @@ cc.Class({
                 if (r.wulong) desc = "乌龙 " + desc;
             } else {
                 // 免摆(含手摆房里自动免摆的非散牌): 六张按牌型排列(同点成组在前), 显示整手牌型
-                ids = self._mianOrder(r.holds || []);
+                ids = self._mianOrder(r.holds || [], r.typeKey);
                 var tn = r.typeName || "";
                 // 散牌额外列出构成(一对/单张), 如 散牌(一对Q 单A 单K 单7)
                 var parts = (r.typeKey == 1 || tn == "散牌") ? self._mianParts(r.holds) : "";
@@ -3807,225 +3892,6 @@ cc.Class({
         if (!this._fxNodes) this._fxNodes = [];
         this._fxNodes.push(node);
         return node;
-    },
-
-    // 亮牌结束后的牌型特效队列
-    _playHandFx: function (done) {
-        var self = this;
-        var total = this._total || 2;
-        var lv = {}, queue = [];
-        // level → anim_key 映射
-        var ANIM_KEY = { 13: "anim_sf6", 12: "anim_sf5", 11: "anim_4p", 10: "anim_4", 9: "anim_33", 8: "anim_3p1", 7: "anim_f6", 6: "anim_s6", 5: "anim_f5", 4: "anim_s5", 3: "anim_p3", 2: "anim_n9" };
-        // 后台值 → 特效: 1=喷火fire  2=爆炸bomb  (客户端只有这两种burst特效)
-        var ANIM_TO_KIND = { 1: "fire", 2: "bomb" };
-        for (var off = 0; off < total; ++off) {
-            var gs = this._watching ? off : (this._mySeat + off) % total;
-            var p = this._revealByGs[gs];
-            lv[off] = p && p.typeKey != null ? p.typeKey : null;
-            if (lv[off] == null) continue;
-            // 后台 anim 值: 0=关 1=动画1(fire) 2=动画2(bomb)
-            var animVal = this._animOn(ANIM_KEY[lv[off]], true);
-            if (!animVal) continue;
-            var fk = ANIM_TO_KIND[animVal] || null;
-            if (fk) {
-                // 先手牌聚焦(1.9s): 把6张牌移到中心放大 + 显示牌型名图片抖动
-                queue.push({ kind: "hand", off: off, type: fk });
-                // 再 burst 特效
-                queue.push({ kind: fk, off: off });
-            }
-        }
-        if (queue.length == 0) { if (done) done(); return; }
-        this._fxRunning = true;
-        var i = 0, guard = 0;
-        function next() {
-            if (!cc.isValid(self.node) || i >= queue.length) {
-                self._fxRunning = false;
-                self._clearFxNodes();
-                if (done) done();
-                return;
-            }
-            guard = ++guard;   // 每一步的看门狗令牌
-            var it = queue[i++];
-            var token = guard;
-            // 兜底: 单步动画若因节点被隐藏/动作暂停而没回调, 6秒后强制进入下一步, 保证结算弹窗一定会弹出
-            setTimeout(function () {
-                if (!cc.isValid(self.node) || token !== guard) return;
-                console.log("[BB] 特效步骤超时强制结束 step=" + token);
-                next();
-            }, 6000);
-            if (it.kind == "hand") self._fxHandFocus(it.off, it.type, next);
-            else if (it.kind == "fire") self._fxFire(next);
-            else if (it.kind == "bomb") self._fxBomb(next);
-            else self._fxPairsFx(it.kind, next);
-        }
-        next();
-    },
-
-    // 手牌聚焦动画: 把某家 6 张手牌移到屏幕中心放大, 中心显示牌型名图片(从0放大+抖动1秒), 之后手牌归位
-    _fxHandFocus: function (off, type, done) {
-        var self = this;
-        var total = this._total || 2;
-        var gs = this._watching ? off : (this._mySeat + off) % total;
-        var seat = this._seatNodes[this._layoutOf(total)[off]];
-        if (!seat || !seat.slots) { if (done) done(); return; }
-
-        var center = this._tableCenter();
-        var slots = [];
-        for (var k = 0; k < 6; ++k) {
-            if (seat.slots[k] && seat.slots[k].active) slots.push(seat.slots[k]);
-        }
-        if (slots.length == 0) { if (done) done(); return; }
-
-        // 牌型名称图片(同花顺/炸/3对/3组9), 透明背景; 启动已预载, 直接 get
-        var NAME_KEYS = { fire: "flush", bomb: "bomb", pairs: "pairs3", nine: "nine" };
-        var frame = cc.resources.get("images/bbHandName_" + (NAME_KEYS[type] || "flush"), cc.SpriteFrame);
-        var nameNode = null;
-        if (frame) {
-            nameNode = new cc.Node("bbFxHandName");
-            nameNode.parent = this.node;
-            nameNode.setPosition(center.x, center.y + 200);
-            nameNode.setSiblingIndex(this.node.children.length - 1);
-            var sp = nameNode.addComponent(cc.Sprite);
-            sp.spriteFrame = frame;
-            sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-            // 按屏幕宽度等比缩放, 避免大图超出屏幕
-            var fw = frame.getOriginalSize().width, fh = frame.getOriginalSize().height;
-            var k = Math.min((cc.winSize.width * 0.62) / fw, 360 / fh, 1);
-            nameNode.setContentSize(fw * k, fh * k);
-            nameNode.setScale(0);
-            this._fxNodes.push(nameNode);
-        }
-
-        var spacing = 56;
-        var startX = -((slots.length - 1) * spacing) / 2;
-        var targetScale = 1.9;
-        // center 是 this.node 空间坐标, 牌的父节点是各自座位节点, 必须逐张转换到牌的父节点空间,
-        // 否则侧边座位的牌会朝座位外侧(如最左侧朝屏幕左外)移动放大
-        var centerW = this.node.convertToWorldSpaceAR(center);
-
-        for (var j = 0; j < slots.length; ++j) {
-            var sl = slots[j];
-            var h = this._homeOf(sl);
-            var cl = sl.parent.convertToNodeSpaceAR(centerW);
-            sl.stopAllActions();
-            sl.setSiblingIndex(sl.parent.children.length - 1);
-            sl.runAction(cc.sequence(
-                cc.spawn(
-                    cc.moveTo(0.4, cc.v2(cl.x + startX + j * spacing, cl.y)),
-                    cc.scaleTo(0.4, targetScale)
-                ),
-                // 抖动 1 秒(5 轮, 每轮 0.2s, 净位移为0)
-                cc.repeat(cc.sequence(
-                    cc.moveBy(0.05, cc.v2(-3, 2)),
-                    cc.moveBy(0.05, cc.v2(3, -2)),
-                    cc.moveBy(0.05, cc.v2(2, -3)),
-                    cc.moveBy(0.05, cc.v2(-2, 3))
-                ), 5),
-                cc.spawn(
-                    cc.moveTo(0.4, cc.v2(h.x, h.y)),
-                    cc.scaleTo(0.4, h.sx, h.sy)
-                )
-            ));
-        }
-        // 牌型名图片: 从0放大 -> 抖动1秒 -> 淡出销毁
-        if (nameNode) {
-            nameNode.runAction(cc.sequence(
-                cc.scaleTo(0.5, 1.0),
-                cc.repeat(cc.sequence(
-                    cc.moveBy(0.05, cc.v2(-3, 2)),
-                    cc.moveBy(0.05, cc.v2(3, -2)),
-                    cc.moveBy(0.05, cc.v2(2, -3)),
-                    cc.moveBy(0.05, cc.v2(-2, 3))
-                ), 25),
-                cc.fadeOut(0.3),
-                cc.removeSelf()
-            ));
-        }
-        // 总时长: 0.4 手牌放大 + 1.0 抖动 + 0.4 手牌归位 = 1.8s; 图片 0.5放大+1.0抖+0.3淡出=1.8s
-        this.scheduleOnce(function () {
-            if (cc.isValid(self.node) && done) done();
-        }, 1.9);
-    },
-
-    // 同花顺喷火: 逆向 dqAnimat 12帧@50ms, 播屏幕中心
-    _fxFire: function (done) { this._fxBurst("fire", 1.6, done); },
-    // 4条炸弹: 逆向 dqAnimat 12帧@50ms, 播屏幕中心
-    _fxBomb: function (done) { this._fxBurst("bomb", 1.2, done); },
-    _fxBurst: function (kind, scale, done) {
-        var frames = this._dqFrames;
-        if (!frames || !frames.length) { if (done) done(); return; }
-        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(BB_FX_SFX[kind]);
-        var center = this._tableCenter();
-        var node = this._fxNode(center, "bbFx" + kind);
-        var sp = node.addComponent(cc.Sprite);
-        sp.spriteFrame = frames[0];
-        node.setScale(scale);
-        var idx = 0, total = frames.length;
-        var timer = setInterval(function () {
-            if (!cc.isValid(node)) { clearInterval(timer); return; }
-            if (++idx >= total) {
-                clearInterval(timer);
-                node.destroy();
-                if (done) done();
-                return;
-            }
-            sp.spriteFrame = frames[idx];
-        }, 50);
-    },
-
-    // 3对 / 3组9 牌型特效: 玩具枪喷彩虹+爆炸帧动画(美术视频抠掉底色导出, 24fps)
-    _fxPairsFx: function (kind, done) {
-        var frames = this._pairsFrames;
-        // 帧图未导入时退回场景动画(场景里有 bbFxPairs3/bbFxNine 才有效果)
-        if (!frames || !frames.length) { this._fxSceneAnim(kind, done); return; }
-        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(BB_FX_SFX[kind]);
-        var center = this._tableCenter();
-        var node = this._fxNode(center, "bbFxPairsNine");
-        var sp = node.addComponent(cc.Sprite);
-        sp.spriteFrame = frames[0];
-        sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-        var fw = frames[0].getOriginalSize().width, fh = frames[0].getOriginalSize().height;
-        node.setContentSize(fw, fh);
-        node.setScale(Math.min(cc.winSize.width / fw, cc.winSize.height / fh));
-        var idx = 0, total = frames.length, FPS = 24;
-        var timer = setInterval(function () {
-            if (!cc.isValid(node)) { clearInterval(timer); return; }
-            if (++idx >= total) {
-                clearInterval(timer);
-                node.destroy();
-                if (done) done();
-                return;
-            }
-            sp.spriteFrame = frames[idx];
-        }, 1000 / FPS);
-    },
-
-    // 3对 / 3组9 的场景动画: 直接播场景里预制好的节点动画(bbFxPairs3 / bbFxNine),
-    // 节点由美术生成后在场景里放好即可生效; 节点不存在时直接跳过, 不阻塞结算流程
-    _fxSceneAnim: function (kind, done) {
-        var self = this;
-        var NAMES = { pairs: "bbFxPairs3", nine: "bbFxNine" };
-        // 3对/3组9 特效音效(与是否放了场景动画节点无关, 声音照常播)
-        var sfx = BB_FX_SFX[kind];
-        if (sfx && cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(sfx);
-        var node = this.findNode(this.node, NAMES[kind]);
-        if (!node) { if (done) done(); return; }
-        node.active = true;
-        if (node.parent) node.setSiblingIndex(node.parent.children.length - 1);
-        var anim = node.getComponent(cc.Animation);
-        var dur = 1.0;
-        if (anim) {
-            try { anim.play(); } catch (e) { console.warn("[BB] 牌型动画播放异常", e); }
-            if (anim.defaultClip && anim.defaultClip.duration > 0) dur = anim.defaultClip.duration;
-        }
-        var finished = false;
-        this.scheduleOnce(function () {
-            if (finished) return;
-            finished = true;
-            if (!cc.isValid(self.node)) return;
-            if (cc.isValid(node)) node.active = false;
-            if (done) done();
-        }, dur + 0.1);
     },
 
     // 某家点了确定/洗牌: 只更新提示, 不关闭其他人的弹窗

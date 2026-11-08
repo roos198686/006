@@ -21,13 +21,15 @@ cc.Class({
         }
         //场景加载瞬间树必定完整:立刻缓存牌桌卡片模板,之后任何容器清空/查找失败都不影响
         this._clubTpl = this._clubFind(canvas, "sampleCard0");
+        this._clubTpl2 = this._clubFind(canvas, "sampleCard2"); //2人桌专用小桌子模板(可选,没有则沿用sampleCard0)
         //编辑器里查看弹窗时可能忘了勾回隐藏:进场景统一强制隐藏,避免常驻遮挡
-        ["admin","zhanjiWin","recordWin","memLogWin","alert"].forEach(function(n){
+        ["zhanjiWin","recordWin","memLogWin","alert"].forEach(function(n){
             var w = canvas.getChildByName(n);
             if(w){ w.active = false; }
         });
         var clubPage = canvas.getChildByName("clubPage");
         var wfPage = canvas.getChildByName("wfPage");
+        console.log("[club] onLoad fromClubId=", cc.vv.fromClubId, "fromClub=", cc.vv.fromClub);
         if(cc.vv.fromClubId){
             //从牌桌退出/结算返回:直接进入该俱乐部的独立玩法详情页(原玩法页面),
             //中途不显示俱乐部列表,避免"先闪一下列表再切详情"的页面跳动
@@ -36,7 +38,7 @@ cc.Class({
             this._clubBackToDetail(cc.vv.fromClubId);
         }
         else{
-            //先拉我的俱乐部列表:未加入任何俱乐部→显示clubPage(列表页);已加入→直接进第一个俱乐部的wfPage(玩法详情页)
+            //固定先显示clubPage(俱乐部列表页),点击列表中的俱乐部才进wfPage
             if(clubPage){ clubPage.active = false; }
             if(wfPage){ wfPage.active = false; }
             this._clubAutoEnter();
@@ -51,6 +53,24 @@ cc.Class({
             if(cc.vv.wc && cc.vv.wc.showAlert){ cc.vv.wc.showAlert(msg, "提示"); }
             else if(cc.vv.wc && cc.vv.wc.showError){ cc.vv.wc.showError(msg); }
         }, 0.3);
+    },
+
+    //文字超宽截断:CLAMP对动态克隆的Label不生效,改为手动逐字截断(以节点当前宽度为准)
+    _clubClampLabel:function(lbl,str){
+        if(!lbl){ return; }
+        var maxW = lbl.node.width;
+        lbl.overflow = cc.Label.Overflow.NONE; //自由排版才能测出真实文字宽度
+        lbl.string = str || "";
+        if(!(maxW > 0)){ return; } //节点未设宽度时不截断
+        if(lbl._forceUpdateRenderData){ lbl._forceUpdateRenderData(); }
+        if(lbl.node.width <= maxW){ return; }
+        var s = lbl.string;
+        while(s.length > 1){
+            s = s.slice(0,-1);
+            lbl.string = s;
+            if(lbl._forceUpdateRenderData){ lbl._forceUpdateRenderData(); }
+            if(lbl.node.width <= maxW){ break; }
+        }
     },
 
     //画矩形背景(通用,只使用Cocos 2.4存在的Graphics.rect API)
@@ -146,32 +166,12 @@ cc.Class({
         bindOne(panel.getChildByName("clubJoinWin"),true);
     },
 
-    //宽屏下把弹窗暗色遮罩拉伸到实际可见区(原生遮罩只有1280x720)
+    //弹窗遮罩尺寸/位置由场景编辑器控制,JS不再调整(保留空函数避免调用处报错)
     _clubStretchPopupDim:function(win){
-        if(!win){ return; }
-        var dim = win.getChildByName("New Layout");
-        if(dim){
-            var vs = cc.view.getVisibleSize();
-            dim.setContentSize(vs.width, vs.height);
-            dim.setPosition(0, 0);
-        }
     },
 
-    //按当前可见区布局俱乐部页面(构建与打开时调用,适配窗口尺寸)
+    //页面/背景/遮罩几何全部由场景编辑器与Widget控制,JS不写任何尺寸位置(保留空函数避免调用处报错)
     _clubLayoutPage:function(){
-        var page = this._clubPanel;
-        if(!page){ return; }
-        var vs = cc.view.getVisibleSize();
-        var vo = cc.view.getVisibleOrigin();
-        page.setContentSize(vs.width, vs.height);
-        page.setPosition(page.parent.convertToNodeSpaceAR(cc.v2(vo.x + vs.width/2, vo.y + vs.height/2)));
-        if(this._clubPageBg){
-            this._clubPageBg.setContentSize(vs.width, vs.height);
-            this._clubPageBg.setPosition(0,0);
-        }
-        if(this._clubMask){ this._clubMask.setContentSize(vs.width, vs.height); }
-        //按钮位置已在场景编辑器中排好,代码不再强制重排,仅保留背景/遮罩的全屏拉伸
-        //listArea列表区同样使用场景里排好的节点与尺寸,代码不再强制调整
     },
 
     //顶部三按钮贴图已固化在场景文件中,JS不再切换贴图(保留空函数避免调用处报错)
@@ -450,31 +450,23 @@ cc.Class({
         }
     },
 
-    //进场景自动选页:未加入任何俱乐部→clubPage(列表页);已加入→直接进第一个俱乐部的wfPage(玩法详情页)
+    //进场景固定先显示clubPage(俱乐部列表页),点击列表中的俱乐部才进入wfPage(玩法详情页)
     _clubAutoEnter:function(){
         var self = this;
+        var cp = cc.find("Canvas/clubPage");
+        if(cp){ cp.active = true; }
+        this.openClubPanel(); //内部已展开"我的俱乐部"并渲染列表
         cc.vv.http.sendRequest("/club_list",{
             account:cc.vv.userMgr.account,
             sign:cc.vv.userMgr.sign
         },function(ret){
             if(!cc.isValid(self.node)){ return; }
-            if(ret.errcode !== 0){
-                //拉取失败兜底:回俱乐部列表页
-                var cp = cc.find("Canvas/clubPage");
-                if(cp){ cp.active = true; }
-                self.openClubPanel();
-                return;
-            }
-            var clubs = ret.clubs || [];
-            self._myClubs = clubs;
-            if(clubs.length === 0){
-                //没有加入任何俱乐部:显示俱乐部列表页
-                var cp2 = cc.find("Canvas/clubPage");
-                if(cp2){ cp2.active = true; }
-                self.openClubPanel();
-            } else {
-                //已加入俱乐部:直接进第一个俱乐部的玩法详情页
-                self._wfOpenDetail(clubs[0]);
+            if(ret.errcode === 0){
+                self._myClubs = ret.clubs || [];
+                if(self._clubState === "mine"){
+                    self._clubSetTop();
+                    self._clubRenderMine();
+                }
             }
         });
     },
@@ -540,18 +532,36 @@ cc.Class({
             }
         }
         if(clubs.length == 0){ return; }
-        var ROW_H = rowTpl ? rowTpl.height : 68;
-        var ROW_GAP = ROW_H + 5;
-        var topY = content.height/2 - ROW_H/2;
+        // 横向排列: content 上有 cc.Layout 时由组件排版; 没有时(场景被编辑器覆盖)按行宽均分居中兜底
+        var useLayout = !!content.getComponent(cc.Layout);
+        var cellW = (rowTpl ? rowTpl.width : 360) + 20;
         clubs.forEach(function(c,i){
             var row = rowTpl ? cc.instantiate(rowTpl) : new cc.Node("row"+i);
             row.active = true;
-            row.setPosition(0, topY - i * ROW_GAP);
             content.addChild(row);
+            if(!useLayout){
+                row.x = (i - (clubs.length - 1) / 2) * cellW;
+                row.y = 0;
+            }
             var nameLbl = row.getChildByName("name");
-            if(nameLbl){ var nl = nameLbl.getComponent(cc.Label); if(nl){ nl.string = c.name || ""; } }
+            if(nameLbl){ var nl = nameLbl.getComponent(cc.Label); if(nl){ self._clubClampLabel(nl, c.name || ""); } }
             var subLbl = row.getChildByName("sub");
-            if(subLbl){ var sl = subLbl.getComponent(cc.Label); if(sl){ sl.string = (c.member_count || 0) + "人"; } }
+            if(subLbl){ var sl = subLbl.getComponent(cc.Label); if(sl){ self._clubClampLabel(sl, (c.member_count || 0) + "人"); } }
+            //社长昵称/社长ID/我的角色(rowTpl下新增节点,超出节点宽度截断隐藏)
+            var myId = cc.vv.userMgr ? cc.vv.userMgr.userId : 0;
+            var unLbl = row.getChildByName("username-a");
+            if(unLbl){ var ul = unLbl.getComponent(cc.Label); if(ul){ self._clubClampLabel(ul, c.owner_name || ""); } }
+            var uiLbl = row.getChildByName("userid-a");
+            if(uiLbl){ var il = uiLbl.getComponent(cc.Label); if(il){ self._clubClampLabel(il, c.owner_userid ? String(c.owner_userid) : ""); } }
+            var jsLbl = row.getChildByName("js-a");
+            if(jsLbl){
+                var jl = jsLbl.getComponent(cc.Label);
+                if(jl){
+                    // 角色文字直接写, 不走截断(节点宽 60 会把"合伙人"截成"合伙")
+                    jl.overflow = cc.Label.Overflow.NONE;
+                    jl.string = (c.owner_userid == myId) ? "合伙人" : "普通用户";
+                }
+            }
             row.on(cc.Node.EventType.TOUCH_END,function(){
                 if(self._clubScrollMoved){ self._clubScrollMoved = false; return; }
                 self._wfOpenDetail(c);
@@ -678,6 +688,12 @@ cc.Class({
             //静态背景节点引用,尺寸由场景Widget控制
             this._clubDetailBgNode = bakedPage.getChildByName("detailBgImg");
             this._clubDetailFullBg = bakedPage.getChildByName("detailFullBg");
+            //顶部俱乐部名称(节点固化在wfPage下,JS只填文字,超宽截断)
+            var nameLbl = this._clubFind(bakedPage, "nameLabel");
+            if(nameLbl){
+                var nl = nameLbl.getComponent(cc.Label);
+                if(nl){ this._clubClampLabel(nl, club.name || ""); }
+            }
             this._clubOpenDetail(club); //复用原详情渲染(左玩法右牌桌),全部画到独立页上
             this._wfBindAddTable(club); //左下角添加牌桌按钮+弹窗(场景固化节点,只绑事件)
             return;
@@ -696,14 +712,12 @@ cc.Class({
     //仅关闭独立玩法详情页并恢复俱乐部页引用(不打开俱乐部页)
     _wfClose:function(){
         this._clubStopTableWatch();
-        this._admHideWins();
         //离开详情页时收起战绩/乐豆弹窗,避免回到大厅后残留
         var canvas = cc.find("Canvas");
         if(canvas){
             var zw = canvas.getChildByName("zhanjiWin"); if(zw){ zw.active = false; }
             var rw = canvas.getChildByName("recordWin"); if(rw){ rw.active = false; }
         }
-        if(this._admPanel && cc.isValid(this._admPanel)){ this._admPanel.active = false; }
         var saved = this._wfSaved;
         if(this._wfPanel && cc.isValid(this._wfPanel)){
             if(this._wfBaked){ this._wfPanel.active = false; } //固化场景节点只隐藏不销毁
@@ -853,6 +867,8 @@ cc.Class({
     _wfPopupClearRows:function(list,tpl){
         if(!list){ return; }
         var content = list.getChildByName("content") || list; //行容器:场景固化content,否则是兜底包装后的list自身
+        //场景里 content 默认是隐藏的(只当模板容器), 行克隆到隐藏节点下永远看不到, 这里必须打开
+        if(!content.active){ content.active = true; }
         var cs = content.children.slice();
         for(var i = 0; i < cs.length; ++i){
             if(cs[i] !== tpl){ cs[i].removeFromParent(); cs[i].destroy(); }
@@ -989,7 +1005,7 @@ cc.Class({
                     var gm = games[g];
                     var row = self._wfPopupAddRow(ls.list,ls.tpl,idx,[
                         idx + 1,
-                        self._wfGameName(rm.type),
+                        rm.table_name || self._wfGameName(rm.type),
                         "-",
                         self._wfPopupTime(gm.create_time),
                         "-",
@@ -1062,7 +1078,7 @@ cc.Class({
                 var row = self._wfPopupAddRow(ls.list,ls.tpl,i,[
                     self._wfPopupTime(lg.create_time),
                     lg.roomid || "-",
-                    self._wfGameName(lg.game_type),
+                    lg.table_name || self._wfGameName(lg.game_type),
                     lg.change_type || "-",
                     (amt > 0 ? "+" + amt : String(amt)),
                     "-"
@@ -1075,844 +1091,17 @@ cc.Class({
         });
     },
 
-    //管理面板内节点查找:先按层级找,找不到再在admin子树里递归兜底(编辑器里拖到别的位置也不会失效)
-    _admNode:function(name){
-        var adm = this._admPanel;
-        if(!adm){ return null; }
-        var all = adm.getChildByName("AllLayout");
-        var n = all ? all.getChildByName(name) : null;
-        if(n){ return n; }
-        n = adm.getChildByName(name);
-        return n || this._clubFind(adm, name);
-    },
-
     //打开管理面板(admin):按钮/弹窗全部是场景节点,JS只绑事件、填文字
     _admOpen:function(){
-        var self = this;
-        var canvas = cc.find("Canvas");
-        var adm = canvas ? canvas.getChildByName("admin") : null;
-        if(!adm){ cc.vv.wc.showError("管理面板缺失"); return; }
-        this._admPanel = adm;
-        //管理面板盖住全屏时,把提示层(等待转圈/错误提示/alert弹窗)提到最上层,保证"正在…/提示"可见
-        var wcNode = canvas.getChildByName("WaitingConnection");
-        if(wcNode){ wcNode.setSiblingIndex(canvas.children.length - 1); }
-        var alertNode = canvas.getChildByName("alert");
-        if(alertNode){ alertNode.setSiblingIndex(canvas.children.length - 1); }
-        //全屏触摸遮罩(场景节点):吞掉触摸,防止点穿到下层;尺寸跟随可见区
-        var mask = self._admNode("mask");
-        if(mask){
-            var mvs = cc.view.getVisibleSize();
-            mask.setContentSize(mvs.width, mvs.height);
-            mask.setPosition(0,0);
-            if(!mask._admBound){
-                mask._admBound = true;
-                mask.on(cc.Node.EventType.TOUCH_START,function(){});
-            }
+        // 把当前俱乐部ID带给管理场景(管理场景是独立加载的, 拿不到本场景的实例数据)
+        var cid = this._clubCur ? parseInt(this._clubCur.id) : 0;
+        if(!(cid > 0)){ cid = parseInt(cc.vv.fromClubId) || 0; }
+        if(cid > 0){
+            cc.vv.adminClubId = cid;
+            cc.sys.localStorage.setItem("admin_club_id", cid);
         }
-        adm.active = true;
-        //左上角俱乐部名称/ID(场景固化标签 JLBname/JLBid 下的 -a 子节点)
-        var setAdmLbl = function(nn, cn, t){
-            var n = self._admNode(nn);
-            var c = n ? n.getChildByName(cn) : null;
-            var l = c ? c.getComponent(cc.Label) : null;
-            console.log("[adm]fill", nn, "clubCur=" + !!self._clubCur, "node=" + !!n, "child=" + !!c, "label=" + !!l, "value=" + t);
-            if(l){ l.string = String(t); }
-        };
-        if(self._clubCur){
-            setAdmLbl("JLBname", "JLBname-a", self._clubCur.name || "");
-            setAdmLbl("JLBid", "JLBid-a", self._clubCur.id);
-        }
-        //每次打开默认显示成员管理页
-        self._admShowPage("member");
-        if(adm._admBound){ return; }
-        adm._admBound = true;
-        //左侧菜单:切换右侧分页(成员管理/牌桌管理/豆豆管理/子俱乐部)
-        var btnTable = self._admNode("btnAddTable"); //牌桌管理
-        var btnMember = self._admNode("adminuser") || self._admNode("addTablePz"); //成员管理(场景节点名adminuser)
-        var btnBean = self._admNode("btnBean"); //豆豆管理
-        var btnClose = self._admNode("btnAdmClose"); //关闭
-        if(btnTable){ btnTable.active = true; btnTable.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("table"); }); }
-        if(btnMember){ btnMember.active = true; btnMember.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("member"); }); }
-        if(btnBean){ btnBean.active = true; btnBean.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("bean"); }); }
-        if(btnClose){ btnClose.active = true; btnClose.on(cc.Node.EventType.TOUCH_END,function(){ self._admClose(); }); }
-        //分页右上侧操作按钮(场景固化节点)
-        var rop = self._admNode("ropSprite");
-        var pageOf = function(pn){ return rop ? rop.getChildByName(pn) : null; };
-        var mPage = pageOf("memberPage");
-        if(mPage){
-            var b1 = mPage.getChildByName("btnAddMember");
-            if(b1){ b1.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenPull(); }); }
-            var b2 = mPage.getChildByName("btnSearch");
-            if(b2){ b2.on(cc.Node.EventType.TOUCH_END,function(){ self._admRenderMembers(); }); }
-            //搜索框强制明文(场景保存可能把 inputFlag 覆盖回0=密码,这里运行时兜底)
-            var si = mPage.getChildByName("searchInput");
-            var seb = si ? si.getComponent(cc.EditBox) : null;
-            if(seb){ seb.inputFlag = 3; }
-        }
-        var tPage = pageOf("tablePage");
-        if(tPage){
-            var b3 = tPage.getChildByName("btnAddTable2");
-            if(b3){ b3.on(cc.Node.EventType.TOUCH_END,function(){ self._wfOpenAddTable(); }); }
-        }
-        var bPage = pageOf("beanPage");
-        if(bPage){
-            var b4 = bPage.getChildByName("btnBean2");
-            if(b4){ b4.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenBean(); }); }
-        }
-        var sPage = pageOf("subPage");
-        if(sPage){
-            var b5 = sPage.getChildByName("btnSubAdd");
-            if(b5){ b5.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenNewClub(); }); }
-        }
-        //添加牌桌弹窗
-        var addWin = self._admNode("addTableWin");
-        this._admAddWin = addWin;
-        if(addWin){ self._admBindOkCancel(addWin,function(){ self._wfSubmitAddTable(); },function(){ self._wfCloseAddTable(); }); }
-        //添加成员弹窗
-        var memberWin = self._admNode("admMemberWin");
-        this._admMemberWin = memberWin;
-        if(memberWin){ self._admBindOkCancel(memberWin,function(){ self._wfSubmitPull(); },function(){ self._wfClosePull(); }); }
-        //豆豆管理弹窗
-        var beanWin = self._admNode("admBeanWin");
-        this._admBeanWin = beanWin;
-        if(beanWin){
-            var bbg = beanWin.getChildByName("bg");
-            var q = bbg ? bbg.getChildByName("btnQuery") : null;
-            if(q){ q.active = true; q.on(cc.Node.EventType.TOUCH_END,function(){ self._admQueryBean(); }); }
-            self._admBindOkCancel(beanWin,function(){ self._admApplyBean(); },function(){ self._wfCloseBean(); });
-        }
-        //玩法配置弹窗(台数规则,按俱乐部+玩法保存;底分/局数在添加牌桌时输入)
-        var btnCfg = self._admNode("btnGameCfg");
-        if(btnCfg){ btnCfg.active = true; btnCfg.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenGameCfg(); }); }
-        var cfgWin = self._admNode("gameCfgWin");
-        this._admCfgWin = cfgWin;
-        if(cfgWin){ self._admBindOkCancel(cfgWin,function(){ self._admCfgSave(); },function(){ self._admCfgClose(); }); }
-        //子俱乐部页(左侧菜单切换到子俱乐部分页)
-        var btnNew = self._admNode("btnNewClub");
-        if(btnNew){ btnNew.active = true; btnNew.on(cc.Node.EventType.TOUCH_END,function(){ self._admShowPage("sub"); }); }
-        var newWin = self._admNode("newClubWin");
-        this._admNewClubWin = newWin;
-        if(newWin){ self._admBindOkCancel(newWin,function(){ self._admSubmitNewClub(); },function(){ self._admCloseNewClub(); }); }
-    },
-
-    _admClose:function(){
-        if(this._admPanel && cc.isValid(this._admPanel)){ this._admPanel.active = false; }
-        this._admHideWins();
-    },
-
-    _admHideWins:function(){
-        if(this._admAddWin && cc.isValid(this._admAddWin)){ this._admAddWin.active = false; }
-        if(this._admMemberWin && cc.isValid(this._admMemberWin)){ this._admMemberWin.active = false; }
-        if(this._admBeanWin && cc.isValid(this._admBeanWin)){ this._admBeanWin.active = false; }
-        if(this._admCfgWin && cc.isValid(this._admCfgWin)){ this._admCfgWin.active = false; }
-        if(this._admNewClubWin && cc.isValid(this._admNewClubWin)){ this._admNewClubWin.active = false; }
-    },
-
-    //=========== 管理面板四分页(节点全部场景固化在 ropSprite 下,JS只填数据/绑事件) ===========
-    _admPageNode:function(name){
-        var rop = this._admNode("ropSprite");
-        return rop ? rop.getChildByName(name) : null;
-    },
-    _admShowPage:function(name){
-        var pages = ["member","table","bean","sub"];
-        for(var i = 0; i < pages.length; ++i){
-            var p = this._admPageNode(pages[i] + "Page");
-            if(p){ p.active = (pages[i] === name); }
-        }
-        this._admPage = name;
-        if(name === "member"){ this._admLoadMembers(); }
-        else if(name === "table"){ this._admLoadTablesAdm(); }
-        else if(name === "bean"){ this._admLoadBeanLogs(); }
-        else if(name === "sub"){ this._admLoadSubs(); }
-    },
-    //分页的滚动列表引用(scroll/view/content/rowTpl/emptyTip,全部是场景节点)
-    _admPageList:function(pageName){
-        var page = this._admPageNode(pageName);
-        var sc = page ? page.getChildByName("scroll") : null;
-        var view = sc ? sc.getChildByName("view") : null;
-        var content = view ? view.getChildByName("content") : null;
-        var tpl = content ? content.getChildByName("rowTpl") : null;
-        var tip = page ? page.getChildByName("emptyTip") : null;
-        return {page:page, scroll:sc, view:view, content:content, tpl:tpl, tip:tip};
-    },
-    _admClearRows:function(content,tpl){
-        if(!content){ return; }
-        var cs = content.children.slice();
-        for(var i = 0; i < cs.length; ++i){
-            if(cs[i] !== tpl){ cs[i].removeFromParent(); cs[i].destroy(); }
-        }
-        if(tpl){ tpl.active = false; }
-    },
-    //竖排滚动列表加一行(行位置由行号推出,容器高度按行数撑开,超出由ScrollView滚动)
-    _admAddRow:function(ls,idx,rowH){
-        var content = ls.content, tpl = ls.tpl;
-        if(!content || !tpl){ return null; }
-        var viewH = ls.view ? ls.view.height : 500;
-        content.height = Math.max(viewH, (idx + 1) * rowH);
-        var row = cc.instantiate(tpl);
-        row.active = true;
-        row.setPosition(0, -(idx * rowH + rowH / 2));
-        content.addChild(row);
-        return row;
-    },
-    _admSetRowText:function(row,name,str){
-        var n = row.getChildByName(name);
-        var lb = n ? n.getComponent(cc.Label) : null;
-        if(lb){ lb.string = (str == null || str === "") ? "-" : String(str); }
-    },
-    _admScrollTop:function(ls){
-        var svc = ls.scroll ? ls.scroll.getComponent(cc.ScrollView) : null;
-        if(svc){ svc.scrollToTop(); }
-    },
-
-    //--- 成员管理页:成员列表(头像/昵称/ID/余额/豆豆管理/交易明细),支持按ID过滤 ---
-    _admLoadMembers:function(){
-        var self = this;
-        if(!this._clubCur || !this._clubCur.id){ return; }
-        cc.vv.http.sendRequest("/club_members_detail",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id
-        },function(ret){
-            if(!ret || ret.errcode !== 0){ cc.vv.wc.showError((ret && ret.errmsg) || "获取成员失败"); return; }
-            self._admMembers = ret.members || [];
-            self._admRenderMembers();
-        });
-    },
-    _admRenderMembers:function(){
-        var self = this;
-        var ls = this._admPageList("memberPage");
-        if(!ls.content || !ls.tpl){ return; }
-        var kw = "";
-        var si = ls.page ? ls.page.getChildByName("searchInput") : null;
-        var eb = si ? si.getComponent(cc.EditBox) : null;
-        if(eb){ kw = String(eb.string || "").replace(/[^0-9]/g,""); }
-        var list = this._admMembers || [];
-        if(kw){ list = list.filter(function(m){ return String(m.userid).indexOf(kw) >= 0; }); }
-        this._admClearRows(ls.content, ls.tpl);
-        if(ls.tip){ ls.tip.active = (list.length === 0); }
-        var ROW_H = ls.tpl.height || 70;
-        list.forEach(function(m, i){
-            var row = self._admAddRow(ls, i, ROW_H + 4);
-            if(!row){ return; }
-            self._admSetRowText(row, "lName", m.name);
-            self._admSetRowText(row, "lId", m.userid);
-            self._admSetRowText(row, "lGems", m.gems);
-            //头像:先显示默认头像,再用ImageLoader按userid加载真实头像
-            var av = row.getChildByName("avatar");
-            if(av){
-                var spr = av.getComponent(cc.Sprite);
-                if(spr){
-                    if(self._clubHeadFrame){ spr.spriteFrame = self._clubHeadFrame; }
-                    else{
-                        cc.resources.load("images/other/head", cc.SpriteFrame, function(err, f){
-                            if(!err && f){ self._clubHeadFrame = f; if(cc.isValid(spr)){ spr.spriteFrame = f; } }
-                        });
-                    }
-                }
-                var il = av.getComponent("ImageLoader");
-                if(!il){ il = av.addComponent("ImageLoader"); }
-                if(il && il.setUserID){ il.setUserID(m.userid); }
-            }
-            var uid = m.userid;
-            var bb = row.getChildByName("btnBeanM");
-            if(bb){ bb.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenBeanFor(uid); }); }
-            var bl = row.getChildByName("btnLogsM");
-            if(bl){ bl.on(cc.Node.EventType.TOUCH_END,function(){ self._admOpenMemLogs(uid); }); }
-        });
-        this._admScrollTop(ls);
-    },
-    //成员行「豆豆管理」:打开上下豆豆弹窗并预填该玩家ID自动查询
-    _admOpenBeanFor:function(uid){
-        this._admOpenBean();
-        var win = this._admBeanWin;
-        var bg = win ? win.getChildByName("bg") : null;
-        var n = bg ? bg.getChildByName("difenInput") : null;
-        var eb = n ? n.getComponent(cc.EditBox) : null;
-        if(eb){ eb.string = String(uid); this._admQueryBean(); }
-    },
-    //成员行「交易明细」:弹窗显示该玩家的豆豆流水(memLogWin 场景固化,克隆自recordWin)
-    _admOpenMemLogs:function(uid){
-        var self = this;
-        var win = this._wfPopupOpen("memLogWin");
-        if(!win){ return; }
-        this._wfPopupSetLabel(win,"title","交易明细(ID:" + uid + ")");
-        var ls = this._wfPopupList(win);
-        this._wfPopupClearRows(ls.list,ls.tpl);
-        var tip = this._clubFind(win,"emptyTip");
-        if(tip){ tip.active = false; }
-        //今天/全部按钮在交易明细里不生效,隐藏掉
-        var todayBtn = this._clubFind(win,"todayBtn");
-        if(todayBtn){ todayBtn.active = false; }
-        var allBtn = this._clubFind(win,"allBtn");
-        if(allBtn){ allBtn.active = false; }
-        var seq = win._wfLogSeq = (win._wfLogSeq || 0) + 1;
-        cc.vv.http.sendRequest("/club_member_logs",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id,
-            userid:uid
-        },function(ret){
-            if(!cc.isValid(win) || !win.active || win._wfLogSeq !== seq){ return; }
-            if(ret.errcode !== 0){ cc.vv.wc.showError(ret.errmsg || "获取交易明细失败"); return; }
-            var logs = ret.logs || [];
-            for(var i = 0; i < logs.length; ++i){
-                var lg = logs[i];
-                var amt = parseInt(lg.amount) || 0;
-                self._wfPopupAddRow(ls.list,ls.tpl,i,[
-                    self._wfPopupTime(lg.create_time),
-                    lg.roomid || "-",
-                    self._wfGameName(lg.game_type),
-                    lg.change_type || "-",
-                    (amt > 0 ? "+" + amt : String(amt)),
-                    "-"
-                ]);
-            }
-            if(tip && cc.isValid(tip)){ tip.active = (logs.length == 0); }
-        });
-    },
-
-    //--- 牌桌管理页:复用牌桌卡片,两列竖排,超出上下滚动 ---
-    _admLoadTablesAdm:function(){
-        var self = this;
-        if(!this._clubCur || !this._clubCur.id){ return; }
-        cc.vv.http.sendRequest("/club_tables",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id
-        },function(ret){
-            if(!ret || ret.errcode !== 0){ return; }
-            var ls = self._admPageList("tablePage");
-            if(!ls.content){ return; }
-            self._admClearRows(ls.content, null);
-            var tables = ret.tables || [];
-            if(ls.tip){ ls.tip.active = (tables.length === 0); }
-            var tpl = self._clubCardTpl();
-            if(tpl){ tpl.active = false; }
-            if(tables.length && !tpl){ return; }
-            //_clubAddTableCard会写长连接卡片映射,这里用临时映射避免覆盖玩法页正在用的
-            var savedMap = self._clubTableCardMap;
-            self._clubTableCardMap = {};
-            var CW = tpl ? tpl.width : 360, CH = tpl ? tpl.height : 200;
-            var GAP = 5; //牌桌间距
-            var viewW = ls.view ? ls.view.width : 980;
-            var viewH = ls.view ? ls.view.height : 500;
-            ls.content.height = viewH; //两行固定高度,不竖向滚动
-            //两行靠左对齐:先排满上下两行再往右换列,超出后横向滚动;content锚点(0,1)原点即左上
-            var cols = Math.ceil(tables.length / 2);
-            ls.content.width = Math.max(viewW, cols * (CW + GAP) + GAP);
-            tables.forEach(function(t, i){
-                var before = ls.content.childrenCount;
-                self._clubAddTableCard(ls.content, i, t);
-                if(ls.content.childrenCount > before){
-                    var card = ls.content.children[ls.content.childrenCount - 1];
-                    var col = Math.floor(i / 2), r = i % 2;
-                    card.setPosition(GAP + CW / 2 + col * (CW + GAP), -(GAP + CH / 2 + r * (CH + GAP)));
-                }
-            });
-            self._clubTableCardMap = savedMap;
-            var svc = ls.scroll ? ls.scroll.getComponent(cc.ScrollView) : null;
-            if(svc){ svc.scrollToLeft(); }
-        });
-    },
-
-    //--- 豆豆管理页:俱乐部豆豆流水(时间/玩家ID/昵称/房间号/类型/数量) ---
-    _admLoadBeanLogs:function(){
-        var self = this;
-        if(!this._clubCur || !this._clubCur.id){ return; }
-        cc.vv.http.sendRequest("/club_bean_logs",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id
-        },function(ret){
-            if(!ret || ret.errcode !== 0){ return; }
-            var ls = self._admPageList("beanPage");
-            if(!ls.content || !ls.tpl){ return; }
-            self._admClearRows(ls.content, ls.tpl);
-            var logs = ret.logs || [];
-            if(ls.tip){ ls.tip.active = (logs.length === 0); }
-            var ROW_H = (ls.tpl.height || 36) + 2;
-            logs.forEach(function(l, i){
-                var row = self._admAddRow(ls, i, ROW_H);
-                if(!row){ return; }
-                var amt = parseInt(l.amount) || 0;
-                var vals = [self._wfPopupTime(l.create_time), l.userid, l.name, l.roomid, l.change_type, amt > 0 ? "+" + amt : String(amt)];
-                for(var c = 0; c < 6; ++c){ self._admSetRowText(row, "c" + c, vals[c]); }
-            });
-            self._admScrollTop(ls);
-        });
-    },
-
-    //--- 子俱乐部页:子俱乐部列表(名称/ID/现有人数/总豆豆数) ---
-    _admLoadSubs:function(){
-        var self = this;
-        if(!this._clubCur || !this._clubCur.id){ return; }
-        cc.vv.http.sendRequest("/club_sub_list",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id
-        },function(ret){
-            if(!ret || ret.errcode !== 0){ return; }
-            var ls = self._admPageList("subPage");
-            if(!ls.content || !ls.tpl){ return; }
-            self._admClearRows(ls.content, ls.tpl);
-            var subs = ret.subs || [];
-            if(ls.tip){ ls.tip.active = (subs.length === 0); }
-            var ROW_H = (ls.tpl.height || 44) + 2;
-            subs.forEach(function(s, i){
-                var row = self._admAddRow(ls, i, ROW_H);
-                if(!row){ return; }
-                var vals = [s.name, s.id, s.member_count, s.total_gems];
-                for(var c = 0; c < 4; ++c){ self._admSetRowText(row, "c" + c, vals[c]); }
-            });
-            self._admScrollTop(ls);
-        });
-    },
-
-    //开子俱乐部:社长在自己当前俱乐部下创建子俱乐部(上级=当前俱乐部)
-    _admOpenNewClub:function(){
-        var win = this._admNewClubWin;
-        if(!win){ cc.vv.wc.showError("缺少开子俱乐部弹窗"); return; }
-        var bg = win.getChildByName("bg");
-        var inp = bg ? bg.getChildByName("difenInput") : null;
-        if(inp && inp.getComponent(cc.EditBox)){ var e1 = inp.getComponent(cc.EditBox); e1.string = ""; e1.inputFlag = 3; }
-        var uid = bg ? bg.getChildByName("jushuInput") : null;
-        if(uid && uid.getComponent(cc.EditBox)){ var e2 = uid.getComponent(cc.EditBox); e2.string = ""; e2.inputFlag = 3; }
-        this._admHideWins();
-        win.active = true;
-    },
-    _admCloseNewClub:function(){
-        if(this._admNewClubWin && cc.isValid(this._admNewClubWin)){ this._admNewClubWin.active = false; }
-    },
-    _admSubmitNewClub:function(){
-        var self = this;
-        var win = this._admNewClubWin;
-        var club = this._clubCur;
-        if(!win || !club || !club.id){ return; }
-        var bg = win.getChildByName("bg");
-        var inp = bg ? bg.getChildByName("difenInput") : null;
-        var eb = inp ? inp.getComponent(cc.EditBox) : null;
-        var name = eb ? String(eb.string || "").replace(/^\s+|\s+$/g, "") : "";
-        if(!name){ cc.vv.wc.showError("请输入俱乐部名称"); return; }
-        //归属玩家ID:必填,校验纯数字后交给服务端确认该玩家存在
-        var uidNode = bg ? bg.getChildByName("jushuInput") : null;
-        var uidEb = uidNode ? uidNode.getComponent(cc.EditBox) : null;
-        var uidStr = uidEb ? String(uidEb.string || "").replace(/^\s+|\s+$/g, "") : "";
-        if(!uidStr){ cc.vv.wc.showError("请输入玩家ID"); return; }
-        if(!/^\d{1,9}$/.test(uidStr)){ cc.vv.wc.showError("玩家ID只能是数字"); return; }
-        cc.vv.wc.show("正在创建");
-        cc.vv.http.sendRequest("/club_create",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            name:name,
-            parentclid:club.id,
-            owneruserid:uidStr
-        },function(ret){
-            cc.vv.wc.hide();
-            if(!ret || ret.errcode !== 0){
-                var msg = (ret && ret.errmsg) ? ret.errmsg : "创建失败";
-                if(ret && ret.errcode === 3){ msg = "上级俱乐部不存在"; }
-                if(ret && ret.errcode === 4){ msg = "只有社长可以开子俱乐部"; }
-                if(ret && ret.errcode === 5){ msg = "玩家ID不存在"; }
-                cc.vv.wc.showAlert(msg, "提示");
-                return;
-            }
-            self._admCloseNewClub();
-            cc.vv.wc.showAlert("子俱乐部创建成功，ID：" + ret.clubid, "提示");
-            self._clubRefreshList();
-            if(self._admPage === "sub"){ self._admLoadSubs(); } //子俱乐部页同步刷新
-        });
-    },
-
-    // ===== 管理面板:玩法配置(底分/局数/台数规则) =====
-    //台数规则字段定义(与服务端 key 一致);输入框留空 = 该项按默认值
-    _admCfgFields:function(type){
-        var t = String(type || "");
-        if(t == "baobao_shou"){
-            return [
-                {key:'banker_mode', label:'有无庄(1有庄/0无庄)'},
-                {key:'arrange_timeout', label:'摆牌超时(秒)'},
-                {key:'result_timeout', label:'结算倒计时(秒)'},
-                {key:'wulong_check', label:'乌龙校验(1开/0关)'},
-                {key:'tongdian_mode', label:'同点比较(3/1/2)'},
-                {key:'s_bao_14', label:'宝A 倍率'},
-                {key:'s_bao_13', label:'宝K 倍率'},
-                {key:'s_bao_12', label:'宝Q 倍率'},
-                {key:'s_bao_11', label:'宝J 倍率'},
-                {key:'s_bao_10', label:'宝10 倍率'},
-                {key:'s_bao_9', label:'宝9 倍率'},
-                {key:'s_bao_8', label:'宝8 倍率'},
-                {key:'s_bao_7', label:'宝7 倍率'},
-                {key:'s_bao_6', label:'宝6 倍率'},
-                {key:'s_bao_5', label:'宝5 倍率'},
-                {key:'s_bao_4', label:'宝4 倍率'},
-                {key:'s_bao_3', label:'宝3 倍率'},
-                {key:'s_bao_2', label:'宝2 倍率'},
-                {key:'s_dian9', label:'9点 倍率'},
-                {key:'s_dian8', label:'8点 倍率'},
-                {key:'s_dian7', label:'7点 倍率'},
-                {key:'s_dianlow', label:'6~0点 倍率'}
-            ];
-        }
-        if(t == "baobao_mian"){
-            return [
-                {key:'banker_mode', label:'有无庄(1有庄/0无庄)'},
-                {key:'arrange_timeout', label:'确认弹窗倒计时(秒)'},
-                {key:'result_timeout', label:'结算倒计时(秒)'},
-                {key:'m_sf6', label:'6同花顺 倍率'},
-                {key:'m_sf5', label:'5同花顺带1 倍率'},
-                {key:'m_4', label:'4条带2单 倍率'},
-                {key:'m_33', label:'3条带3条 倍率'},
-                {key:'m_3p1', label:'3条带对带1 倍率'},
-                {key:'m_f6', label:'6同花 倍率'},
-                {key:'m_s6', label:'6连顺 倍率'},
-                {key:'m_f5', label:'5同花带1 倍率'},
-                {key:'m_s5', label:'5连顺带1 倍率'},
-                {key:'m_p3', label:'3对 倍率'},
-                {key:'m_n9', label:'3组9 倍率'},
-                {key:'m_san', label:'散牌 倍率'}
-            ];
-        }
-        if(t == "wujin"){
-            return [
-                {key:'ping_hu', label:'平胡台数'}, {key:'zi_mo', label:'自摸加台'},
-                {key:'men_qing', label:'门清加台'}, {key:'peng_peng', label:'碰碰胡台数'},
-                {key:'cou_yise', label:'凑一色台数'}, {key:'qing_yise', label:'清一色台数'},
-                {key:'qi_dui', label:'七对台数'}, {key:'da_sanyuan', label:'大三元台数'},
-                {key:'da_sixi', label:'大四喜台数'}, {key:'ming_gang', label:'明杠台数'},
-                {key:'an_gang', label:'暗杠台数'}, {key:'gang_kai', label:'杠上开花台数'},
-                {key:'qiang_gang', label:'抢杠胡台数'}, {key:'hai_di', label:'海底捞月台数'},
-                {key:'tian_hu', label:'天胡台数'}, {key:'di_hu', label:'地胡台数'},
-                {key:'can_chi', label:'允许吃牌(0禁1允)'}, {key:'yi_pao_duo_xiang', label:'一炮多响(0关1开)'},
-                {key:'dian_pao_bao', label:'点炮包牌(0不包1包)'}, {key:'chupai_timeout', label:'出牌超时(秒)'}
-            ];
-        }
-        if(t.indexOf("zp") == 0){
-            return [
-                {key:'hua_tai', label:'每朵花台数'}, {key:'jin_tai', label:'每张金牌台数'},
-                {key:'ming_gang', label:'明杠台数'}, {key:'an_gang', label:'暗杠台数'},
-                {key:'san_jin_dao', label:'三金倒台数'}, {key:'qiang_jin', label:'抢金台数'},
-                {key:'qi_dui', label:'七对台数'}, {key:'hun_yise', label:'混一色台数'},
-                {key:'qing_yise', label:'清一色台数'}, {key:'gang_kai', label:'杠上开花台数'},
-                {key:'qiang_gang', label:'抢杠胡台数'}, {key:'ping_hu', label:'平胡台数'},
-                {key:'you_jin_multi', label:'游金每级倍数'}, {key:'you_jin_max', label:'游金最高级数'},
-                {key:'fenbing', label:'分饼开关(0关1开)'}, {key:'chupai_timeout', label:'出牌超时(秒)'}
-            ];
-        }
-        return [
-            {key:'min_tai', label:'起胡台数门槛'}, {key:'dong_ke', label:'东风刻(每个)'},
-            {key:'zfb_ke', label:'中发白刻(每个)'}, {key:'ping_hu', label:'平胡'},
-            {key:'duidui_hu', label:'对对胡'}, {key:'hun_yise', label:'混一色'},
-            {key:'qing_yise', label:'清一色'}, {key:'gang_kai', label:'杠上开花'},
-            {key:'qiang_gang', label:'抢杠胡'}, {key:'wu_cai', label:'无财'},
-            {key:'chupai_timeout', label:'出牌倒计时(秒,0关托管)'}
-        ];
-    },
-
-    //打开玩法配置:向服务端拉取本俱乐部各玩法的底分/局数/台数规则
-    _admOpenGameCfg:function(){
-        var self = this;
-        var win = this._admCfgWin;
-        if(!win){ cc.vv.wc.showAlert("玩法配置弹窗节点缺失,请检查club场景admin下的gameCfgWin", "提示"); return; }
-        var bg = win.getChildByName("bg");
-        if(!bg){ return; }
-        var club = this._clubCur;
-        if(!club){ cc.vv.wc.showAlert("请先进入俱乐部详情再配置玩法", "提示"); return; }
-        cc.vv.wc.show("正在读取配置");
-        cc.vv.http.sendRequest("/club_game_configs",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:club.id
-        },function(ret){
-            cc.vv.wc.hide();
-            if(!ret || ret.errcode !== 0){
-                cc.vv.wc.showAlert((ret && ret.errmsg) ? ret.errmsg : "读取配置失败", "提示");
-                return;
-            }
-            self._admCfgList = ret.list || [];
-            if(!self._admCfgList.length){ cc.vv.wc.showAlert("该俱乐部暂无玩法", "提示"); return; }
-            var keep = null;
-            for(var i = 0; i < self._admCfgList.length; ++i){
-                if(self._admCfgSel && self._admCfgList[i].game_type == self._admCfgSel.game_type){ keep = self._admCfgList[i]; break; }
-            }
-            self._admCfgSel = keep || self._admCfgList[0];
-            self._admCfgBuildDrop(bg);
-            self._admCfgFill(bg);
-            self._admStretchWin(win);
-            win.active = true;
-        });
-    },
-
-    //玩法下拉列表(场景节点 cfgDrop/cfgDropList)
-    _admCfgBuildDrop:function(bg){
-        var self = this;
-        var drop = bg.getChildByName("cfgDrop");
-        var list = bg.getChildByName("cfgDropList");
-        if(list){
-            list.active = false;
-            var rows = list.children.slice();
-            for(var i = 0; i < rows.length; ++i){
-                (function(idx){
-                    var row = rows[idx];
-                    row.off(cc.Node.EventType.TOUCH_END);
-                    var g = self._admCfgList[idx];
-                    if(idx < self._admCfgList.length){
-                        row.active = true;
-                        var lbNode = row.getChildByName("lbl");
-                        if(lbNode && lbNode.getComponent(cc.Label)){ lbNode.getComponent(cc.Label).string = g.name || g.game_type; }
-                        row.on(cc.Node.EventType.TOUCH_END,function(){
-                            self._admCfgSel = g;
-                            self._admCfgFill(bg);
-                            var l2 = bg.getChildByName("cfgDropList");
-                            if(l2){ l2.active = false; }
-                        });
-                    }
-                    else{ row.active = false; }
-                })(i);
-            }
-        }
-        if(drop && !drop._cfgBound){
-            drop._cfgBound = true;
-            drop.on(cc.Node.EventType.TOUCH_END,function(){
-                var l3 = bg.getChildByName("cfgDropList");
-                if(l3){ l3.active = !l3.active; }
-            });
-        }
-    },
-
-    //把当前玩法的配置填进弹窗(台数规则按玩法类型显示对应字段,未配置的留空显示默认提示)
-    _admCfgFill:function(bg){
-        var g = this._admCfgSel;
-        if(!bg || !g){ return; }
-        var drop = bg.getChildByName("cfgDrop");
-        var dl = drop ? drop.getChildByName("dl") : null;
-        if(dl && dl.getComponent(cc.Label)){ dl.getComponent(cc.Label).string = g.name || g.game_type || ""; }
-        //提示文字:宝宝手动摆玩法额外说明同点比较方式
-        var tipN = bg.getChildByName("tip");
-        if(tipN && tipN.getComponent(cc.Label)){
-            tipN.getComponent(cc.Label).string = (String(g.game_type) == "baobao_shou")
-                ? "台数规则留空按默认;同点比较 3=点数优先 1=花色优先 2=和"
-                : "台数规则留空按默认值";
-        }
-        var rows = bg.getChildByName("rows");
-        var fields = this._admCfgFields(g.game_type);
-        var tai = g.tai_rules || {};
-        //后台全局默认台数规则:未配置的项直接显示默认数值,不再只显示"默认"两个字
-        var defTai = g.default_tai_rules || {};
-        //按字段数量自动分列:<=8 一列,9~16 两列(8+7),>16 三列;每列最多8行,避免空列/拥挤
-        var cols = fields.length > 16 ? 3 : (fields.length > 8 ? 2 : 1);
-        var colX = (cols === 3) ? [-330, 0, 330] : ((cols === 2) ? [-170, 170] : [0]);
-        var perCol = Math.ceil(fields.length / cols);
-        var cnt = rows ? rows.children.length : 0;
-        for(var i = 0; i < cnt; ++i){
-            var row = rows.children[i];
-            if(!row){ continue; }
-            if(i < fields.length){
-                row.active = true;
-                row._cfgKey = fields[i].key;
-                //每行 32 高,列宽 320:名字在左、输入框在右,行与列都不重叠
-                row.setPosition(colX[Math.floor(i / perCol)], 62 - (i % perCol) * 32);
-                var lbNode = row.getChildByName("name");
-                if(lbNode && lbNode.getComponent(cc.Label)){ lbNode.getComponent(cc.Label).string = fields[i].label; }
-                var eb = row.getChildByName("e") ? row.getChildByName("e").getComponent(cc.EditBox) : null;
-                if(eb){
-                    var v = tai[fields[i].key];
-                    eb.string = (v != null) ? String(v) : "";
-                    var phNode = row.getChildByName("e").getChildByName("PLACEHOLDER_LABEL");
-                    var phLb = phNode ? phNode.getComponent(cc.Label) : null;
-                    if(phLb){
-                        var dv = defTai[fields[i].key];
-                        phLb.string = (dv != null) ? String(dv) : "默认";
-                    }
-                }
-            }
-            else{
-                row.active = false;
-                row._cfgKey = null;
-            }
-        }
-    },
-
-    _admCfgClose:function(){
-        if(this._admCfgWin && cc.isValid(this._admCfgWin)){ this._admCfgWin.active = false; }
-    },
-
-    //保存玩法配置:只提交台数规则(底分/局数在添加牌桌时输入,不在这里配)
-    _admCfgSave:function(){
-        var self = this, g = this._admCfgSel, win = this._admCfgWin;
-        if(!g || !win){ return; }
-        var bg = win.getChildByName("bg");
-        if(!bg){ return; }
-        var tai = {};
-        var rows = bg.getChildByName("rows");
-        var cnt = rows ? rows.children.length : 0;
-        for(var i = 0; i < cnt; ++i){
-            var row = rows.children[i];
-            if(!row || !row.active || !row._cfgKey){ continue; }
-            var eb = row.getChildByName("e") ? row.getChildByName("e").getComponent(cc.EditBox) : null;
-            var s = eb ? String(eb.string || "").replace(/[^0-9]/g,"") : "";
-            if(s !== ""){ tai[row._cfgKey] = parseInt(s,10); }
-        }
-        cc.vv.wc.show("正在保存");
-        cc.vv.http.sendRequest("/club_game_config_save",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id,
-            game_type:g.game_type,
-            tai_rules:JSON.stringify(tai)
-        },function(ret){
-            cc.vv.wc.hide();
-            if(!ret || ret.errcode !== 0){
-                cc.vv.wc.showAlert((ret && ret.errmsg) ? ret.errmsg : "保存失败", "提示");
-                return;
-            }
-            //同步本地缓存,下次打开立即回显;同时刷新加桌弹窗用的玩法列表
-            g.tai_rules = (Object.keys(tai).length > 0) ? tai : null;
-            var gl = self._clubGames || [];
-            for(var k = 0; k < gl.length; ++k){
-                if(gl[k].game_type == g.game_type){
-                    gl[k].tai_rules = g.tai_rules;
-                    break;
-                }
-            }
-            cc.vv.wc.showAlert("配置已保存", "提示");
-        });
-    },
-
-    //管理面板-添加牌桌:玩法改为弹窗内下拉框选择(不再依赖左侧玩法行的高亮状态)
-    _wfOpenAddTable:function(){
-        var adm = this._admPanel;
-        var win = adm ? adm.getChildByName("addTableWin") : null;
-        var bg = win ? win.getChildByName("bg") : null;
-        if(!win || !bg){ return; }
-        var games = this._clubGames || [];
-        if(!games.length){ cc.vv.wc.showAlert("该俱乐部暂无玩法，请先在后台添加玩法", "提示"); return; }
-        this._admAddWin = win;
-        if(!this._admGame){ this._admGame = games[0]; }
-        this._admBuildDrop(bg,games);
-        this._wfFillAddTable(bg,this._admGame);
-        this._admStretchWin(win);
-        win.active = true;
-    },
-
-    //弹窗暗色遮罩铺满可见区(禁用Widget,避免被弹窗根节点对齐回1280x720)
-    _admStretchWin:function(win){
-        var dim = win ? win.getChildByName("New Layout") : null;
-        if(!dim){ return; }
-        var wd = dim.getComponent(cc.Widget);
-        if(wd){ wd.enabled = false; }
-        var vs = cc.view.getVisibleSize();
-        dim.setContentSize(vs.width, vs.height);
-        dim.setPosition(0,0);
-    },
-
-    //玩法下拉框(节点在场景里):填当前玩法名,并给下拉列表行绑点击
-    _admBuildDrop:function(bg,games){
-        var self = this;
-        var drop = bg.getChildByName("admDrop");
-        var dl = drop ? drop.getChildByName("dl") : null;
-        var text = this._admGame ? (this._admGame.name || this._admGame.game_type || "") : "";
-        if(dl && dl.getComponent(cc.Label)){ dl.getComponent(cc.Label).string = text; }
-        var list = bg.getChildByName("admDropList");
-        if(list){
-            list.active = false; //每次打开默认收起
-            var rows = list.children;
-            for(var i = 0; i < rows.length; ++i){
-                (function(idx){
-                    var row = rows[idx];
-                    row.off(cc.Node.EventType.TOUCH_END); //每行只保留本次绑定的点击
-                    if(idx < games.length){
-                        row.active = true;
-                        var rl = row.getComponent(cc.Label);
-                        if(rl){ rl.string = games[idx].name || games[idx].game_type || ""; }
-                        row.on(cc.Node.EventType.TOUCH_END,function(){
-                            self._admGame = games[idx];
-                            var d2 = bg.getChildByName("admDrop");
-                            var lab = d2 ? d2.getChildByName("dl") : null;
-                            if(lab && lab.getComponent(cc.Label)){ lab.getComponent(cc.Label).string = games[idx].name || games[idx].game_type || ""; }
-                            self._wfFillAddTable(bg,games[idx]);
-                            var l2 = bg.getChildByName("admDropList");
-                            if(l2){ l2.active = false; }
-                        });
-                    }
-                    else{ row.active = false; }
-                })(i);
-            }
-        }
-        if(drop && !drop._admBound){
-            drop._admBound = true;
-            drop.on(cc.Node.EventType.TOUCH_END,function(){
-                var l3 = bg.getChildByName("admDropList");
-                if(l3){ l3.active = !l3.active; }
-            });
-        }
-    },
-
-    //填弹窗:标题带玩法名,输入框留空由用户直接输入(不使用后台配置的默认值)
-    _wfFillAddTable:function(bg,g){
-        if(!bg || !g){ return; }
-        var setInput = function(name,val){
-            var n = bg.getChildByName(name);
-            var eb = n ? n.getComponent(cc.EditBox) : null;
-            if(eb){ eb.string = String(val); }
-        };
-        var tl = bg.getChildByName("title");
-        if(tl && tl.getComponent(cc.Label)){ tl.getComponent(cc.Label).string = "添加" + (g.name || g.game_type || "") + "牌桌"; }
-        setInput("difenInput","");
-        setInput("jushuInput","");
-        setInput("minInput",0);
-        setInput("kickInput",0);
-    },
-
-    _wfCloseAddTable:function(){
-        if(this._admAddWin && cc.isValid(this._admAddWin)){ this._admAddWin.active = false; }
-    },
-
-    //提交添加牌桌:底分/局数直接用输入值,服务端校验馆主身份并按序号自动命名(玩法取下拉框选择)
-    _wfSubmitAddTable:function(){
-        var self = this, g = this._admGame;
-        if(!g || !this._admAddWin){ return; }
-        var bg = this._admAddWin.getChildByName("bg");
-        if(!bg){ return; }
-        var read = function(name){
-            var n = bg.getChildByName(name);
-            var eb = n ? n.getComponent(cc.EditBox) : null;
-            return eb ? String(eb.string).replace(/[^0-9]/g,"") : "";
-        };
-        var difen = parseInt(read("difenInput"));
-        if(!(difen > 0)){ cc.vv.wc.showAlert("请输入正确的底分", "提示"); return; }
-        var jushu = parseInt(read("jushuInput"));
-        if(!(jushu > 0)){ cc.vv.wc.showAlert("请输入正确的局数", "提示"); return; }
-        var min = parseInt(read("minInput"));
-        var kick = parseInt(read("kickInput"));
-        if(!(min >= 0)){ min = 0; }
-        if(!(kick >= 0)){ kick = 0; }
-        cc.vv.wc.show("正在添加牌桌");
-        cc.vv.http.sendRequest("/club_add_table",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id,
-            game_type:g.game_type,
-            difen_value:difen,
-            jushuxuanze:0, //下标字段保留兼容,游戏服优先用jushu_value实际值
-            jushu_value:jushu, //底分/局数都是输入的实际值,不再走后台选项下标
-            banker_mode:0, //固定无庄
-            min_bean:min,
-            kick_bean:kick
-        },function(ret){
-            cc.vv.wc.hide();
-            if(!ret || ret.errcode !== 0){
-                var msg = (ret && ret.errmsg) ? ret.errmsg : "添加牌桌失败";
-                if(ret && ret.errcode === 4){ msg = "只有俱乐部创建者可以添加牌桌"; }
-                if(ret && ret.errcode === 5){ msg = "该玩法未加入俱乐部，请先在后台添加该玩法"; }
-                cc.vv.wc.showAlert(msg, "提示");
-                return;
-            }
-            self._wfCloseAddTable();
-            self._clubTablesSig = null; //强制按最新数据重建牌桌列表
-            self._clubLoadTables();
-            if(self._admPage === "table"){ self._admLoadTablesAdm(); } //管理面板牌桌管理页同步刷新
-        });
+        // 跳转到独立的管理场景
+        cc.director.loadScene("clubAdmin");
     },
 
     //快速加入:从当前玩法的牌桌里挑一张未满员的进入(优先有人但未满的桌;进入门槛由服务端校验)
@@ -1935,155 +1124,6 @@ cc.Class({
         }
         if(!best){ cc.vv.wc.showError("当前没有可加入的牌桌"); return; }
         this._clubEnterTable(best); //复用现有进入流程(含宝宝豆门槛校验)
-    },
-
-    // ===== 管理面板:添加成员 =====
-    _wfOpenPull:function(){
-        var win = this._admMemberWin;
-        if(!win){ return; }
-        var bg = win.getChildByName("bg");
-        var ebNode = bg ? bg.getChildByName("difenInput") : null;
-        var eb = ebNode ? ebNode.getComponent(cc.EditBox) : null;
-        if(eb){ eb.string = ""; }
-        this._admStretchWin(win);
-        win.active = true;
-    },
-    _wfClosePull:function(){
-        if(this._admMemberWin && cc.isValid(this._admMemberWin)){ this._admMemberWin.active = false; }
-    },
-    //添加成员:输入玩家ID直接拉入俱乐部(服务端校验ID不存在/已加入)
-    _wfSubmitPull:function(){
-        var self = this;
-        var win = this._admMemberWin;
-        if(!win){ return; }
-        var bg = win.getChildByName("bg");
-        var n = bg ? bg.getChildByName("difenInput") : null;
-        var eb = n ? n.getComponent(cc.EditBox) : null;
-        var uid = eb ? parseInt(String(eb.string).replace(/[^0-9]/g,"")) : NaN;
-        if(!(uid > 0)){ cc.vv.wc.showAlert("请输入正确的玩家ID", "提示"); return; }
-        cc.vv.wc.show("正在添加");
-        cc.vv.http.sendRequest("/club_pull",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id,
-            userid:uid
-        },function(ret){
-            cc.vv.wc.hide();
-            if(!ret || ret.errcode !== 0){
-                // ID 不存在 / 已在俱乐部中 都按服务端明确提示弹出(用可确认的弹窗,避免3秒提示一闪而过)
-                var msg = (ret && ret.errmsg) ? ret.errmsg : "添加失败";
-                if(ret && ret.errcode === 5){ msg = "该玩家ID不存在，请确认后重试"; }
-                if(ret && ret.errcode === 6){ msg = "该玩家已加入俱乐部"; }
-                cc.vv.wc.showAlert(msg, "提示");
-                return;
-            }
-            self._wfClosePull();
-            cc.vv.wc.showAlert("添加成功", "提示");
-            if(self._admPage === "member"){ self._admLoadMembers(); } //成员管理页同步刷新
-        });
-    },
-
-    _admBindOkCancel:function(win,onOk,onCancel){
-        var bg = win ? win.getChildByName("bg") : null;
-        if(!bg){ return; }
-        var ok = bg.getChildByName("btnOk");
-        if(ok){ ok.on(cc.Node.EventType.TOUCH_END,onOk); }
-        var cancel = bg.getChildByName("btnCancel");
-        if(cancel){ cancel.on(cc.Node.EventType.TOUCH_END,onCancel); }
-    },
-
-    _admOpenBean:function(){
-        var win = this._admBeanWin;
-        if(!win){ return; }
-        var bg = win.getChildByName("bg");
-        this._admBeanUid = 0;
-        this._admBeanGems = 0;
-        if(bg){
-            var eb1 = bg.getChildByName("difenInput");
-            if(eb1 && eb1.getComponent(cc.EditBox)){ eb1.getComponent(cc.EditBox).string = ""; }
-            var eb2 = bg.getChildByName("deltaInput");
-            if(eb2 && eb2.getComponent(cc.EditBox)){ eb2.getComponent(cc.EditBox).string = ""; }
-            var info = bg.getChildByName("info");
-            if(info && info.getComponent(cc.Label)){ info.getComponent(cc.Label).string = ""; }
-        }
-        this._admStretchWin(win);
-        win.active = true;
-    },
-
-    _wfCloseBean:function(){
-        if(this._admBeanWin && cc.isValid(this._admBeanWin)){ this._admBeanWin.active = false; }
-    },
-
-    //按玩家ID查询昵称与宝宝豆余额
-    _admQueryBean:function(){
-        var self = this;
-        var win = this._admBeanWin;
-        if(!win){ return; }
-        var bg = win.getChildByName("bg");
-        var n = bg ? bg.getChildByName("difenInput") : null;
-        var eb = n ? n.getComponent(cc.EditBox) : null;
-        var uid = eb ? parseInt(String(eb.string).replace(/[^0-9]/g,"")) : NaN;
-        if(!(uid > 0)){ cc.vv.wc.showAlert("请输入正确的玩家ID", "提示"); return; }
-        cc.vv.wc.show("正在查询");
-        cc.vv.http.sendRequest("/club_member_info",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id,
-            userid:uid
-        },function(ret){
-            cc.vv.wc.hide();
-            if(!ret || ret.errcode !== 0){
-                var msg = (ret && ret.errmsg) ? ret.errmsg : "查询失败";
-                if(ret && ret.errcode === 4){ msg = "仅俱乐部创建者可操作"; }
-                if(ret && ret.errcode === 5){ msg = "该玩家ID不存在，请确认后重试"; }
-                cc.vv.wc.showAlert(msg, "提示");
-                return;
-            }
-            self._admBeanUid = Number(ret.userid) || uid;
-            self._admBeanGems = Number(ret.gems) || 0;
-            var info = bg.getChildByName("info");
-            var il = info ? info.getComponent(cc.Label) : null;
-            if(il){ il.string = "昵称：" + (ret.name || "-") + "\n宝宝豆：" + self._admBeanGems; }
-        });
-    },
-
-    //给已查询到的玩家增减宝宝豆(可为负)
-    _admApplyBean:function(){
-        var self = this;
-        var win = this._admBeanWin;
-        if(!win){ return; }
-        if(!(this._admBeanUid > 0)){ cc.vv.wc.showAlert("请先查询玩家ID", "提示"); return; }
-        var bg = win.getChildByName("bg");
-        var n = bg ? bg.getChildByName("deltaInput") : null;
-        var eb = n ? n.getComponent(cc.EditBox) : null;
-        var delta = parseInt(eb ? String(eb.string).replace(/[^0-9\-]/g,"") : "");
-        if(!delta){ cc.vv.wc.showAlert("请输入要增减的宝宝豆数量", "提示"); return; }
-        cc.vv.wc.show("正在修改");
-        cc.vv.http.sendRequest("/club_member_gems",{
-            account:cc.vv.userMgr.account,
-            sign:cc.vv.userMgr.sign,
-            clubid:this._clubCur.id,
-            userid:this._admBeanUid,
-            gems:delta
-        },function(ret){
-            cc.vv.wc.hide();
-            if(!ret || ret.errcode !== 0){
-                var msg = (ret && ret.errmsg) ? ret.errmsg : "修改宝宝豆失败";
-                if(ret && ret.errcode === 4){ msg = "仅俱乐部创建者可操作"; }
-                if(ret && ret.errcode === 5){ msg = "该玩家ID不存在，请确认后重试"; }
-                cc.vv.wc.showAlert(msg, "提示");
-                return;
-            }
-            self._admBeanGems = Number(ret.gems) || 0;
-            //改的是自己时同步本地余额
-            if(cc.vv.userMgr && cc.vv.userMgr.userId == self._admBeanUid){ cc.vv.userMgr.gems = self._admBeanGems; }
-            //成功后关闭弹窗,再弹成功提示(提示层已提到管理面板之上,可见)
-            self._wfCloseBean();
-            cc.vv.wc.showAlert("修改成功", "提示");
-            //成员余额/俱乐部流水同步刷新
-            if(self._admPage === "member"){ self._admLoadMembers(); }
-            if(self._admPage === "bean"){ self._admLoadBeanLogs(); }
-        });
     },
 
     //俱乐部详情:左侧玩法列表+右侧桌面列表
@@ -2140,9 +1180,13 @@ cc.Class({
         }
         this._clubBackBtn = backBtn;
         }
-        //返回按钮右边隐藏俱乐部名称
+        //返回按钮右边显示俱乐部名称(字号/颜色/位置全部用场景里的设置,JS只填文字,超宽截断)
         var cnNode = this._clubFind(area,"clubName");
-        if(cnNode){ cnNode.active = false; }
+        if(cnNode){
+            cnNode.active = true;
+            var cnl = cnNode.getComponent(cc.Label);
+            if(cnl){ this._clubClampLabel(cnl, (this._clubCur && this._clubCur.name) || ""); }
+        }
         //俱乐部名称后面显示玩家房卡数(节点clubGems固化在场景listArea下,位置由编辑器控制,JS只填文字)
         var gemsNode = this._clubFind(area,"clubGems");
         this._clubGemsNode = gemsNode; //缓存引用,供保险柜存取后同步显示 //rc2
@@ -2253,9 +1297,11 @@ cc.Class({
         if(!svView){ return; }
         this._clubTablesNode = svView.getChildByName("tables");
         if(!this._clubTablesNode){ return; }
-        //牌桌卡片模板=场景里配置的那一个 sampleCard0(必须在清空列表前取到)
+        //牌桌卡片模板=场景里配置的 sampleCard0(六座)/sampleCard2(2人小桌子),必须在清空列表前取到
         var tplNode = this._clubFind(this._clubTablesNode, "sampleCard0");
         if(tplNode){ this._clubTpl = tplNode; }
+        var tplNode2 = this._clubFind(this._clubTablesNode, "sampleCard2");
+        if(tplNode2){ this._clubTpl2 = tplNode2; }
         this._clubTablesNode.removeAllChildren();
         //横向拖动滚动(与俱乐部列表同一手感,拖动时不触发进桌点击),固化场景只绑一次
         if(!svView._clubBound){
@@ -2357,7 +1403,7 @@ cc.Class({
             var item = cc.instantiate(tpl);
             item.name = "tchip";
             item.active = true;
-            var text = (t.name || "") + "号桌";
+            var text = (t.name || "");
             var lNode = item.getChildByName("l");
             var lb = lNode ? lNode.getComponent(cc.Label) : null;
             if(lb){
@@ -2383,11 +1429,16 @@ cc.Class({
         });
     },
 
-    //牌桌卡片模板=场景 tables 下的 sampleCard0(场景里只配置这一个,列表全部由它克隆)
-    _clubCardTpl:function(){
-        if(this._clubTpl && cc.isValid(this._clubTpl)){ return this._clubTpl; }
-        //不依赖tables容器状态:直接从场景根递归找,场景里只有这一个sampleCard0
+    //牌桌卡片模板:2人桌优先用场景 tables 下的 sampleCard2(小桌子),没有则沿用 sampleCard0
+    _clubCardTpl:function(maxP){
         var root = cc.find("Canvas");
+        if(maxP === 2){
+            if(this._clubTpl2 && cc.isValid(this._clubTpl2)){ return this._clubTpl2; }
+            var t2 = root ? this._clubFind(root,"sampleCard2") : null;
+            if(t2){ this._clubTpl2 = t2; return t2; }
+        }
+        if(this._clubTpl && cc.isValid(this._clubTpl)){ return this._clubTpl; }
+        //不依赖tables容器状态:直接从场景根递归找
         var t = root ? this._clubFind(root,"sampleCard0") : null;
         if(t){ this._clubTpl = t; }
         return t || null;
@@ -2408,7 +1459,9 @@ cc.Class({
     //创建牌桌卡片(绿色桌面+按玩法人数画座位+名称+人数),返回卡片节点
     _clubAddTableCard:function(parent,idx,t){
         var self = this;
-        var pf = this._clubCardTpl();
+        //2人桌用场景里单独摆的小桌子模板 sampleCard2,其余用六座模板 sampleCard0
+        var maxP = this._clubMaxPlayers(t);
+        var pf = this._clubCardTpl(maxP);
         if(!pf){ console.log("[俱乐部]场景缺少sampleCard0模板,无法建牌桌卡片"); return; }
         //两行显示、靠左对齐:先排满上下两行,多了往右扩列;tables锚点(0,1)原点即左上,超出tablesView后左右拖动
         var GAPX = 5, GAPY = 5, PAD = 5; //卡片间距/边距
@@ -2423,9 +1476,12 @@ cc.Class({
         parent.addChild(card);
         //座位:六座牌桌图(下左/左/上左/上右/右/下右),按实际人数取对称的子集;座位内人物/位置由场景模板决定
         var sides = ["下左","左","上左","上右","右","下右"];
-        var maxP = this._clubMaxPlayers(t);
+        //2人桌:模板里若单独摆了 seat2p0/seat2p1(可在编辑器里自由调整这两个座位的位置),
+        //优先用这两个专用座位,否则在六座图上取对称子集兜底
+        var seat2p = [card.getChildByName("seat2p0"), card.getChildByName("seat2p1")];
+        var use2p = !!(maxP === 2 && seat2p[0] && seat2p[1]);
         //useSet:房间座位号(0..maxP-1)依次对应的牌桌显示位(下左/左/上左/上右/右/下右),推送里的seatindex要按它换算
-        var useSet = {2:[0,3],3:[0,1,4],4:[0,1,3,4],5:[0,1,2,3,4],6:[0,1,2,3,4,5]}[maxP] || [0,1,2,3,4,5];
+        var useSet = use2p ? [0,1] : ({2:[0,3],3:[0,1,4],4:[0,1,3,4],5:[0,1,2,3,4],6:[0,1,2,3,4,5]}[maxP] || [0,1,2,3,4,5]);
         //初始座位:用列表接口返回的 user_id0..5(下标=房间座位号)按map换算到显示位直接渲染,
         //否则打开页面前已落座的玩家永远显示不出来,后续变化再由长连接推送增量更新
         var uids = [0,0,0,0,0,0]; //下标=显示位
@@ -2440,20 +1496,31 @@ cc.Class({
         for(var i = 0; i < 6; i++){
             var st = card.getChildByName("seat" + i);
             if(!st){ continue; }
-            if(useSet.indexOf(i) < 0){ st.active = false; continue; }
+            if(use2p || useSet.indexOf(i) < 0){ st.active = false; continue; }
             st._side = sides[i];
             slotList[i] = st;
             this._clubSetSeat(st,uids[i] || 0,names[i] || "");
+        }
+        if(seat2p[0]){ seat2p[0].active = use2p; }
+        if(seat2p[1]){ seat2p[1].active = use2p; }
+        if(use2p){
+            //2人桌专用座位:下家/上家,人物朝向沿用六座图的 下左/上右 两套图
+            for(var q = 0; q < 2; q++){
+                var st2 = seat2p[q];
+                st2._side = (q === 0) ? "下左" : "上右";
+                slotList[q] = st2;
+                this._clubSetSeat(st2,uids[q] || 0,names[q] || "");
+            }
         }
         if(!this._clubTableCardMap){ this._clubTableCardMap = {}; }
         var ent = {card:card,slots:slotList,uids:uids,map:useSet}; //map:房间座位号→显示位
         this._clubTableCardMap[t.id] = ent; //供长连接推送增量刷新落座人物
         if(t.roomid){ this._clubTableCardMap["r_" + t.roomid] = ent; } //推送按roomid定位卡片,避免走DB全表刷新(异步写库有时序差)
-        //桌面名称:牌桌号后面加"号桌"二字
+        //桌面名称:直接使用牌桌名(玩法名),不再额外拼接后缀
         var nn = card.getChildByName("cb") || card.getChildByName("n"); //cb=牌桌名称节点(旧模板叫n)
         if(nn){
             var nl = nn.getComponent(cc.Label);
-            if(nl){ nl.string = (t.name || "") + "号桌"; }
+            if(nl){ nl.string = (t.name || ""); }
         }
         //底分/局数:直接用桌conf里存的实际值(添加牌桌时输入的值),老数据兜底才按选项下标换算
         var confObj = {};
@@ -2475,11 +1542,15 @@ cc.Class({
             var cl = cch.getComponent(cc.Label);
             if(cl){ cl.string = "底分" + (df != null ? df : "-") + "  局数" + (js != null ? js : "-"); }
         }
-        //入场/离场豆豆:ca节点(场景模板sampleCard0直子节点,Label样式由场景控制),取桌conf的min_bean/kick_bean
+        //入场/离场豆豆:只有宝宝玩法有(其它玩法是固定人数玩法,卡片只显示底分/局数)
         var caN = card.getChildByName("ca");
         if(caN){
-            var caLab = caN.getComponent(cc.Label);
-            if(caLab){ caLab.string = "入场：" + minBean + "，离场：" + (Number(confObj.kick_bean) || 0); }
+            var isBbCard = String(t.game_type || confObj.type || "").indexOf("baobao") === 0;
+            caN.active = isBbCard;
+            if(isBbCard){
+                var caLab = caN.getComponent(cc.Label);
+                if(caLab){ caLab.string = "入场：" + minBean + "，离场：" + (Number(confObj.kick_bean) || 0); }
+            }
         }
         //清空按钮(仅俱乐部创建者可见,服务端club_tables下发can_clear标记):解散牌桌绑定房间并踢出所有玩家
         var btnClear = card.getChildByName("btnClear");
@@ -2652,7 +1723,7 @@ cc.Class({
     //清空后被释放的玩家可自由进入其它房间
     _clubClearTable:function(t){
         var self = this;
-        this._clubShowConfirm("清空牌桌","确定清空「" + (t.name || "") + "号桌」?将解散房间并踢出所有玩家",function(){
+        this._clubShowConfirm("清空牌桌","确定清空「" + (t.name || "") + "」?将解散房间并踢出所有玩家",function(){
             cc.vv.wc.show("正在清空牌桌");
             cc.vv.http.sendRequest("/club_clear_table",{
                 account:cc.vv.userMgr.account,
@@ -2673,7 +1744,7 @@ cc.Class({
     //删除牌桌(仅俱乐部创建者;确认后调用服务端删除,牌桌使用中服务端会拒绝)
     _clubDelTable:function(t){
         var self = this;
-        this._clubShowConfirm("删除牌桌","确定删除「" + (t.name || "") + "号桌」?删除后不可恢复",function(){
+        this._clubShowConfirm("删除牌桌","确定删除「" + (t.name || "") + "」?删除后不可恢复",function(){
             cc.vv.wc.show("正在删除牌桌");
             cc.vv.http.sendRequest("/club_del_table",{
                 account:cc.vv.userMgr.account,
