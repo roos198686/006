@@ -534,6 +534,25 @@ cc.Class({
         return pai == conf.caishen || (conf.caishen2 != null && conf.caishen2 >= 0 && pai == conf.caishen2);
     },
 
+    //吃/碰/杠提示牌财神角标: 克隆场景csCornerOp模板,位置/大小由编辑器控制
+    _setOpCaishenCorner:function(tileNode,pai){
+        if(!tileNode){ return; }
+        var corner = tileNode.getChildByName("csCorner");
+        if(!this._isCaishenPai(pai)){
+            if(corner){ corner.active = false; }
+            return;
+        }
+        if(!corner){
+            var gameChild = this.node.getChildByName("game");
+            var template = gameChild ? gameChild.getChildByName("csCornerOp") : null;
+            if(!template){ return; }
+            corner = cc.instantiate(template);
+            corner.name = "csCorner";
+            tileNode.addChild(corner);
+        }
+        corner.active = true;
+    },
+
     //把"面值需求"换算成手里的真实牌:缺的用财神顶(服务端吃碰杠都支持财神补位)
     //换算结果同时用于组合展示和吃牌发包
     _buildOpTiles:function(faceIds){
@@ -638,6 +657,7 @@ cc.Class({
                     if(this._isCaishenPai(grp[t])){
                         tn.color = cc.color(255, 208, 90); //财神牌和手牌财神同一个金色
                     }
+                    this._setOpCaishenCorner(tn,grp[t]);
                     gx += step;
                 }
                 //整组可点
@@ -1357,6 +1377,9 @@ cc.Class({
                 var conf = cc.vv.gameNetMgr.conf || {};
                 var isCs = (conf.caishen >= 0 && pai == conf.caishen) || (conf.caishen2 != null && conf.caishen2 >= 0 && pai == conf.caishen2);
                 tintHandCard(nc, isCs);
+                //摸牌的财神角标同样显隐
+                var moCorner = nc.getChildByName("csCorner");
+                if(moCorner){ moCorner.active = isCs; }
             }
         }
         else if(pai != null){
@@ -1560,6 +1583,9 @@ cc.Class({
         var conf = cc.vv.gameNetMgr.conf || {};
         var isCs = (mjid != null && mjid >= 0) && ((conf.caishen >= 0 && mjid == conf.caishen) || (conf.caishen2 != null && conf.caishen2 >= 0 && mjid == conf.caishen2));
         tintHandCard(sprite.node, isCs);
+        //财神角标: 场景里手牌下的csCorner子节点, 位置/大小在编辑器里调, 代码只控制显隐
+        var corner = sprite.node.getChildByName("csCorner");
+        if(corner){ corner.active = isCs; }
     },
 
     //自己座位数据:优先 seatIndex 命中,异常时用 userId 兜底(2人房/4人房都适用)
@@ -1654,6 +1680,7 @@ cc.Class({
                 var sp = pn.addComponent(cc.Sprite);
                 sp.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID("B_", pais[p]);
                 sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+                this._setOpCaishenCorner(pn,pais[p]);
             }
         }
         this._chiPanel = panel;

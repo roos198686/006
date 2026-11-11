@@ -259,7 +259,7 @@ cc.Class({
         var row = cc.instantiate(tpl);
         row.name = "member_" + member.userid;
 
-        this._setAvatar(row, "avatar", member.headimg);
+        this._setAvatar(row, "avatar", member.headimg, member.userid);
         this._setLabel(row, "name", member.name || "未知");
         this._setLabel(row, "uid", "ID:" + member.userid);
         this._setLabel(row, "gems", String(member.gems || 0));
@@ -302,23 +302,23 @@ cc.Class({
         lbl.string = text;
     },
 
-    // 给行内的头像节点换图: 内置头像 avatar_01~18 走本地资源, 其它按远程地址加载
-    _setAvatar: function (row, nodeName, headimg) {
+    //列表头像统一走ImageLoader,用接口最新headimg覆盖缓存,同一玩家换头像后也会刷新
+    _setAvatar: function (row, nodeName, headimg, userid) {
         var n = row.getChildByName(nodeName);
-        if (!n) return;
-        var sp = n.getComponent(cc.Sprite);
-        if (!sp) return;
-        if (!headimg) return;
-        if (/^avatar_\d{1,3}$/.test(headimg)) {
-            cc.resources.load("images/avatars/" + headimg, cc.SpriteFrame, function (err, sf) {
-                if (!err && sf && cc.isValid(n)) { sp.spriteFrame = sf; }
-            });
+        if (!n || !n.getComponent(cc.Sprite)) return;
+        var loader = n.getComponent("ImageLoader") || n.addComponent("ImageLoader");
+        if (!headimg || !(userid > 0)) {
+            loader.clearAvatar();
             return;
         }
-        cc.assetManager.loadRemote(headimg + ".jpg", function (err, tex) {
-            if (err || !tex || !cc.isValid(n)) return;
-            sp.spriteFrame = new cc.SpriteFrame(tex, cc.Rect(0, 0, tex.width, tex.height));
-        });
+        var isLocal = /^avatar_\d{1,3}$/.test(headimg);
+        if (cc.vv.baseInfoMap == null) { cc.vv.baseInfoMap = {}; }
+        cc.vv.baseInfoMap[userid] = {
+            localKey: isLocal ? headimg : null,
+            url: isLocal ? null : headimg + ".jpg",
+            ts: Date.now()
+        };
+        loader.setUserID(userid);
     },
 
     _onMemberAction: function (action, member) {
@@ -447,7 +447,7 @@ cc.Class({
 
         var ownerTxt = partner.owner_name ? (partner.owner_name + '(' + partner.owner_userid + ')') : '';
 
-        this._setAvatar(row, "avatar", partner.headimg);
+        this._setAvatar(row, "avatar", partner.headimg, partner.owner_userid);
         this._setLabel(row, "name", partner.name || "未命名");
         this._setLabel(row, "uid", ownerTxt || ("ID:" + partner.id));
         this._setLabel(row, "members", String(partner.member_count || 0));
@@ -533,7 +533,7 @@ _renderPartnerStats: function () {
         var p = direct[i];
         var row = cc.instantiate(tpl);
         row.name = 'stats_' + p.id; row.active = true; row.parent = content;
-        this._setAvatar(row, 'avatar', p.headimg);
+        this._setAvatar(row, 'avatar', p.headimg, p.owner_userid);
         var ownerN = p.owner_name || '未命名';
         // partnerStatsPage 自己的 rowTpl 已带 label: name/uid/members/gems/ratio/rake/profit/total/btn_detail/avatar
         this._setLabel(row, 'name', p.name || '-');
@@ -1309,7 +1309,7 @@ _bindRewardPage: function () {
         var content = panel.getChildByName("content");
         this._setNodeLabel(panel.getChildByName("titleLabel"), "战绩 - " + member.name);
         this._setNodeLabel(content.getChildByName("tipLabel"), member.name + " (ID:" + member.userid + ")");
-        this._setAvatar(content, "avatar", member.headimg);
+        this._setAvatar(content, "avatar", member.headimg, member.userid);
         this._fillPopupList(content, []);
         clubReq("/club_member/records", {
             club_id: this._clubId,
@@ -1349,7 +1349,7 @@ _bindRewardPage: function () {
         var content = panel.getChildByName("content");
         this._setNodeLabel(panel.getChildByName("titleLabel"), "豆豆明细 - " + member.name);
         this._setNodeLabel(content.getChildByName("tipLabel"), member.name + " (ID:" + member.userid + ")");
-        this._setAvatar(content, "avatar", member.headimg);
+        this._setAvatar(content, "avatar", member.headimg, member.userid);
         this._fillPopupList(content, []);
         clubReq("/club_member/bean_logs", {
             club_id: this._clubId,
@@ -1378,7 +1378,7 @@ _bindRewardPage: function () {
         var content = panel.getChildByName("content");
         this._setNodeLabel(panel.getChildByName("titleLabel"), "豆豆明细 - " + (partner.name || ""));
         this._setNodeLabel(content.getChildByName("tipLabel"), (partner.name || "") + " (ID:" + partner.id + ")");
-        this._setAvatar(content, "avatar", partner.headimg);
+        this._setAvatar(content, "avatar", partner.headimg, partner.owner_userid);
         this._fillPopupList(content, []);
         clubReq("/partner/bean_logs", {
             club_id: this._clubId,

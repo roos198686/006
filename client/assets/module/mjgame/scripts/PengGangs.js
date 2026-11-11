@@ -89,6 +89,27 @@ cc.Class({
         return this.node.getComponent("MJGameZJLAO") != null;
     },
 
+    //副露财神角标: 克隆场景里的csCornerMeld模板,位置/大小只在编辑器里调
+    _setCaishenCorner:function(tileNode,pai){
+        if(!this._isZjlao() || !tileNode){ return; }
+        var corner = tileNode.getChildByName("csCorner");
+        var conf = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.conf) || {};
+        var isCs = pai != null && pai >= 0 && (pai == conf.caishen || (conf.caishen2 != null && conf.caishen2 >= 0 && pai == conf.caishen2));
+        if(!isCs){
+            if(corner){ corner.active = false; }
+            return;
+        }
+        if(!corner){
+            var gameChild = this.node.getChildByName("game");
+            var template = gameChild ? gameChild.getChildByName("csCornerMeld") : null;
+            if(!template){ return; }
+            corner = cc.instantiate(template);
+            corner.name = "csCorner";
+            tileNode.addChild(corner);
+        }
+        corner.active = true;
+    },
+
     //副露牌贴紧重排:图集帧55x84但可见牌体约47宽,按55排会有缝;收紧到47(仅zjlao调用)
     _tightenMeld:function(pgroot){
         var xs = 47;
@@ -224,12 +245,15 @@ cc.Class({
         var pi = 0;
         for(var s = 0; s < sprites.length; ++s){
             var sprite = sprites[s];
+            if(sprite.node.name == "csCorner"){ continue; } //角标不是牌面,复用副露时跳过
             if(sprite.node.name == "gang"){
                 sprite.node.active = false; //吃牌无杠背
+                this._setCaishenCorner(sprite.node,null);
             }
             else{
                 var mj = (pi < pais.length) ? pais[pi] : pais[pais.length - 1];
                 sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mj);
+                this._setCaishenCorner(sprite.node,mj);
                 pi++;
             }
         }
@@ -273,6 +297,7 @@ cc.Class({
         var pi = 0; //碰组真实组成的渲染索引(仅peng且有tiles时使用)
         for(var s = 0; s < sprites.length; ++s){
             var sprite = sprites[s];
+            if(sprite.node.name == "csCorner"){ continue; } //角标不是牌面,复用副露时跳过
             if(sprite.node.name == "gang"){
                 var isGang = flag != "peng";
                 sprite.node.active = isGang;
@@ -288,11 +313,13 @@ cc.Class({
                 else{
                     sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
                 }
+                this._setCaishenCorner(sprite.node,(isGang && flag != "angang") ? mjid : null);
             }
             else{
                 //碰组有真实组成数据时按实际牌渲染(财神碰会显示出财神),否则三张同牌
                 var showMj = (flag == "peng" && tiles && pi < tiles.length) ? tiles[pi] : mjid;
                 sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,showMj);
+                this._setCaishenCorner(sprite.node,showMj);
                 pi++;
             }
         }

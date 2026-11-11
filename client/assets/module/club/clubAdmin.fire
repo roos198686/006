@@ -8916,7 +8916,7 @@
       "ctor": "Float64Array",
       "array": [
         -521.843,
-        32.697,
+        25.697000000000003,
         0,
         0,
         0,
@@ -9010,8 +9010,8 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        -515.656,
-        -26.98,
+        -519.656,
+        -19.98,
         0,
         0,
         0,
@@ -25826,7 +25826,7 @@
       "width": 1600,
       "height": 120
     },
-    "_resize": 2,
+    "_resize": 1,
     "_N$layoutType": 2,
     "_N$cellSize": {
       "__type__": "cc.Size",
@@ -29103,7 +29103,7 @@
     "node": {
       "__id__": 538
     },
-    "_enabled": true,
+    "_enabled": false,
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 40,
@@ -29136,7 +29136,7 @@
       "width": 1600,
       "height": 120
     },
-    "_resize": 2,
+    "_resize": 1,
     "_N$layoutType": 2,
     "_N$cellSize": {
       "__type__": "cc.Size",

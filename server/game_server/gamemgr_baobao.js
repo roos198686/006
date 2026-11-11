@@ -260,7 +260,7 @@ function cmpSuit(s1, s2){ return s1 < s2 ? 1 : (s1 > s2 ? -1 : 0); }
 // 2) 宝 vs 宝: 比对子点数, 相同比花色
 // 3) 散牌 vs 散牌: 比点数(9最大/0最小), 点数相同:
 //    0点: 模式 1=比本组最大牌花色, 2=和
-//    非0点: 总和不相等比总和; 总和相等按模式 1=比最大牌花色, 3=先比最大单张点数再比最大牌花色, 2=和
+//    非0点按模式比较: 1=最大牌花色, 2=和, 3=最大单张点数再比花色
 function cmpDao(a, b, mode){
     if(a.bao != b.bao) return a.bao ? 1 : -1;
     if(a.bao){
@@ -274,7 +274,6 @@ function cmpDao(a, b, mode){
         if(mode == 3 && a.maxRank != b.maxRank) return a.maxRank > b.maxRank ? 1 : -1;
         return cmpSuit(a.maxSuit, b.maxSuit);
     }
-    if(a.sum != b.sum) return a.sum > b.sum ? 1 : -1;
     if(mode == 2) return 0;
     if(mode != 3) return cmpSuit(a.maxSuit, b.maxSuit);
     if(a.maxRank != b.maxRank) return a.maxRank > b.maxRank ? 1 : -1;

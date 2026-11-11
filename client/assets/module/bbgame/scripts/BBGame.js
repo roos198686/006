@@ -1401,7 +1401,8 @@ cc.Class({
             if (sn.userSprite) sn.userSprite.color = cc.Color.WHITE;
             this.setStr(sn.nameLabel, infos[j].info.name || "");
             this.setStr(sn.scoreLabel, infos[j].info.score != null ? ("" + infos[j].info.score) : "");
-            if (sn.zhuang) sn.zhuang.active = !!infos[j].info.isBanker;
+            //玩家座位不再显示庄家标识,庄家数据仍用于结算和亮牌顺序
+            if (sn.zhuang) sn.zhuang.active = false;
             if (sn.readyMark) sn.readyMark.active = !!infos[j].info.ready;
             // 坐下标记: 点「准备」后才显示, 开局后隐藏
             if (sn.okSprite) sn.okSprite.active = !this._started && !!infos[j].info.ready;
@@ -2947,7 +2948,7 @@ cc.Class({
 
     // 单道评估(与服务端 evalDao 一致)
     // 宝: 对子, rank 为对子点数, suit 取其中花色大的
-    // 散牌: point=(p1+p2)%10, sum=两张点数原始和(同点比和用), maxRank/maxSuit=最大单张点数牌
+    // 散牌: point=(p1+p2)%10, maxRank/maxSuit=最大单张点数牌
     _evalD: function (c1, c2) {
         var r1 = this.rankOf(c1), r2 = this.rankOf(c2);
         if (r1 == r2) {
@@ -2967,9 +2968,8 @@ cc.Class({
     // 单道比较(与服务端 cmpDao 一致): >0 a胜, <0 b胜, 0 和
     // 1) 宝 vs 散牌 → 宝胜
     // 2) 宝 vs 宝: 比对子点数, 相同比花色
-    // 3) 散牌 vs 散牌: 比点数(9最大/0最小), 点数相同:
-    //    0点: 后台配置 1=比最大牌花色, 2=和
-    //    非0点: 总和不相等比总和; 总和相等按后台配置 1=比最大牌花色; 3=先比最大单张点数再比最大牌花色; 2=和
+    // 3) 散牌 vs 散牌: 先比点数(9最大/0最小), 同点(含0点)按后台配置比较:
+    //    1=最大牌花色, 2=和, 3=最大单张点数再比花色
     _cmpD: function (a, b) {
         if (a.bao != b.bao) return a.bao ? 1 : -1;
         if (a.bao) {
@@ -2978,11 +2978,6 @@ cc.Class({
         }
         if (a.point != b.point) return a.point > b.point ? 1 : -1;
         var mode = this._tdMode || 3;
-        if (a.point == 0) {
-            if (mode == 2) return 0;
-            return this._cmpSuit(a.maxSuit, b.maxSuit);
-        }
-        if (a.sum != b.sum) return a.sum > b.sum ? 1 : -1;
         if (mode == 2) return 0;
         if (mode != 3) return this._cmpSuit(a.maxSuit, b.maxSuit);
         if (a.maxRank != b.maxRank) return a.maxRank > b.maxRank ? 1 : -1;

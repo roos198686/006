@@ -1191,6 +1191,15 @@ cc.Class({
         //俱乐部名称后面显示玩家房卡数(节点clubGems固化在场景listArea下,位置由编辑器控制,JS只填文字)
         var gemsNode = this._clubFind(area,"clubGems");
         this._clubGemsNode = gemsNode; //缓存引用,供保险柜存取后同步显示 //rc2
+        //顶部玩家头像:每次进入详情清掉自己的基础信息缓存,确保换头像后立即同步
+        var topBar = gemsNode && gemsNode.parent;
+        var avatarBox = topBar ? topBar.getChildByName("New Node") : null;
+        var topAvatar = avatarBox ? avatarBox.getChildByName("name") : null;
+        if(topAvatar && cc.vv.userMgr && cc.vv.userMgr.userId){
+            if(cc.vv.baseInfoMap){ delete cc.vv.baseInfoMap[cc.vv.userMgr.userId]; }
+            var topLoader = topAvatar.getComponent("ImageLoader") || topAvatar.addComponent("ImageLoader");
+            topLoader.setUserID(cc.vv.userMgr.userId);
+        }
         var setGems = function(v){
             if(!cc.isValid(gemsNode)){ return; }
             var gl = gemsNode.getComponent(cc.Label);
@@ -1563,20 +1572,6 @@ cc.Class({
                     ev.stopPropagation(); //阻止冒泡触发卡片进桌点击
                     if(self._clubTablesScrollMoved){ self._clubTablesScrollMoved = false; return; }
                     self._clubClearTable(t);
-                });
-            }
-        }
-        //删除牌桌按钮(场景模板sampleCard0内的btnDel节点):仅俱乐部创建者可见
-        var btnDel = this._clubFind(card,"btnDel");
-        if(btnDel){
-            var isOwner = !!(this._clubCur && cc.vv.userMgr && String(this._clubCur.owner_userid) === String(cc.vv.userMgr.userId));
-            btnDel.active = isOwner;
-            btnDel.off(cc.Node.EventType.TOUCH_END);
-            if(isOwner){
-                btnDel.on(cc.Node.EventType.TOUCH_END,function(ev){
-                    ev.stopPropagation(); //阻止冒泡触发卡片进桌点击
-                    if(self._clubTablesScrollMoved){ self._clubTablesScrollMoved = false; return; }
-                    self._clubDelTable(t);
                 });
             }
         }

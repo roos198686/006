@@ -254,6 +254,7 @@ exports.init = function(config){
         '`reward_type` varchar(32) NOT NULL DEFAULT "" COMMENT "奖励类型:游戏奖励/保底奖励/切牌奖励/表情奖励/门票奖励/暗水奖励",' +
         '`amount` decimal(16,4) NOT NULL DEFAULT 0 COMMENT "奖励数量",' +
         '`game_type` varchar(32) NOT NULL DEFAULT "" COMMENT "所属玩法",' +
+        '`table_name` varchar(64) NOT NULL DEFAULT "" COMMENT "牌桌真实名称",' +
         '`roomid` int(11) NOT NULL DEFAULT 0 COMMENT "房间号",' +
         '`room_uuid` char(20) NOT NULL DEFAULT "",' +
         '`game_index` smallint(6) NOT NULL DEFAULT 0,' +
@@ -265,6 +266,12 @@ exports.init = function(config){
             if(err){ console.log("create t_reward_logs failed:" + err.message); }
         });
     }, 6000);
+    //老库补列:奖励明细记录牌桌真实名称;缺列会导致线上奖励写入全部失败
+    setTimeout(function(){
+        query('ALTER TABLE `t_reward_logs` ADD COLUMN `table_name` VARCHAR(64) NOT NULL DEFAULT "" COMMENT "牌桌真实名称" AFTER `game_type`', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_reward_logs.table_name failed:" + err.message); }
+        });
+    }, 6300);
 
     //乐豆流水关联俱乐部和合伙人
     setTimeout(function(){
@@ -1978,7 +1985,7 @@ exports.club_game_add_with_config = function(clubId,gameType,name,config,callbac
             });
             return;
         }
-        var sql = 'INSERT INTO t_club_games(club_id,game_type,name,difen_options,jushu_options,cost_options,sort,tai_rules,enabled,create_time,min_players,max_players_custom,rake_percent,hidden_rake_percent,fee_rake_percent,rake_per_round,room_fee,room_fee_payer,face_score,shuffle_score,min_bean,kick_bean) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)';
+        var sql = 'INSERT INTO t_club_games(club_id,game_type,name,difen_options,jushu_options,cost_options,sort,tai_rules,enabled,create_time,min_players,max_players_custom,rake_percent,hidden_rake_percent,rake_per_round,room_fee,room_fee_payer,face_score,shuffle_score,min_bean,kick_bean) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)';
         queryP(sql,[
             clubId, gameType, name,
             JSON.stringify(config.difen_options || [1,2,5]),
@@ -1989,7 +1996,6 @@ exports.club_game_add_with_config = function(clubId,gameType,name,config,callbac
             config.max_players_custom || 6,
             config.rake_percent || 0,
             config.hidden_rake_percent || 0,
-            config.fee_rake_percent != null ? config.fee_rake_percent : 100,
             config.rake_per_round != null ? config.rake_per_round : 1,
             config.room_fee || 0,
             config.room_fee_payer || 0,
@@ -2046,7 +2052,6 @@ exports.club_game_update_config = function(id,fields,callback){
     if(fields.max_players_custom != null){ sets.push('max_players_custom = ?'); params.push(fields.max_players_custom); }
     if(fields.rake_percent != null){ sets.push('rake_percent = ?'); params.push(fields.rake_percent); }
     if(fields.hidden_rake_percent != null){ sets.push('hidden_rake_percent = ?'); params.push(fields.hidden_rake_percent); }
-    if(fields.fee_rake_percent != null){ sets.push('fee_rake_percent = ?'); params.push(fields.fee_rake_percent); }
     if(fields.rake_per_round != null){ sets.push('rake_per_round = ?'); params.push(fields.rake_per_round); }
     if(fields.room_fee != null){ sets.push('room_fee = ?'); params.push(fields.room_fee); }
     if(fields.room_fee_payer != null){ sets.push('room_fee_payer = ?'); params.push(fields.room_fee_payer); }
