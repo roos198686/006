@@ -143,6 +143,8 @@ app.get('/admin/game_configs', auth, function(req, res){
                 cai_chi: r.cai_chi,
                 cai_peng: r.cai_peng,
                 cai_gang: r.cai_gang,
+                cai_pure: r.cai_pure != null ? r.cai_pure : 0,
+                hu_guo_confirm: r.hu_guo_confirm != null ? r.hu_guo_confirm : 1,
                 dianpao_hu: r.dianpao_hu,
                 remove_tiao: r.remove_tiao != null ? r.remove_tiao : 0,
                 cai7: r.cai7 != null ? r.cai7 : 0,
@@ -183,6 +185,8 @@ app.post('/admin/game_config', auth, function(req, res){
     var caiChi = c.cai_chi != null ? c.cai_chi : (c.caishen_cpg != null ? c.caishen_cpg : 1);
     var caiPeng = c.cai_peng != null ? c.cai_peng : (c.caishen_cpg != null ? c.caishen_cpg : 1);
     var caiGang = c.cai_gang != null ? c.cai_gang : (c.caishen_cpg != null ? c.caishen_cpg : 1);
+    var caiPure = c.cai_pure != null ? c.cai_pure : 0;
+    var huGuoConfirm = c.hu_guo_confirm != null ? (c.hu_guo_confirm ? 1 : 0) : 1;
     var dianpaoHu = c.dianpao_hu != null ? c.dianpao_hu : 1;
     var removeTiao = c.remove_tiao != null ? c.remove_tiao : 0;
     var cai7 = c.cai7 != null ? c.cai7 : 0;
@@ -202,10 +206,10 @@ app.post('/admin/game_config', auth, function(req, res){
     var gpLastFourTwoThree = gpVal('gp_last_four_two_three', 0);
     var gpStraightA2 = gpVal('gp_straight_a2', 1);
     var gpCardHistory = gpVal('gp_card_history', 0);
-    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,auto_dissolve_seconds,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
+    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,auto_dissolve_seconds,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
         + c.type + '","' + c.name + '","' + difen + '","' + jushu + '","' + cost + '","' + chips + '",'
         + (c.max_players || 2) + ',' + (c.max_tai || 10) + ',' + (c.caishen_cpg != null ? c.caishen_cpg : 1) + ','
-        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + autoDissolve + ','
+        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + caiPure + ',' + huGuoConfirm + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + autoDissolve + ','
         + (taiRules ? "'" + taiRules + "'" : 'NULL') + ','
         + gpBomb + ',' + gpBombFour + ',' + gpFourTwo + ',' + gpFourThree + ',' + gpThreeOne + ',' + gpLastThreeOne + ',' + gpLastFourTwoThree + ',' + gpStraightA2 + ',' + gpCardHistory + ','
         + (c.enabled ? 1 : 0) + ',' + (c.sort || 0) + ')';
@@ -232,6 +236,8 @@ app.put('/admin/game_config/:id', auth, function(req, res){
     if(c.cai_chi != null) sets.push('cai_chi=' + (c.cai_chi ? 1 : 0));
     if(c.cai_peng != null) sets.push('cai_peng=' + (c.cai_peng ? 1 : 0));
     if(c.cai_gang != null) sets.push('cai_gang=' + (c.cai_gang ? 1 : 0));
+    if(c.cai_pure != null) sets.push('cai_pure=' + (c.cai_pure ? 1 : 0));
+    if(c.hu_guo_confirm != null) sets.push('hu_guo_confirm=' + (c.hu_guo_confirm ? 1 : 0));
     if(c.dianpao_hu != null) sets.push('dianpao_hu=' + (c.dianpao_hu ? 1 : 0));
     if(c.remove_tiao != null) sets.push('remove_tiao=' + (c.remove_tiao ? 1 : 0));
     if(c.cai7 != null) sets.push('cai7=' + (c.cai7 ? 1 : 0));
@@ -448,6 +454,8 @@ app.get('/admin/club_games', auth, function(req, res){
                 cai_chi: r.cai_chi != null ? r.cai_chi : 1,
                 cai_peng: r.cai_peng != null ? r.cai_peng : 1,
                 cai_gang: r.cai_gang != null ? r.cai_gang : 1,
+                cai_pure: r.cai_pure != null ? r.cai_pure : 0,
+                hu_guo_confirm: r.hu_guo_confirm != null ? r.hu_guo_confirm : 1,
                 dianpao_hu: r.dianpao_hu != null ? r.dianpao_hu : 1,
                 tianhu_di: r.tianhu_di != null ? r.tianhu_di : 1,
                 cai_diao: r.cai_diao != null ? r.cai_diao : 1,
@@ -472,7 +480,7 @@ app.get('/admin/club_games', auth, function(req, res){
 app.get('/admin/club_available_games', auth, function(req, res){
     var cid = resolveClubId(req, res);
     if(!cid) return;
-    db.query('SELECT type,name,difen_options,jushu_options,cost_options,max_players,sort,cai7,remove_tiao,cai_chi,cai_peng,cai_gang,dianpao_hu,tianhu_di,cai_diao,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history FROM t_game_config WHERE enabled=1 ORDER BY sort', function(err, rows){
+    db.query('SELECT type,name,difen_options,jushu_options,cost_options,max_players,sort,cai7,remove_tiao,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,dianpao_hu,tianhu_di,cai_diao,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history FROM t_game_config WHERE enabled=1 ORDER BY sort', function(err, rows){
         if(err){ send(res, 500, "数据库错误"); return; }
         db.club_games_with_count(cid, function(used){
             var usedTypes = {};
@@ -490,6 +498,8 @@ app.get('/admin/club_available_games', auth, function(req, res){
                     cai_chi: r.cai_chi != null ? r.cai_chi : 1,
                     cai_peng: r.cai_peng != null ? r.cai_peng : 1,
                     cai_gang: r.cai_gang != null ? r.cai_gang : 1,
+                cai_pure: r.cai_pure != null ? r.cai_pure : 0,
+                    hu_guo_confirm: r.hu_guo_confirm != null ? r.hu_guo_confirm : 1,
                     dianpao_hu: r.dianpao_hu != null ? r.dianpao_hu : 1,
                     tianhu_di: r.tianhu_di != null ? r.tianhu_di : 1,
                     cai_diao: r.cai_diao != null ? r.cai_diao : 1
@@ -806,7 +816,7 @@ app.get('/admin/partners', auth, function(req, res){
     });
 });
 
-// 合伙人加减豆豆(给合伙人俱乐部社长加)
+// 合伙人加减豆豆(给合伙人俱乐部社长加, 支持直接下级+二级+三级)
 app.post('/admin/partner/gems', auth, function(req, res){
     var cid = resolveClubId(req, res);
     if(!cid) return;
@@ -814,13 +824,28 @@ app.post('/admin/partner/gems', auth, function(req, res){
     var partnerClubId = parseInt(c.partner_club_id);
     var gems = parseInt(c.gems);
     if(!(partnerClubId > 0) || isNaN(gems)){ send(res, 1, "参数错误"); return; }
-    // 查合伙人俱乐部社长
-    db.query('SELECT owner_userid FROM t_clubs WHERE id = ' + partnerClubId + ' AND parent_clubid = ' + cid, function(err, rows){
-        if(err || !rows || rows.length == 0){ send(res, 1, "合伙人不存在"); return; }
-        var ownerId = rows[0].owner_userid;
-        db.add_user_gems(ownerId, gems, function(ok){
-            send(res, ok ? 0 : 1, ok ? "ok" : "操作失败");
-        }, {changeType: "合伙人豆豆调整", clubId: cid, partnerClubId: partnerClubId});
+    // 校验: partnerClubId 必须是 cid 的下级(递归任意层级)
+    db.query('SELECT owner_userid, parent_clubid FROM t_clubs WHERE id = ' + partnerClubId, function(err, club){
+        if(err || !club || club.length === 0){ send(res, 1, "合伙人不存在"); return; }
+        // BFS 反向走祖先链, 看 cid 是否在祖先里(最多 5 层)
+        var cur = club[0].parent_clubid;
+        var depth = 0;
+        var found = false;
+        var walkUp = function(){
+            if(found){
+                db.add_user_gems(club[0].owner_userid, gems, function(ok){
+                    send(res, ok ? 0 : 1, ok ? "ok" : "操作失败");
+                }, {changeType: "合伙人豆豆调整", clubId: cid, partnerClubId: partnerClubId});
+                return;
+            }
+            if(depth++ > 5 || !(cur > 0)){ send(res, 1, "合伙人不属于当前顶级俱乐部"); return; }
+            if(cur === cid){ found = true; walkUp(); return; }
+            db.query('SELECT parent_clubid FROM t_clubs WHERE id = ' + cur, function(e, r){
+                if(e || !r || !r.length){ send(res, 1, "合伙人归属验证失败"); return; }
+                cur = r[0].parent_clubid; walkUp();
+            });
+        };
+        walkUp();
     });
 });
 
@@ -850,16 +875,30 @@ app.get('/admin/partner/profit', auth, function(req, res){
 });
 
 // 删除合伙人
+// 删除合伙人(解除归属, 支持任意层级, 向上走祖先链验证)
 app.delete('/admin/partner/:id', auth, function(req, res){
     var cid = resolveClubId(req, res);
     if(!cid) return;
     var partnerClubId = parseInt(req.params.id);
-    // 验证归属
-    db.query('SELECT id FROM t_clubs WHERE id = ' + partnerClubId + ' AND parent_clubid = ' + cid, function(err, rows){
-        if(err || !rows || rows.length == 0){ send(res, 1, "合伙人不存在"); return; }
-        db.admin_club_delete(partnerClubId, function(ok){
-            send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
-        });
+    if(!(partnerClubId > 0)){ send(res, 1, "参数错误"); return; }
+    db.query('SELECT id, parent_clubid FROM t_clubs WHERE id = ' + partnerClubId, function(err, rows){
+        if(err || !rows || !rows.length){ send(res, 1, "合伙人不存在"); return; }
+        var cur = rows[0].parent_clubid; var depth = 0; var found = false;
+        var walkUp = function(){
+            if(found){
+                db.admin_club_delete(partnerClubId, function(ok){
+                    send(res, ok ? 0 : 1, ok ? "ok" : "删除失败");
+                });
+                return;
+            }
+            if(depth++ > 5 || !(cur > 0)){ send(res, 1, "合伙人不属于当前顶级俱乐部"); return; }
+            if(cur === cid){ found = true; walkUp(); return; }
+            db.query('SELECT parent_clubid FROM t_clubs WHERE id = ' + cur, function(e, r){
+                if(e || !r || !r.length){ send(res, 1, "验证失败"); return; }
+                cur = r[0].parent_clubid; walkUp();
+            });
+        };
+        walkUp();
     });
 });
 
@@ -1094,11 +1133,271 @@ app.post('/admin/app/upload', auth, requireSuper, function(req, res){
     });
 });
 
+// ============ 观战:实时查看进行中的麻将牌局(全明牌) ============
+// 观战使用独立账号(t_spectate_users, 由超级后台录入), 与管理员账号互不影响
+function spectateAuth(req, res, next){
+    var token = req.headers['authorization'] || req.query.token;
+    if(!token){ send(res, 401, "未登录"); return; }
+    db.spectate_token_get(token, function(user){
+        if(!user){ send(res, 401, "登录已过期, 请重新登录"); return; }
+        req.spectateUser = user;
+        next();
+    });
+}
+
+var SPECTATE_PWD_MIN = 4;
+function validSpectatePwd(pwd){
+    return typeof pwd === "string" && pwd.length >= SPECTATE_PWD_MIN && pwd.length <= 32;
+}
+
+// 观战账号登录
+app.post('/admin/spectate/login', function(req, res){
+    var username = String((req.body && req.body.username) || "").trim();
+    var password = String((req.body && req.body.password) || "");
+    if(!username || !password){ send(res, 1, "账号或密码不能为空"); return; }
+    db.spectate_user_get(username, function(user){
+        if(!user){ send(res, 1, "账号或密码错误"); return; }
+        if(!user.enabled){ send(res, 1, "该账号已被禁用"); return; }
+        if(user.password !== crypto.md5(password)){ send(res, 1, "账号或密码错误"); return; }
+        var token = crypto.md5("spectate_" + username + Date.now() + Math.random());
+        db.spectate_token_set(user.id, token, function(){
+            send(res, 0, "ok", {token: token, username: user.username});
+        });
+    });
+});
+
+// 观战账号退出
+app.post('/admin/spectate/logout', spectateAuth, function(req, res){
+    db.spectate_token_del(req.headers['authorization'], function(){
+        send(res, 0, "ok");
+    });
+});
+
+// 当前登录账号
+app.get('/admin/spectate/me', spectateAuth, function(req, res){
+    send(res, 0, "ok", {username: req.spectateUser.username});
+});
+
+// 修改自己的密码(校验旧密码)
+app.post('/admin/spectate/change_password', spectateAuth, function(req, res){
+    var oldPwd = String((req.body && req.body.old_password) || "");
+    var newPwd = String((req.body && req.body.new_password) || "");
+    if(!validSpectatePwd(newPwd)){ send(res, 1, "新密码长度为" + SPECTATE_PWD_MIN + "-32位"); return; }
+    db.spectate_user_get(req.spectateUser.username, function(user){
+        if(!user){ send(res, 1, "账号不存在"); return; }
+        if(user.password !== crypto.md5(oldPwd)){ send(res, 1, "旧密码不正确"); return; }
+        if(oldPwd === newPwd){ send(res, 1, "新密码不能与旧密码相同"); return; }
+        db.spectate_user_update(user.id, {password: crypto.md5(newPwd)}, function(err){
+            if(err){ send(res, 500, "修改失败: " + err); return; }
+            // 改密后让旧 token 失效, 强制重新登录
+            db.spectate_token_del(req.headers['authorization'], function(){
+                send(res, 0, "ok");
+            });
+        });
+    });
+});
+
+// 观战:实时查看进行中的牌局
+// 牌局数据在游戏服进程内, 账号服通过游戏服HTTP端口代理取快照
+app.get('/admin/spectate/room', spectateAuth, function(req, res){
+    var roomId = String(req.query.roomid || '').trim();
+    if(!roomId){ send(res, 1, "请输入房间号"); return; }
+    var cfg = config || {};
+    var ip = cfg.GAME_HTTP_IP || '127.0.0.1';
+    var port = cfg.GAME_HTTP_PORT || 9103;
+    var sign = crypto.md5(roomId + (cfg.ROOM_PRI_KEY || ''));
+    // 快照可能较大(全明牌+弃牌), 自己累积分片, 不用 utils/http 的单包解析
+    var nodeHttp = require('http');
+    var url = '/spectate?roomid=' + encodeURIComponent(roomId) + '&sign=' + sign;
+    var reqGs = nodeHttp.request({hostname: ip, port: port, path: url, method: 'GET'}, function(resGs){
+        var body = '';
+        resGs.setEncoding('utf8');
+        resGs.on('data', function(chunk){ body += chunk; });
+        resGs.on('end', function(){
+            var data = null;
+            try { data = JSON.parse(body); } catch(e){ data = null; }
+            if(data == null){ send(res, 2, "游戏服返回数据异常"); return; }
+            if(data.errcode != 0){ send(res, data.errcode, data.errmsg || "查询失败"); return; }
+            send(res, 0, "ok", data.data);
+        });
+    });
+    reqGs.on('error', function(){ send(res, 2, "连接游戏服失败, 请确认游戏服已启动"); });
+    reqGs.setTimeout(5000, function(){ reqGs.abort(); });
+    reqGs.end();
+});
+
+// ---- 观战账号管理(超级后台录入/改密/禁用/删除) ----
+app.get('/admin/spectate/users', auth, requireSuper, function(req, res){
+    db.spectate_user_list(function(list){
+        send(res, 0, "ok", list);
+    });
+});
+app.post('/admin/spectate/user', auth, requireSuper, function(req, res){
+    var username = String((req.body && req.body.username) || "").trim();
+    var password = String((req.body && req.body.password) || "");
+    if(!/^[a-zA-Z0-9_]{3,20}$/.test(username)){ send(res, 1, "账号需为3-20位字母/数字/下划线"); return; }
+    if(!validSpectatePwd(password)){ send(res, 1, "密码长度为" + SPECTATE_PWD_MIN + "-32位"); return; }
+    db.spectate_user_add(username, crypto.md5(password), function(err){
+        if(err){
+            if(/Duplicate/i.test(err)) send(res, 1, "该账号已存在");
+            else send(res, 500, "新增失败: " + err);
+            return;
+        }
+        send(res, 0, "ok");
+    });
+});
+app.put('/admin/spectate/user/:id', auth, requireSuper, function(req, res){
+    var id = parseInt(req.params.id, 10);
+    if(!(id > 0)){ send(res, 1, "参数错误"); return; }
+    var fields = {};
+    if(req.body && req.body.password != null && req.body.password !== ""){
+        var password = String(req.body.password);
+        if(!validSpectatePwd(password)){ send(res, 1, "密码长度为" + SPECTATE_PWD_MIN + "-32位"); return; }
+        fields.password = crypto.md5(password);
+    }
+    if(req.body && req.body.enabled != null){
+        fields.enabled = !!req.body.enabled;
+    }
+    db.spectate_user_update(id, fields, function(err){
+        if(err){ send(res, 500, "修改失败: " + err); return; }
+        send(res, 0, "ok");
+    });
+});
+app.delete('/admin/spectate/user/:id', auth, requireSuper, function(req, res){
+    var id = parseInt(req.params.id, 10);
+    if(!(id > 0)){ send(res, 1, "参数错误"); return; }
+    db.spectate_user_delete(id, function(err){
+        if(err){ send(res, 500, "删除失败: " + err); return; }
+        send(res, 0, "ok");
+    });
+});
+
+
 // 公开接口:下载页获取APP信息(手机端调用,无需登录)
 app.get('/app/info', function(req, res){
     getAppInfo(function(info){
         res.setHeader("Content-Type","application/json;charset=utf-8");
         res.send(JSON.stringify({code:0,msg:"ok",data:info}));
+    });
+});
+
+// ============ APP热更新发布(仅超级管理员) ============
+var HOTUPDATE_DIR = path.join(__dirname, 'hotupdate');
+var unzipUtil = require('../utils/unzip');
+
+// 读取热更信息:版本号取version.manifest, 递归统计文件数/总大小
+function getHotupdateInfo(callback){
+    var info = { has_update: false, version: '', file_count: 0, total_size: 0, update_time: 0 };
+    var manifestFile = path.join(HOTUPDATE_DIR, 'version.manifest');
+    if(fs.existsSync(manifestFile)){
+        info.has_update = true;
+        try {
+            var m = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+            info.version = m.version || '';
+        } catch(e) {
+            info.version = '(清单解析失败)';
+        }
+        try {
+            var stat = fs.statSync(manifestFile);
+            info.update_time = Math.floor(stat.mtime.getTime() / 1000);
+            var count = 0, size = 0;
+            (function walk(dir){
+                var list = fs.readdirSync(dir);
+                for(var i = 0; i < list.length; ++i){
+                    var f = path.join(dir, list[i]);
+                    var st = fs.statSync(f);
+                    if(st.isDirectory()) walk(f);
+                    else { count++; size += st.size; }
+                }
+            })(HOTUPDATE_DIR);
+            info.file_count = count;
+            info.total_size = size;
+        } catch(e) {}
+    }
+    callback(info);
+}
+
+// 管理后台查询当前热更信息
+app.get('/admin/hotupdate/info', auth, function(req, res){
+    getHotupdateInfo(function(info){ send(res, 0, "ok", info); });
+});
+
+// 上传热更包(zip): base64方式, 解压校验后原子替换 hotupdate 目录
+// zip 内容 = Cocos 构建产物目录(build/jsb-default 或 jsb-link)整体打包, 必须含 project.manifest 与 version.manifest
+app.post('/admin/hotupdate/upload', auth, requireSuper, function(req, res){
+    var body = req.body || {};
+    var base64 = body.base64 || '';
+    if(!base64){ send(res, 1, "文件内容为空"); return; }
+    var commaIdx = base64.indexOf(',');
+    if(commaIdx >= 0 && base64.indexOf('base64') >= 0){ base64 = base64.substring(commaIdx + 1); }
+    var buf;
+    try { buf = Buffer.from(base64, 'base64'); }
+    catch(e){ send(res, 1, "文件解析失败"); return; }
+    if(buf.length < 100){ send(res, 1, "文件过小, 可能不是有效zip"); return; }
+
+    var tmpZip = path.join(UPLOAD_DIR, 'hotupdate_upload.zip');
+    var tmpDir = path.join(UPLOAD_DIR, 'hotupdate_extract');
+    // 1. 写临时zip
+    fs.writeFile(tmpZip, buf, function(err){
+        if(err){ send(res, 1, "写入临时文件失败: " + err.message); return; }
+        // 2. 清空临时解压目录后解压
+        unzipUtil.rmdirDeep(tmpDir);
+        unzipUtil.unzip(tmpZip, tmpDir, function(err2, files){
+            if(err2){ send(res, 1, "解压失败: " + err2.message); return; }
+            // 3. zip 根目录若包了一层文件夹(整目录右键压缩常见), 下钻到含清单的一层
+            var root = tmpDir;
+            if(!fs.existsSync(path.join(root, 'project.manifest'))){
+                var subs = fs.readdirSync(root).filter(function(f){
+                    return fs.statSync(path.join(root, f)).isDirectory();
+                });
+                if(subs.length === 1 && fs.existsSync(path.join(root, subs[0], 'project.manifest'))){
+                    root = path.join(root, subs[0]);
+                }
+            }
+            // 4. 校验清单齐全
+            if(!fs.existsSync(path.join(root, 'project.manifest')) || !fs.existsSync(path.join(root, 'version.manifest'))){
+                send(res, 1, "热更包缺少 project.manifest / version.manifest, 请确认打包的是 Cocos 构建产物目录");
+                return;
+            }
+            // 5. 改写清单 packageUrl 指向本机热更托管(构建时远程地址填错也能用)
+            try {
+                var hostIp = (req.headers.host || '').split(':')[0] || '';
+                if(hostIp){
+                    var pkgUrl = 'http://' + hostIp + ':' + ((config && config.CLIENT_PORT) || 9100) + '/hotupdate';
+                    ['project.manifest', 'version.manifest'].forEach(function(mf){
+                        var mp = path.join(root, mf);
+                        var m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+                        m.packageUrl = pkgUrl;
+                        m.remoteManifestUrl = pkgUrl + '/project.manifest';
+                        m.remoteVersionUrl = pkgUrl + '/version.manifest';
+                        fs.writeFileSync(mp, JSON.stringify(m));
+                    });
+                }
+            } catch(e) {
+                console.log('[hotupdate] 清单改写失败(按原样发布):', e.message);
+            }
+            // 6. 原子替换: 旧目录挪到 bak, 新目录挪进来, 再删 bak
+            var bakDir = HOTUPDATE_DIR + '_bak';
+            unzipUtil.rmdirDeep(bakDir);
+            try { fs.mkdirSync(HOTUPDATE_DIR); } catch(e){} // 静态托管在账号服启动时建过, 保证存在
+            fs.rename(HOTUPDATE_DIR, bakDir, function(err3){
+                if(err3){ send(res, 1, "替换热更目录失败: " + err3.message); return; }
+                fs.rename(root, HOTUPDATE_DIR, function(err4){
+                    if(err4){
+                        // 回滚: 新目录进不来就把旧的挪回去
+                        fs.rename(bakDir, HOTUPDATE_DIR, function(){});
+                        send(res, 1, "发布失败: " + err4.message);
+                        return;
+                    }
+                    unzipUtil.rmdirDeep(bakDir);
+                    unzipUtil.rmdirDeep(tmpDir);
+                    fs.unlink(tmpZip, function(){});
+                    getHotupdateInfo(function(info){
+                        send(res, 0, "ok", info);
+                    });
+                });
+            });
+        });
     });
 });
 

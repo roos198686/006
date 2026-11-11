@@ -4,15 +4,27 @@ var Global = require("Global")  //mj所需方法
 //创建房间弹窗里展示的玩法简介(与 HallHelp 的玩法说明保持一致,按 game_type 取)
 var GAME_INTROS = {
     baobao_mian: "6张免摆宝宝(最多6人)。每人发6张牌,系统自动遍历所有拆分,选出最大的一副牌型亮牌。\n" +
-        "· 牌型从大到小:6同花顺 > 5同花顺带1 > 4条带2单 > 3条带3条 > 3条带对带1 > 6同花 > 6连顺 > 5同花带1 > 5连顺带1 > 3对 > 3组9 > 散牌。\n" +
+        "· 牌型从大到小:6同花顺 > 4条带对 > 4条带2单 > 3条带3条 > 3条带对带1 > 6同花 > 6连顺 > 5同花带1 > 5连顺带1 > 3对 > 3组9 > 散牌。\n" +
         "· 花色优先级:黑桃 > 红桃 > 梅花 > 方片。A在长顺里算最小(A23456的A当1)。\n" +
-        "· 有庄时闲家只与庄家比;无庄时六家两两互比(后台开关)。\n" +
+        "· 血战模式:无庄,六家两两互比。\n" +
         "· 各牌型倍率由管理后台设置。",
     baobao_shou: "6张手动摆宝宝(最多6人)。每人发6张牌,自己摆成前2/中2/后2三道。\n" +
         "· 单道规则:对子为宝,宝>散点(两牌相加取个位,9最大0最小);宝排序 宝A>宝K/Q/J>宝10~2。\n" +
         "· 强制 前道≤中道≤后道,摆错为乌龙,三道全输(后台可关校验)。\n" +
         "· 三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍(后台可配)。\n" +
-        "· 有庄时闲家只与庄家比;无庄时六家两两互比(后台开关)。"
+        "· 血战模式:无庄,六家两两互比。",
+    sss2: "十三水(2人)。52张牌每人13张,摆成头3/中5/尾5三道后与其他玩家逐道比牌。\n" +
+        "· 牌型从大到小:同花顺 > 铁支 > 葫芦 > 同花 > 顺子 > 三条 > 两对 > 对子 > 单张。\n" +
+        "· 必须头道≤中道≤尾道,顺序不符不允许提交。\n" +
+        "· 每赢一道+1注,三道全胜打枪再+3注;赢过全部对手为全垒打,每家再+3注。\n" +
+        "· 特殊牌型通吃:一条龙×3、六对半×4、三同花/三顺子×5、三分天下×6。\n" +
+        "· 摆牌限时,超时系统自动摆牌。",
+    sss4: "十三水(4人)。52张牌每人13张,摆成头3/中5/尾5三道后与其他玩家逐道比牌。\n" +
+        "· 牌型从大到小:同花顺 > 铁支 > 葫芦 > 同花 > 顺子 > 三条 > 两对 > 对子 > 单张。\n" +
+        "· 必须头道≤中道≤尾道,顺序不符不允许提交。\n" +
+        "· 每赢一道+1注,三道全胜打枪再+3注;赢过全部对手为全垒打,每家再+3注。\n" +
+        "· 特殊牌型通吃:一条龙×3、六对半×4、三同花/三顺子×5、三分天下×6。\n" +
+        "· 摆牌限时,超时系统自动摆牌。"
 };
 
 cc.Class({
@@ -201,6 +213,12 @@ cc.Class({
         this._checkBindOnLogin();
     },
     //刷新房卡信息
+    //宝宝豆显示:整数不带小数点,带零头保留2位
+    _fmtGems:function(v){
+        v = Math.round((Number(v) || 0) * 100) / 100;
+        return v % 1 === 0 ? String(v) : v.toFixed(2);
+    },
+
     refreshInfo:function(){
         var self = this;
         var onGet = function(ret){
@@ -209,7 +227,7 @@ cc.Class({
             }
             else{
                 if(ret.gems != null){
-                    this.lblGems.string = ret.gems;    //房卡刷新
+                    this.lblGems.string = this._fmtGems(ret.gems);    //房卡刷新
                 }
             }
         };
@@ -303,6 +321,7 @@ cc.Class({
         cc.log("[hall] click:" + event.target.name);
         if(event.target.name == "btn_setting"){
             this.settingsWin.active = true;
+            this._initVoiceSwitch();
         }   
         else if(event.target.name == "btn_help"){
             this.openHelp();
@@ -423,6 +442,73 @@ cc.Class({
         },cc.vv.http.master_url);
     },
 
+    //设置面板·语音性别选择: 男声/女声/跟随玩家, 存 localStorage bb_voice(宝宝玩法语音包, 默认按玩家性别)
+    _initVoiceSwitch:function(){
+        var win = this.settingsWin;
+        if(!win) return;
+        var wrap = win.getChildByName("voiceSwitch");
+        if(!wrap){
+            wrap = new cc.Node("voiceSwitch");
+            wrap.parent = win;
+            wrap.setPosition(0, -200);
+            var title = new cc.Node("title");
+            title.parent = wrap;
+            title.setPosition(-190, 0);
+            var tl = title.addComponent(cc.Label);
+            tl.string = "语音";
+            tl.fontSize = 26;
+            tl.lineHeight = 30;
+            tl.horizontalAlign = cc.Label.HorizontalAlign.LEFT;
+            var defs = [["跟随玩家", ""], ["男声", "nan"], ["女声", "nv"]];
+            for(var i = 0; i < defs.length; ++i){
+                (function(idx){
+                    var b = new cc.Node("opt" + idx);
+                    b.parent = wrap;
+                    b.setPosition(-60 + idx * 120, 0);
+                    b.setContentSize(110, 44);
+                    var g = b.addComponent(cc.Graphics);
+                    var lb = new cc.Node("lb");
+                    lb.parent = b;
+                    var l = lb.addComponent(cc.Label);
+                    l.string = defs[idx][0];
+                    l.fontSize = 22;
+                    l.lineHeight = 26;
+                    l.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+                    b._val = defs[idx][1];
+                    b._g = g;
+                    b._lb = l;
+                    b.on(cc.Node.EventType.TOUCH_END, function(){
+                        try{ cc.sys.localStorage.setItem("bb_voice", b._val); }catch(e){}
+                        // 试听一声: 选男播男声begin, 选女播女声begin, 跟随玩家按自己性别
+                        var sex = (cc.vv && cc.vv.userMgr && cc.vv.userMgr.sex) || 1;
+                        var g2 = b._val || (sex == 2 ? "nv" : "nan");
+                        if(cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("bb/" + g2 + "/begin.mp3");
+                        wrap._refresh();
+                    });
+                })(i);
+            }
+            wrap._refresh = function(){
+                var cur = "";
+                try{ cur = cc.sys.localStorage.getItem("bb_voice") || ""; }catch(e){}
+                for(var j = 0; j < wrap.children.length; ++j){
+                    var c = wrap.children[j];
+                    if(c._val === undefined || !c._g) continue;
+                    var on = (c._val === cur);
+                    c._g.clear();
+                    c._g.fillColor = on ? new cc.Color(30, 140, 60, 255) : new cc.Color(70, 70, 70, 255);
+                    c._g.roundRect(-55, -22, 110, 44, 10);
+                    c._g.fill();
+                    c._g.strokeColor = on ? new cc.Color(255, 220, 90, 255) : new cc.Color(120, 120, 120, 255);
+                    c._g.lineWidth = 2;
+                    c._g.roundRect(-55, -22, 110, 44, 10);
+                    c._g.stroke();
+                    if(c._lb) c._lb.node.color = on ? cc.Color.WHITE : new cc.Color(180, 180, 180, 255);
+                }
+            };
+        }
+        wrap._refresh();
+    },
+
     //图一:个人信息(头像+名称/ID/性别/账号+修改头像+修改密码+注销登录),节点全部在场景中
     _showUserInfoPanel:function(){
         var self = this;
@@ -456,6 +542,134 @@ cc.Class({
             var lbl = self._userInfoValueLabels && self._userInfoValueLabels["账号"];
             if(lbl && cc.isValid(lbl.node)){ lbl.string = self._bindAccount || "无"; }
         });
+        //"名称"行右侧"修改"按钮: 用场景里配好的 btnRename(位置/大小自己调)
+        var sceneBtn = this._winFind(win, "btnRename");
+        if(sceneBtn && cc.isValid(sceneBtn)){
+            if(!sceneBtn._bbRenameBound){
+                sceneBtn._bbRenameBound = true;
+                sceneBtn.on(cc.Node.EventType.TOUCH_END, function(){ self._showRenameWin(); });
+            }
+            this._btnRename = sceneBtn;
+            //清掉以前动态建出来的同名按钮(整个窗口递归找, 避免出现两个"修改")
+            var killDup = function(node){
+                var cs = node.children.slice();
+                for(var k = 0; k < cs.length; k++){
+                    if(cs[k] !== sceneBtn && String(cs[k].name).trim() === "btnRename"){ cs[k].destroy(); }
+                    else { killDup(cs[k]); }
+                }
+            };
+            killDup(win);
+        }
+    },
+
+    //修改昵称弹窗(从场景查找, 已预先建在 hall.fire Canvas 下)
+    _bindRenameWin:function(){
+        //整个场景深度找, 不依赖 Canvas 节点名
+        var canvas = cc.director.getScene();
+        if(!canvas){ return; }
+        //场景里节点名可能带尾随空格, 统一去空格比较
+        var findChild = function(parent, name){
+            if(!parent){ return null; }
+            var cs = parent.children;
+            for(var i = 0; i < cs.length; ++i){
+                if(String(cs[i].name).trim() === name){ return cs[i]; }
+            }
+            return null;
+        };
+        var findDeep = function(node, name){
+            if(String(node.name).trim() === name){ return node; }
+            var cs = node.children;
+            for(var i = 0; i < cs.length; ++i){
+                var r = findDeep(cs[i], name);
+                if(r){ return r; }
+            }
+            return null;
+        };
+        this._renameWin = findChild(canvas, "hallRenameWin") || findDeep(canvas, "hallRenameWin");
+        if(!this._renameWin){ cc.log("[rename] 找不到 hallRenameWin"); return; }
+        var panel = findChild(this._renameWin, "panel");
+        if(!panel){ return; }
+        var inputNode = findChild(panel, "renameInput");
+        var eb = null;
+        if(inputNode){
+            eb = inputNode.getComponent(cc.EditBox);
+            if(!eb){
+                //EditBox 可能挂在子节点上
+                for(var i = 0; i < inputNode.children.length; ++i){
+                    eb = inputNode.children[i].getComponent(cc.EditBox);
+                    if(eb){ break; }
+                }
+            }
+            //EditBox 没绑 Label 时自动绑(否则输入的文字看不到)
+            if(eb && (!eb.textLabel || !eb.placeholderLabel)){
+                var tl = findDeep(inputNode, "TEXT_LABEL");
+                var pl = findDeep(inputNode, "PLACEHOLDER_LABEL");
+                if(!eb.textLabel && tl){
+                    tl.active = true;
+                    eb.textLabel = tl.getComponent(cc.Label);
+                }
+                if(!eb.placeholderLabel && pl){
+                    eb.placeholderLabel = pl.getComponent(cc.Label);
+                }
+            }
+        }
+        this._renameInput = eb || inputNode;
+        var btnOk = findChild(panel, "btnOk");
+        var btnCancel = findChild(panel, "btnCancel");
+        var self = this;
+        if(btnOk){ btnOk.on(cc.Node.EventType.TOUCH_END, function(){ self._submitRename(); }); }
+        if(btnCancel){ btnCancel.on(cc.Node.EventType.TOUCH_END, function(){ self._closeRenameWin(); }); }
+        this._renameBound = true;
+    },
+
+    _showRenameWin:function(){
+        if(!this._renameWin || !cc.isValid(this._renameWin) || !this._renameBound){ this._bindRenameWin(); }
+        if(!this._renameWin){ return; }
+        this._renameWin.active = true;
+        //遮罩与面板一并确保可见(避免场景里被子节点隐藏导致整窗空)
+        var maskNode = this._renameWin.getChildByName("mask");
+        if(maskNode){ maskNode.active = true; }
+        var panelNode = this._renameWin.getChildByName("panel");
+        if(panelNode){ panelNode.active = true; }
+        //填默认昵称
+        if(this._renameInput){
+            var eb = this._renameInput.getComponent ? this._renameInput.getComponent(cc.EditBox) : this._renameInput;
+            if(eb){ eb.string = cc.vv.userMgr.userName || ""; }
+        }
+        this._renameWin.setSiblingIndex(9999);
+    },
+
+    _closeRenameWin:function(){
+        if(this._renameWin){ this._renameWin.active = false; }
+    },
+
+    //提交修改昵称:服务端更新t_users.name,成功后刷新面板"名称"行与大厅顶部用户栏
+    _submitRename:function(){
+        var self = this;
+        var name = String(this._renameInput ? this._renameInput.string : "").trim();
+        if(name === ""){ cc.vv.wc.showError("请输入新昵称"); return; }
+        if(name.length > 12){ cc.vv.wc.showError("昵称最长12个字符"); return; }
+        if(name === cc.vv.userMgr.userName){ cc.vv.wc.showError("昵称未变化"); return; }
+        cc.vv.wc.show("正在修改");
+        cc.vv.http.sendRequest("/set_name",{
+            account:cc.vv.userMgr.account,
+            sign:cc.vv.userMgr.sign,
+            name:name
+        },function(ret){
+            if(!ret || ret.errcode !== 0){
+                cc.vv.wc.showError((ret && ret.errmsg) ? ret.errmsg : "修改失败");
+                return;
+            }
+            cc.vv.wc.hide();
+            cc.vv.userMgr.userName = name;
+            self._closeRenameWin();
+            //刷新个人信息弹窗"名称"行
+            var lbl = self._userInfoValueLabels && self._userInfoValueLabels["名称"];
+            if(lbl && cc.isValid(lbl.node)){ lbl.string = name; }
+            //刷新大厅顶部用户栏(用户名+ID)
+            self.initLabels();
+            cc.vv.wc.showAlert("昵称修改成功");
+        },cc.vv.http.master_url);
     },
 
     //拉取绑定状态并缓存(个人信息页显示"账号"字段用)
@@ -763,7 +977,7 @@ cc.Class({
             this.lblName.node.color = cc.color(0,0,0); //昵称用黑色字体
         }
         if(cc.isValid(this.lblMoney)) this.lblMoney.string = cc.vv.userMgr.coins;//金币
-        if(cc.isValid(this.lblGems)) this.lblGems.string = cc.vv.userMgr.gems;//房卡
+        if(cc.isValid(this.lblGems)) this.lblGems.string = this._fmtGems(cc.vv.userMgr.gems);//房卡
     },
     
     //创建房间按钮显示

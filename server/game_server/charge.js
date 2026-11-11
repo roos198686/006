@@ -1,4 +1,4 @@
-//宝宝玩法扣豆: 进房首局开局 / 房间发表情 / 点洗牌 三种扣费, 并按比率把扣掉金额的一部分分给用户所属俱乐部的代理(社长)
+﻿//宝宝玩法扣豆: 进房首局开局 / 房间发表情 / 点洗牌 三种扣费, 并按比率把扣掉金额的一部分分给用户所属俱乐部的代理(社长)
 //扣费额度来自全局玩法配置 t_game_config.tai_rules:
 //   enter_cost   进房后第一局扣多少豆
 //   emoji_cost   每次发表情扣多少豆
@@ -90,7 +90,7 @@ function deduct(userId, amount, roomId, gameType, changeType, agentRate, done, e
     db.add_user_gems(userId, -amount, function(ok){
         if(agentRate > 0){
             db.get_user_agent(userId, function(agentId){
-                var share = agentId ? Math.floor(amount * agentRate / 100) : 0;
+                var share = agentId ? round4(amount * agentRate / 100) : 0;
                 if(share > 0){
                     db.add_user_gems(agentId, share, null, {roomid: roomId, gameType: gameType, changeType: "代理分成", tableName: extra.tableName});
                 }
@@ -124,14 +124,14 @@ function addToClubAccount(clubId, amount, roomId, gameType, changeType, done, ta
 }
 
 //合伙人分成(逐级上浮): 收入可能产生在任意一级俱乐部, 要从它往上逐级交给上级俱乐部
-//比例存于 t_partner_stats: club_id=上级, partner_club_id=直属下级, profit_ratio=下级留成比例(%)
-//  一级对二级设80、二级对三级设80, 三级产生100分 => 三级留64, 二级得16, 一级得20
-//  比例=100 或未配置(=0) 表示上级不抽成, 收入全留下级
+//比例存于 t_partner_stats: club_id=上级, partner_club_id=直属下级, profit_ratio=上级抽成比例(%)
+//  一级对二级设10、二级对三级设10, 三级产生100分 => 三级留81, 二级得9, 一级得10
+//  比例=0 或未配置 表示上级不抽成, 收入全留下级
 //  金额统计/明细按2位小数记, 实际加豆取整(零头累计到下次), 每笔总额守恒
 //statsExtras: 额外累加到各级合伙人统计的字段(如 {rake, hidden_rake})
 //done(netAmount): netAmount = 产生收入的本俱乐部最终实得(整数, 已扣掉上缴部分)
 var shareRemain = {};
-function round2(v){ return Math.round(v * 100) / 100; }
+function round4(v){ return Math.round(v * 10000) / 10000; }
 
 //取俱乐部及其全部上级, 返回 [顶级, ..., 本级]
 function loadClubChain(clubId, callback){
@@ -150,8 +150,10 @@ function loadClubChain(clubId, callback){
     walk(clubId, 0);
 }
 
-function splitPartnerShare(clubId, amount, roomId, gameType, roomUuid, gameIndex, tableName, statsExtras, done){
+function splitPartnerShare(clubId, amount, roomId, gameType, roomUuid, gameIndex, tableName, statsExtras, done, ratioField){
     if(!(amount > 0) || !(clubId > 0)){ done(amount); return; }
+    //费用类收入(进房/表情/洗牌)走独立的 fee_profit_ratio, 抽水走 profit_ratio
+    var rf = (ratioField === 'fee_profit_ratio' || ratioField === 'hidden_profit_ratio') ? ratioField : 'profit_ratio';
     loadClubChain(clubId, function(chain){
         if(!chain || chain.length <= 1){ done(amount); return; }
         //只取链上每条"上级->直属下级"关系的留成比例
@@ -159,58 +161,67 @@ function splitPartnerShare(clubId, amount, roomId, gameType, roomUuid, gameIndex
         for(var i = 0; i < chain.length - 1; i++){
             conds.push('(club_id = ' + chain[i].id + ' AND partner_club_id = ' + chain[i + 1].id + ')');
         }
-        db.query('SELECT club_id, partner_club_id, profit_ratio FROM t_partner_stats WHERE ' + conds.join(' OR '), function(err, rows){
+        db.query('SELECT club_id, partner_club_id, ' + rf + ' AS profit_ratio FROM t_partner_stats WHERE ' + conds.join(' OR '), function(err, rows){
             var ratioMap = {};
             (rows || []).forEach(function(r){
                 ratioMap[Number(r.club_id) + '_' + Number(r.partner_club_id)] = Number(r.profit_ratio) || 0;
             });
-            //自顶向下算每级应得(2位小数): 上级抽 (1-留成比例), 剩余继续往下
+            // ===== 自下而上算抽成: 下级先从底级抽, 上级再从下级抽到的份额里抽 =====
+            // 例: chain=[一级,二级,三级], amount=100, ratio全10
+            //   二级从三级抽: fee2 = 100*10% = 10
+            //   一级从二级抽到的10里抽: fee1 = 10*10% = 1
+            // 然后自顶向下发实得: 一级得1, 二级得10-1=9, 三级得100-10=90
+            var fees = [];  // fees[i] = chain[i] 从 chain[i+1] 抽到的总额
+            var prevBase = amount;  // 最底级的基数=原始抽水
+            for(var i = chain.length - 2; i >= 0; i--){
+                var r = ratioMap[chain[i].id + '_' + chain[i + 1].id];
+                if(!(r > 0) || r > 100){ r = 0; }
+                var fee = round4(prevBase * r / 100);
+                fees.unshift(fee);      // 插到队头, 保持和 chain 对齐
+                prevBase = fee;         // 上一级的基数 = 我抽到的
+            }
+            // shares: 自顶向下算每级实发给社长的金额
             var shares = [];
-            var rest = amount;
-            for(var i = 0; i < chain.length; i++){
-                if(i === chain.length - 1){
-                    shares.push({clubId: chain[i].id, ownerId: chain[i].ownerId, dec: round2(rest)});
-                    break;
-                }
-                var ratio = ratioMap[chain[i].id + '_' + chain[i + 1].id];
-                if(!(ratio > 0) || ratio > 100){ ratio = 100; } //未配置=上级不抽成
-                var keep = rest * ratio / 100;
-                shares.push({
-                    clubId: chain[i].id, ownerId: chain[i].ownerId, dec: round2(rest - keep),
-                    childId: chain[i + 1].id
-                });
-                rest = keep;
-            }
-            //实发整数: 上级按累计零头取整, 末级拿剩余, 保证各层实发之和=这笔收入
             var left = amount;
-            for(var j = 0; j < shares.length; j++){
-                var s = shares[j];
-                if(j === shares.length - 1){ s.pay = left; break; }
-                var key = s.clubId + '_' + s.childId;
-                var acc = (shareRemain[key] || 0) + s.dec;
-                var pay = Math.round(acc);
-                if(pay < 0){ pay = 0; }
-                if(pay > left){ pay = left; }
-                shareRemain[key] = acc - pay;
-                s.pay = pay;
-                left -= pay;
+            for(var j = 0; j < fees.length; j++){
+                // 实得 = 我从下级抽到的 - 上一级从我这抽走的
+                var got = round4(fees[j] - (j > 0 ? fees[j - 1] : 0));
+                shares.push({
+                    clubId: chain[j].id, ownerId: chain[j].ownerId,
+                    dec: fees[j],    // 从下级抽到的总额(用 partner_profit 统计)
+                    pay: got,        // 实发给社长
+                    childId: chain[j + 1].id
+                });
+                left = round4(left - got);
             }
+            // 最终级(底级)拿剩余
+            shares.push({clubId: chain[chain.length - 1].id, ownerId: chain[chain.length - 1].ownerId, dec: round4(left), pay: round4(left)});
             var last = shares[shares.length - 1];
             var pending = shares.length - 1;
             if(pending <= 0){ done(last.pay); return; }
             var tick = function(){ if(--pending === 0){ done(last.pay); } };
             shares.forEach(function(s, idx){
                 if(idx === shares.length - 1){ return; }
-                var stats = {partner_profit: s.dec};
-                if(statsExtras){ for(var k in statsExtras){ stats[k] = statsExtras[k]; } }
+                // ===== 存 pay(净额), 不是 dec(总额) =====
+                // 本级从下级抽到的总额是 dec, 但还要给上级分走 fees[idx-1],
+                // 本级实得 = dec - fees[idx-1] = pay. DB 存净额才能保证
+                // 所有下级的 partner_profit 加起来等于底级 amount.
+                var stats = {partner_profit: s.pay, partner_total: s.dec};
+                if(statsExtras){
+                    // rake/hidden_rake 按 s.dec(从下级抽到的总额) 比例缩放,
+                    // 这样 club_overview 查 partner_stats.partner_club_id=clubId 的 rake+hidden_rake
+                    // 就等于被上级总共抽走的金额
+                    var shareRatio = amount > 0 ? s.dec / amount : 0;
+                    for(var k in statsExtras){ stats[k] = round4(Number(statsExtras[k] || 0) * shareRatio); }
+                }
                 db.partner_add_stats(s.clubId, s.childId, stats, function(){
                     if(!(s.pay > 0)){ tick(); return; }
                     //分给上级俱乐部社长
                     db.add_user_gems(s.ownerId, s.pay, null, {
                         roomid: roomId, gameType: gameType, changeType: "合伙人分成", clubId: s.clubId, partnerClubId: s.childId, tableName: tableName || ""
                     });
-                    //奖励明细: 该上级从这条下级链上抽到的分成
-                    db.add_reward_log(s.clubId, s.childId, "合伙人分成", s.dec, gameType, roomId, roomUuid, gameIndex, tableName, function(){ tick(); });
+                    //奖励明细: 也存 pay(净额), 和 partner_profit 保持一致
+                    db.add_reward_log(s.clubId, s.childId, "合伙人分成", s.pay, gameType, roomId, roomUuid, gameIndex, tableName, function(){ tick(); });
                 });
             });
         });
@@ -239,8 +250,28 @@ exports.chargeClub = function(type, clubConfig, userId, kind, roomId, done){
             return;
         }
         var label = kind === "enter" ? "进房首局扣豆" : (kind === "emoji" ? "表情扣豆" : "洗牌扣豆");
-        deduct(userId, amount, roomId, type, label, rules.agentRate, done, {
-            clubId: clubConfig ? clubConfig.club_id : 0
+        var clubId = clubConfig ? (Number(clubConfig.club_id) || Number(clubConfig.clubId) || 0) : 0;
+        //扣下来的费用全额进俱乐部分账链(上下级比例在合伙人设置里配)
+        var rate = 100;
+        deduct(userId, amount, roomId, type, label, rules.agentRate, function(){
+            if(!(clubId > 0) || !(rate > 0)){
+                if(done) done();
+                return;
+            }
+            //按该费用自身的抽取比例分给社长及上级合伙人
+            var share = round4(amount * rate / 100);
+            if(!(share > 0)){
+                if(done) done();
+                return;
+            }
+            splitPartnerShare(clubId, share, roomId, type, "", 0, "", null, function(net){
+                addToClubAccount(clubId, net, roomId, type, label, function(){
+                    db.add_reward_log(clubId, 0, label, net, type, roomId, "", 0, "", function(){});
+                    if(done) done();
+                });
+            }, 'fee_profit_ratio');
+        }, {
+            clubId: clubId
         });
     });
 };
@@ -249,7 +280,7 @@ exports.chargeClub = function(type, clubConfig, userId, kind, roomId, done){
 //kind: "emoji" 表情 / "shuffle" 洗牌
 //实时读取DB, 避免馆主改完配置后老房间仍按旧值不扣; 每张牌桌参数独立
 exports.chargeRoom = function(conf, userId, kind, roomId, done){
-    var doCharge = function(faceScore, shuffleScore){
+    var doCharge = function(faceScore, shuffleScore, sharePercent){
         var amount = kind === "emoji" ? (Number(faceScore) || 0) : (Number(shuffleScore) || 0);
         if(amount <= 0){
             if(done) done();
@@ -258,23 +289,25 @@ exports.chargeRoom = function(conf, userId, kind, roomId, done){
         var label = kind === "emoji" ? "表情扣豆" : "洗牌扣豆";
         var feeName = label; //奖励明细里的类型, 写清楚是表情还是洗牌
         var clubId = (conf.clubGameConfig && conf.clubGameConfig.clubId) || conf.clubid || 0;
+        //按表情/洗牌各自的抽取比例分给社长及上级合伙人
+        var share = round4(amount * (Number(sharePercent) || 0) / 100);
         deduct(userId, amount, roomId, conf.type, label, 0, function(){
-            if(!(clubId > 0)){
+            if(!(clubId > 0) || !(share > 0)){
                 if(done) done();
                 return;
             }
-            //洗牌/表情费用归俱乐部收入(下级俱乐部的收入要按比例分给上级), 并写入奖励明细
-            splitPartnerShare(clubId, amount, roomId, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", null, function(net){
+            //抽取部分归俱乐部收入(下级俱乐部的收入要按比例分给上级), 并写入奖励明细
+            splitPartnerShare(clubId, share, roomId, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", null, function(net){
                 addToClubAccount(clubId, net, roomId, conf.type, feeName, function(){
-                    db.add_reward_log(clubId, 0, feeName, amount, conf.type, roomId, conf.room_uuid || "", 0, conf.club_table_name || "", function(){});
+                    db.add_reward_log(clubId, 0, feeName, net, conf.type, roomId, conf.room_uuid || "", 0, conf.club_table_name || "", function(){});
                     if(done) done();
                 }, conf.club_table_name || "");
-            });
+            }, 'fee_profit_ratio');
         }, { clubId: clubId, tableName: conf.club_table_name || "" });
     };
     var clubId = (conf.clubGameConfig && conf.clubGameConfig.clubId) || conf.clubid || 0;
     if(!(clubId > 0)){
-        doCharge(conf.face_score, conf.shuffle_score);
+        doCharge(conf.face_score, conf.shuffle_score, 0);
         return;
     }
     //牌桌自身conf优先(每张牌桌参数独立), 缺失的字段才用玩法配置兜底
@@ -290,7 +323,8 @@ exports.chargeRoom = function(conf, userId, kind, roomId, done){
         var shuffle = pick('shuffle_score', Number(c.shuffle_score) || 0);
         conf.face_score = face;
         conf.shuffle_score = shuffle;
-        doCharge(face, shuffle);
+        //表情/洗牌扣多少由牌桌配置决定, 扣下来全额进俱乐部分账链(上下级比例在合伙人设置里配)
+        doCharge(face, shuffle, 100);
     };
     var apply = function(cfg){
         var tableId = Number(conf.club_table_id) || 0;
@@ -347,9 +381,9 @@ exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
             }
             return;
         }
-        var rake = Math.floor(delta * rules.rakePercent / 100);
-        var hiddenRake = Math.floor(delta * rules.hiddenRakePercent / 100);
-        var totalDeduct = rake + hiddenRake;
+        var rake = round4(delta * rules.rakePercent / 100);
+        var hiddenRake = round4(delta * rules.hiddenRakePercent / 100);
+        var totalDeduct = round4(rake + hiddenRake);
         if(totalDeduct <= 0){
             if(--pending === 0){
                 finish();
@@ -366,22 +400,27 @@ exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
         }, {clubId: roomInfo.clubId, tableName: roomInfo.tableName || ""});
     });
     function finish(){
-        //抽水+暗水是俱乐部收入; 先按比例分给下级俱乐部(合伙人), 剩下的才归自己
+        //明水(抽水)和暗水分别按各自的比例分成
         var total = rakeTotal + hiddenRakeTotal;
         if(total <= 0){ if(done) done(); return; }
-        splitPartnerShare(roomInfo.clubId, total, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
-            {rake: rakeTotal, hidden_rake: hiddenRakeTotal}, function(net){
-            addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "抽水", function(){
-                //俱乐部自己的奖励明细: 抽水/暗水按收到的全额记, 合伙人分成单独一行, 方便后台核对
-                if(rakeTotal > 0){
-                    db.add_reward_log(roomInfo.clubId, 0, "抽水", rakeTotal, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                }
-                if(hiddenRakeTotal > 0){
-                    db.add_reward_log(roomInfo.clubId, 0, "暗水", hiddenRakeTotal, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                }
-                if(done) done();
-            }, roomInfo.tableName || "");
-        });
+        splitPartnerShare(roomInfo.clubId, rakeTotal, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
+            {rake: rakeTotal}, function(rakeNet){
+            splitPartnerShare(roomInfo.clubId, hiddenRakeTotal, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
+                {hidden_rake: hiddenRakeTotal}, function(hiddenNet){
+                var net = round4(rakeNet + hiddenNet);
+                addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "抽水", function(){
+                    //俱乐部自己的奖励明细: 抽水/暗水按"扣完上级后实得"记(与总览/到账一致)
+                    var factor = total > 0 ? net / total : 0;
+                    if(rakeTotal > 0){
+                        db.add_reward_log(roomInfo.clubId, 0, "抽水", round4(rakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                    }
+                    if(hiddenRakeTotal > 0){
+                        db.add_reward_log(roomInfo.clubId, 0, "暗水", round4(hiddenRakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                    }
+                    if(done) done();
+                }, roomInfo.tableName || "");
+            }, 'hidden_profit_ratio');
+        }, 'profit_ratio');
     }
 };
 
@@ -410,9 +449,9 @@ exports.chargeRakeTotal = function(totalDeltas, winners, roomInfo, rules, done){
             if(--pending === 0){ finish(); }
             return;
         }
-        var rake = Math.floor(delta * rules.rakePercent / 100);
-        var hiddenRake = Math.floor(delta * rules.hiddenRakePercent / 100);
-        var totalDeduct = rake + hiddenRake;
+        var rake = round4(delta * rules.rakePercent / 100);
+        var hiddenRake = round4(delta * rules.hiddenRakePercent / 100);
+        var totalDeduct = round4(rake + hiddenRake);
         if(totalDeduct <= 0){
             if(--pending === 0){ finish(); }
             return;
@@ -426,19 +465,24 @@ exports.chargeRakeTotal = function(totalDeltas, winners, roomInfo, rules, done){
     function finish(){
         var total = rakeTotal + hiddenRakeTotal;
         if(total <= 0){ if(done) done(); return; }
-        //先分给下级俱乐部(合伙人), 剩下的才归自己
-        splitPartnerShare(roomInfo.clubId, total, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
-            {rake: rakeTotal, hidden_rake: hiddenRakeTotal}, function(net){
-            addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "抽水", function(){
-                if(rakeTotal > 0){
-                    db.add_reward_log(roomInfo.clubId, 0, "抽水", rakeTotal, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                }
-                if(hiddenRakeTotal > 0){
-                    db.add_reward_log(roomInfo.clubId, 0, "暗水", hiddenRakeTotal, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                }
-                if(done) done();
-            }, roomInfo.tableName || "");
-        });
+        //明水(抽水)和暗水分别按各自的比例分成
+        splitPartnerShare(roomInfo.clubId, rakeTotal, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
+            {rake: rakeTotal}, function(rakeNet){
+            splitPartnerShare(roomInfo.clubId, hiddenRakeTotal, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
+                {hidden_rake: hiddenRakeTotal}, function(hiddenNet){
+                var net = round4(rakeNet + hiddenNet);
+                addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "抽水", function(){
+                    var factor = total > 0 ? net / total : 0;
+                    if(rakeTotal > 0){
+                        db.add_reward_log(roomInfo.clubId, 0, "抽水", round4(rakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                    }
+                    if(hiddenRakeTotal > 0){
+                        db.add_reward_log(roomInfo.clubId, 0, "暗水", round4(hiddenRakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                    }
+                    if(done) done();
+                }, roomInfo.tableName || "");
+            }, 'hidden_profit_ratio');
+        }, 'profit_ratio');
     }
 };
 
@@ -465,8 +509,8 @@ exports.chargeRoomFee = function(roomInfo, rules, payerSeatIndex, bigWinnerSeat,
         //房费也属于俱乐部收入, 需要按比例逐级上缴给上级俱乐部
         splitPartnerShare(roomInfo.clubId, rules.roomFee, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", null, function(net){
             addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "房费", function(){
-                //奖励明细: 房费
-                db.add_reward_log(roomInfo.clubId, 0, "房费", rules.roomFee, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                //奖励明细: 房费按扣完上级后实得记
+                db.add_reward_log(roomInfo.clubId, 0, "房费", net, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
                 if(done) done();
             }, roomInfo.tableName || "");
         });
@@ -484,3 +528,4 @@ exports.checkStartPlayers = function(currentCount, rules){
         max: max
     };
 };
+

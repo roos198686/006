@@ -1,0 +1,8 @@
+client service is listening on port 9101
+room service is listening on 127.0.0.1:9102
+game server registered.
+	id:127.0.0.1:10100
+	addr:127.0.0.1
+	http port:9103
+	socket clientport:10100
+invalid parameters

@@ -72,7 +72,7 @@ cc.Class({
             return;
         }
         //加载以下脚本（诸暨玩法无定缺/换三张）;组件已固化到场景,存在则跳过避免重复挂载
-        var deps = ["NoticeTip","GameOver","PengGangs","MJRoom","TimePointer","GameResult","Chat","Folds","ReplayCtrl","PopupMgr","ReConnect","Voice","UserInfoShow"];
+        var deps = ["NoticeTip","GameOver","PengGangs","MJRoom","TimePointer","GameResult","Chat","Folds","ReplayCtrl","PopupMgr","ReConnect","Voice","UserInfoShow","DeskStyle","Alert"];
         for(var di = 0; di < deps.length; ++di){
             if(this.getComponent(deps[di]) == null){
                 this.addComponent(deps[di]);
@@ -115,6 +115,7 @@ cc.Class({
             this._myMJArr.push(sprite);
             sprite.spriteFrame = null;
         }
+        this._setupHandGestures();
         //获取真实宽度(2.4无cc.director.getVisibleSize,必须用cc.view)
         var realwidth = cc.view.getVisibleSize().width;
         var mjscale = realwidth/1280;
@@ -146,6 +147,17 @@ cc.Class({
         //获取到ops节点
         var opts = gameChild.getChildByName("ops");
         this._options = opts;
+        //操作区只留文字按钮:去掉每个op槽位的底图(op节点自身的Sprite)和牌面
+        if(opts){
+            for(var oi = 0; oi < opts.childrenCount; ++oi){
+                var opc = opts.children[oi];
+                if(opc.name != "op"){ continue; }
+                var opBg = opc.getComponent(cc.Sprite);
+                if(opBg){ opBg.enabled = false; }
+                var opTgt = opc.getChildByName("opTarget");
+                if(opTgt){ opTgt.active = false; }
+            }
+        }
         //ops下的全屏New Layout挂了无事件Button,操作栏弹出时会吞掉全屏触摸导致吃牌无法选手牌,永久禁用其Button
         //并直接隐藏该遮罩节点(视觉上不再出现全屏暗色遮罩)
         var opsMask = opts ? opts.getChildByName("New Layout") : null;
@@ -358,7 +370,7 @@ cc.Class({
                 self.initOtherMahjongs(seatData);
             }
             var localIndex = self.getLocalIndex(seatData.seatindex);
-            self.playEfx(localIndex,"play_peng");
+            self.playEfx(localIndex,"play_chi");
             cc.vv.mahjongmgr.playRandSFX("chi", 4);
             self.hideOptions();
         });
@@ -380,8 +392,9 @@ cc.Class({
             var child = this._options.children[i];
             if(child.name == "op" && child.active == false){
                 child.active = true;
-                var sprite = child.getChildByName("opTarget").getComponent(cc.Sprite);
-                sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID("M_",pai);
+                //操作区只显示文字按钮,不再显示目标牌(opTarget隐藏)
+                var target = child.getChildByName("opTarget");
+                if(target){ target.active = false; }
                 var btn = child.getChildByName(btnName);
                 btn.active = true;
                 btn.pai = pai;
@@ -395,8 +408,9 @@ cc.Class({
             var child = this._options.children[i];
             if(child.name == "op" && child.active == false){
                 child.active = true;
-                var sprite = child.getChildByName("opTarget").getComponent(cc.Sprite);
-                sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID("M_",pai);
+                //操作区只显示文字按钮,不再显示目标牌(opTarget隐藏)
+                var target = child.getChildByName("opTarget");
+                if(target){ target.active = false; }
                 var btn = this.getChiButton(child);
                 if(btn){
                     btn.active = true;
@@ -531,37 +545,29 @@ cc.Class({
         }
 
         if(data && (data.hu || data.gang || data.peng || data.chi)){
-            //吃碰杠：在手牌上方直接展示可操作的牌型组合，玩家点击组合即完成
-            var combos = [];
-            if(data.chi && data.chipai){
-                for(var ci = 0; ci < data.chipai.length; ++ci){
-                    //升序排列展示为顺子形态;服务端校验与顺序无关
-                    combos.push({type:"chi", pais:data.chipai[ci].slice().sort(function(a,b){return a-b;}), pai:data.pai});
-                }
-            }
-            if(data.peng){
-                combos.push({type:"peng", pais:[data.pai, data.pai, data.pai]});
-            }
-            if(data.gang && data.gangpai){
-                for(var gi = 0; gi < data.gangpai.length; ++gi){
-                    var gp = data.gangpai[gi];
-                    combos.push({type:"gang", pais:[gp, gp, gp, gp], pai:gp});
-                }
-            }
-            if(combos.length > 0){
-                this.showChiPanel(combos);
-            }
-            //操作栏只保留胡/过按钮
+            this._options.active = true;
             if(data.hu){
-                this._options.active = true;
                 this.addOption("btnHu",data.pai);
+            }
+            //吃碰杠：原按钮提示方式（碰/杠显示目标牌，吃按钮点击后从手牌自选两张）
+            if(data.peng){
+                this.addOption("btnPeng",data.pai);
+            }
+
+            if(data.gang){
+                for(var i = 0; i < data.gangpai.length;++i){
+                    var gp = data.gangpai[i];
+                    this.addOption("btnGang",gp);
+                }
+            }
+
+            if(data.chi){
+                //吃：显示"吃"按钮，点击后从手牌中自选两张（服务端已保证存在可吃组合，否则chi为false按钮不显示）
+                this.addChiOption(data.pai);
             }
             //"过"按钮常驻，便于跳过任意可选操作
             var btnGuo = this._options.getChildByName("btnGuo");
-            if(btnGuo){
-                this._options.active = true;
-                btnGuo.active = true;
-            }
+            if(btnGuo){ btnGuo.active = true; }
         }
     },
     //加载玩法
@@ -627,9 +633,15 @@ cc.Class({
         var efx = this._playEfxs[index];
         efx.node.active = true;
         efx.play(name);
-        //胡牌/自摸叠加逆向包的 spine 动画
-        if((name == "play_hu" || name == "play_zimo") && cc.vv && cc.vv.mahjongmgr){
-            cc.vv.mahjongmgr.playHuSpine(efx.node, name == "play_zimo");
+        //吃/碰/杠/胡/自摸叠加逆向包 spine 动画(资源未导入时静默跳过)
+        if(cc.vv && cc.vv.mahjongmgr){
+            var spKey = null;
+            if(name == "play_hu"){ spKey = "mj_hu"; }
+            else if(name == "play_zimo"){ spKey = "mj_zimo"; }
+            else if(name == "play_chi"){ spKey = "mj_chi"; }
+            else if(name == "play_peng"){ spKey = "mj_peng"; }
+            else if(name == "play_guafeng" || name == "play_xiayu" || name == "play_gang"){ spKey = "mj_gang"; }
+            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efx.node, spKey); }
         }
     },
     //游戏开始
@@ -853,6 +865,191 @@ cc.Class({
         return n;
     },
 
+    //========== 出牌手势(单击/双击/上滑/滑动多选) START ==========
+    //客户端房间设置(DeskStyle.getGestureSettings): 手势多选/上滑出牌/单击·双击出牌
+    _getGestureSettings:function(){
+        var ds = cc.vv.deskStyle;
+        if(ds && ds.getGestureSettings){ return ds.getGestureSettings(); }
+        // 兜底: 直接读 localStorage
+        try{
+            return {
+                multiSelect: !!JSON.parse(cc.sys.localStorage.getItem("gesture_multi_select") || "false"),
+                swipeUp: !!JSON.parse(cc.sys.localStorage.getItem("mj_gesture_swipe_up") || "false"),
+                playMode: JSON.parse(cc.sys.localStorage.getItem("mj_play_mode") || '"single"')
+            };
+        }catch(e){
+            return { multiSelect:false, swipeUp:false, playMode:"single" };
+        }
+    },
+
+    //绑定手势到所有手牌节点(替代 Button clickEvents) —— 始终绑定, 行为由客户端设置控制
+    _setupHandGestures:function(){
+        this._gestureSel = [];       //滑动多选的牌节点
+        this._gestureStart = null;   //{x,y,t,node}
+        this._gesturePlayed = false; //上滑已出牌标记
+        this._gestureMoved = false;  //本次触摸是否产生了水平移动
+        this._lastTapTile = null;    //上一次点击的牌(用于双击判断)
+        this._lastTapTime = 0;
+        for(var i = 0; i < this._myMJArr.length; ++i){
+            var node = this._myMJArr[i].node;
+            if(!cc.isValid(node)){ continue; }
+            //清除 Button 点击事件, 改由触摸事件统一处理
+            var btn = node.getComponent(cc.Button);
+            if(btn){ btn.clickEvents = []; }
+            node.on(cc.Node.EventType.TOUCH_START, function(e){ this._onHandTouchStart(e, e.getCurrentTarget()); }, this);
+            node.on(cc.Node.EventType.TOUCH_MOVE,  function(e){ this._onHandTouchMove(e,  e.getCurrentTarget()); }, this);
+            node.on(cc.Node.EventType.TOUCH_END,   function(e){ this._onHandTouchEnd(e,   e.getCurrentTarget()); }, this);
+            node.on(cc.Node.EventType.TOUCH_CANCEL,function(e){ this._onHandTouchEnd(e,   e.getCurrentTarget()); }, this);
+        }
+    },
+
+    //触摸开始
+    _onHandTouchStart:function(e, tileNode){
+        if(this._dealAnimating){
+            if(Date.now() < (this._dealAnimUntil || 0)){ return; }
+            this._dealAnimating = false;
+        }
+        //特殊选牌模式(吃牌/定财神等): 复用 onMJClicked 原逻辑
+        if(this._chiSelect || (this._csPanel && this._csPanel.active)){
+            this.onMJClicked({node: tileNode, currentTarget: tileNode});
+            e.stopPropagation();
+            return;
+        }
+        var p = e.getLocation();
+        this._gestureStart = { x:p.x, y:p.y, t:Date.now(), node:tileNode };
+        this._gesturePlayed = false;
+        this._gestureMoved = false;
+        //清除上一轮多选高亮
+        for(var i = 0; i < this._gestureSel.length; ++i){
+            if(cc.isValid(this._gestureSel[i])){ this._gestureSel[i].y = 0; }
+        }
+        this._gestureSel = [];
+    },
+
+    //触摸移动: 上滑出牌 / 水平滑动多选
+    _onHandTouchMove:function(e, tileNode){
+        if(!this._gestureStart || this._gesturePlayed){ return; }
+        var gs = this._getGestureSettings();
+        var p = e.getLocation();
+        var dx = p.x - this._gestureStart.x;
+        var dy = p.y - this._gestureStart.y;
+        //上滑出牌(阈值 -30) —— 仅当设置开启
+        if(gs.swipeUp && dy < -30){
+            this._playTile(this._gestureStart.node);
+            this._gesturePlayed = true;
+            e.stopPropagation();
+            return;
+        }
+        //水平滑动多选 —— 仅当设置开启
+        if(gs.multiSelect && Math.abs(dx) > 8){
+            this._gestureMoved = true;
+            var hit = this._findTileAtPos(p);
+            if(hit && this._gestureSel.indexOf(hit) == -1){
+                this._gestureSel.push(hit);
+                this._setTileY(hit, 15);
+            }
+        }
+    },
+
+    //触摸结束: 单击/双击出牌
+    _onHandTouchEnd:function(e, tileNode){
+        if(!this._gestureStart){ return; }
+        var start = this._gestureStart;
+        this._gestureStart = null;
+        if(this._gesturePlayed){ return; }
+        //水平滑动多选: 保持选中状态(不下牌, 供用户确认/继续)
+        if(this._gestureMoved && this._gestureSel.length > 0){
+            e.stopPropagation();
+            return;
+        }
+        var gs = this._getGestureSettings();
+        var now = Date.now();
+        var prevTile = this._lastTapTile;
+        var isDouble = (prevTile == start.node) && (now - this._lastTapTime < 300);
+        this._lastTapTile = start.node;
+        this._lastTapTime = now;
+        if(gs.playMode === "double"){
+            // 双击出牌: 第一次单击只选中(浮起), 第二次单击同一张牌才出牌
+            if(isDouble){
+                this._playTile(start.node);
+            }else{
+                // 选中浮起, 若之前选中了别的牌则复位
+                if(prevTile && prevTile != start.node && cc.isValid(prevTile)){
+                    this._setTileY(prevTile, 0);
+                }
+                this._setTileY(start.node, 15);
+            }
+        }else{
+            // 单击出牌(默认)
+            this._playTile(start.node);
+        }
+        e.stopPropagation();
+    },
+
+    //出牌
+    _playTile:function(tileNode){
+        if(!cc.isValid(tileNode) || tileNode.mjId == null){ return; }
+        if(cc.vv.gameNetMgr.turn != cc.vv.gameNetMgr.seatIndex){ return; }
+        //包财神等模式保护(若存在 shoot 的额外判断则走 shoot)
+        this.shoot(tileNode.mjId);
+        tileNode.y = 0;
+        this._selectedMJ = null;
+        //清多选
+        for(var i = 0; i < this._gestureSel.length; ++i){
+            if(cc.isValid(this._gestureSel[i])){ this._gestureSel[i].y = 0; }
+        }
+        this._gestureSel = [];
+    },
+
+    //根据世界坐标查找命中的手牌节点
+    _findTileAtPos:function(worldPos){
+        for(var i = 0; i < this._myMJArr.length; ++i){
+            var node = this._myMJArr[i].node;
+            if(!cc.isValid(node) || !node.active){ continue; }
+            var box = node.getBoundingBoxToWorld();
+            if(box.contains(worldPos)){ return node; }
+        }
+        return null;
+    },
+
+    //吃牌选牌(从手牌选两张) —— 从 onMJClicked 抽出, 供手势复用
+    _handleChiSelect:function(cnode){
+        if(cnode == null || cnode.mjId == null){ return; }
+        for(var ci = 0; ci < this._myMJArr.length; ++ci){
+            if(cnode == this._myMJArr[ci].node){
+                var tiles = this._chiSelect.tiles;
+                var ti = tiles.indexOf(cnode);
+                if(ti != -1){
+                    tiles.splice(ti, 1);
+                    this._setTileY(cnode, 0);
+                    return;
+                }
+                if(tiles.length >= 2){ return; }
+                tiles.push(cnode);
+                this._setTileY(cnode, 15);
+                if(tiles.length == 2){
+                    var p0 = tiles[0].mjId;
+                    var p1 = tiles[1].mjId;
+                    var target = this._chiSelect.pai;
+                    tiles[0].y = 0;
+                    tiles[1].y = 0;
+                    this.cancelChiSelect();
+                    this.hideOptions();
+                    cc.vv.net.send("chi", [p0, p1, target]);
+                }
+                return;
+            }
+        }
+    },
+    //========== 出牌手势 END ==========
+
+    //手牌点选弹起/落下动画(仅交互时调用,布局重排不经过这里)
+    _setTileY:function(node, y){
+        if(!node || !cc.isValid(node)){ return; }
+        cc.Tween.stopAllByTarget(node);
+        cc.tween(node).to(0.08, {y:y}, {easing:"quadOut"}).start();
+    },
+
     onMJClicked:function(event){
         //开局发牌动画播放中,屏蔽手牌触摸,防止误点
         if(this._dealAnimating){
@@ -869,12 +1066,12 @@ cc.Class({
                     var ti = tiles.indexOf(cnode);
                     if(ti != -1){
                         tiles.splice(ti, 1);
-                        cnode.y = 0;
+                        this._setTileY(cnode, 0);
                         return;
                     }
                     if(tiles.length >= 2){ return; }
                     tiles.push(cnode);
-                    cnode.y = 15;
+                    this._setTileY(cnode, 15);
                     if(tiles.length == 2){
                         var p0 = tiles[0].mjId;
                         var p1 = tiles[1].mjId;
@@ -904,14 +1101,14 @@ cc.Class({
                 //如果是再次点击，则出牌
                 if(node == this._selectedMJ){
                     this.shoot(this._selectedMJ.mjId);
-                    this._selectedMJ.y = 0;
+                    this._setTileY(this._selectedMJ, 0);
                     this._selectedMJ = null;
                     return;
                 }
                 if(this._selectedMJ != null){
-                    this._selectedMJ.y = 0;
+                    this._setTileY(this._selectedMJ, 0);
                 }
-                node.y = 15;
+                this._setTileY(node, 15);
                 this._selectedMJ = node;
                 return;
             }
@@ -1342,6 +1539,16 @@ cc.Class({
             cc.vv.net.send("hu");
         }
         else if(name == "btnGuo"){
+            //可胡时点过需二次确认,防止误过胡(取消则操作栏保持原样)
+            var btnHu = this._options.getChildByName("btnHu");
+            if(btnHu && btnHu.active && cc.vv.alert && cc.vv.alert.show){
+                var self = this;
+                cc.vv.alert.show(null, "当前可以胡牌，确定要过吗？", function(){
+                    cc.vv.net.send("guo");
+                    self.hideOptions();
+                }, true);
+                return;
+            }
             cc.vv.net.send("guo");
             //过后立即收起操作栏(连带全屏遮罩),否则操作栏残留会挡住后续手牌点击
             this.hideOptions();

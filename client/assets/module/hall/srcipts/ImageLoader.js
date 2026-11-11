@@ -14,6 +14,9 @@ function loadLocalAvatar(key,code,callback){
     });
 };
 
+//基础信息(含头像)缓存5分钟: 过期后重新拉取, 玩家换头像/改名能同步到座位头像
+var BASE_INFO_TTL = 5 * 60 * 1000;
+
 function getBaseInfo(userid,callback){
     if(cc.vv.baseInfoMap == null){
         cc.vv.baseInfoMap = {};
@@ -21,7 +24,9 @@ function getBaseInfo(userid,callback){
 
     //缓存可能是俱乐部场景写的(只有 name/sex/url, 没有 localKey), 这种条目要重新拉, 否则内置头像会被当成远程地址加载失败
     var cached = cc.vv.baseInfoMap[userid];
-    if(cached != null && ("localKey" in cached || "url" in cached)){
+    var fresh = cached != null && ("localKey" in cached || "url" in cached)
+        && (Date.now() - (cached.ts || 0) < BASE_INFO_TTL);
+    if(fresh){
         callback(userid,cached);
     }
     else{
@@ -42,6 +47,7 @@ function getBaseInfo(userid,callback){
                 sex:ret.sex,
                 url:url,
                 localKey:localKey,
+                ts:Date.now()
             }
             //没有头像地址的响应不缓存: 服务端可能正在补随机头像, 下次重新拉取就能拿到
             if(url || localKey){ cc.vv.baseInfoMap[userid] = info; }
@@ -73,38 +79,57 @@ cc.Class({
             return;
         }
         var uid = "" + userid;
-        if(this._userid === uid && this._spriteFrame){ return; } //同一个人重复渲染不重载
+        var self = this;
+        if(this._userid === uid && this._spriteFrame){
+            //同一个人: 缓存过期会重新拉一次, 只有头像地址变了才换图, 没变保持当前图不闪
+            getBaseInfo(userid,function(code,info){
+                if(self._userid !== uid){ return; }
+                var key = (info && (info.localKey || info.url)) || null;
+                if(!key || key === self._appliedKey){ return; }
+                self._applyInfo(uid,info);
+            });
+            return;
+        }
         //座位节点会被复用: 记录当前要显示的用户, 异步回调回来时若座位已换人则丢弃, 避免把上一位玩家的头像贴到新玩家身上
         this._userid = uid;
         this._spriteFrame = null;
+        this._appliedKey = null;
         var spr = this.node.getComponent(cc.Sprite);
         if(spr){ spr.spriteFrame = this._defaultFrame || null; } //先回到占位图, 不残留旧头像
-        var self = this;
         getBaseInfo(userid,function(code,info){
             if(self._userid !== uid){ return; }
-            if(info && info.localKey){
-                //内置头像:从本地资源加载
-                loadLocalAvatar(info.localKey,userid,function(code2,spriteFrame){
-                    if(!spriteFrame || self._userid !== uid){ return; }
-                    self._spriteFrame = spriteFrame;
-                    self.setupSpriteFrame();
-                });
-                return;
-            }
-           if(info && info.url){
-                loadImage(info.url,userid,function (err,spriteFrame) {
-                    if(!spriteFrame || self._userid !== uid){ return; }
-                    self._spriteFrame = spriteFrame;
-                    self.setupSpriteFrame();
-                });
-            }
+            self._applyInfo(uid,info);
         });
+    },
+
+    //按基础信息加载头像(内置头像走本地资源, 微信头像走远程URL)
+    _applyInfo:function(uid,info){
+        var self = this;
+        var key = (info && (info.localKey || info.url)) || null;
+        this._appliedKey = key;
+        if(info && info.localKey){
+            //内置头像:从本地资源加载
+            loadLocalAvatar(info.localKey,uid,function(code2,spriteFrame){
+                if(!spriteFrame || self._userid !== uid || self._appliedKey !== key){ return; }
+                self._spriteFrame = spriteFrame;
+                self.setupSpriteFrame();
+            });
+            return;
+        }
+        if(info && info.url){
+            loadImage(info.url,uid,function(err,spriteFrame){
+                if(!spriteFrame || self._userid !== uid || self._appliedKey !== key){ return; }
+                self._spriteFrame = spriteFrame;
+                self.setupSpriteFrame();
+            });
+        }
     },
 
     //清空头像(座位隐藏/换人时调用): 同时清掉记录的 userid, 让还在路上的异步结果失效
     clearAvatar:function(){
         this._userid = null;
         this._spriteFrame = null;
+        this._appliedKey = null;
         var spr = this.node.getComponent(cc.Sprite);
         if(spr){ spr.spriteFrame = this._defaultFrame || null; }
     },

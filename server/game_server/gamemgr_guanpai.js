@@ -217,7 +217,8 @@ function getSeatsInfo(game){
             seatindex: i,
             roomSeatIndex: s.roomSeatIndex,
             count: s.holds.length,
-            finished: !!s.finished
+            finished: !!s.finished,
+            sex: s.sex || 0
         });
     }
     return info;
@@ -592,6 +593,19 @@ exports.start = function(roomInfo){
         return;
     }
 
+    // 先批量查每家性别(报牌/出牌语音分男/女), 查完再发牌开局(参照 gamemgr_baobao)
+    var sexMap = {};
+    var pendingSex = seatedPlayers.length;
+    if(pendingSex <= 0) return;
+    seatedPlayers.forEach(function(sp){
+        db.get_user_base_info(sp.userId, function(info){
+            sexMap[sp.userId] = (info && info.sex != null) ? Number(info.sex) : 0;
+            if(--pendingSex <= 0) startDeal(roomInfo, seatedPlayers, sexMap);
+        });
+    });
+};
+
+function startDeal(roomInfo, seatedPlayers, sexMap){
     var game = {
         roomId: roomInfo.id,
         deck: buildDeck(),
@@ -617,6 +631,7 @@ exports.start = function(roomInfo){
         game.gameSeats.push({
             userId: sp.userId,
             name: sp.name,
+            sex: (sexMap && sexMap[sp.userId]) || 0,
             seatIndex: i,
             roomSeatIndex: sp.roomSeatIndex,
             holds: [],

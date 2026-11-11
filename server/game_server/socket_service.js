@@ -266,7 +266,18 @@ exports.start = function(conf,mgr){
 				}
 			}
 
-			console.log('[login] userId=' + userId + ' userName=' + (roomInfo.seats[seatIndex] && roomInfo.seats[seatIndex].name) + ' roomId=' + roomId + ' mySeatIndex=' + seatIndex + ' seats=' + JSON.stringify(seats.map(function(s){return s.userid + ':' + s.name + '@' + s.seatindex;})));
+			console.log('[login] userId=' + userId + ' userName=' + (roomInfo.seats[seatIndex] && roomInfo.seats[seatIndex].name) + ' roomId=' + roomId + ' mySeatIndex=' + seatIndex + ' seats=' + JSON.stringify(seats.map(function(s){return s.userid + ':' + s.name + '@' + s.seatindex + '/score=' + s.score;})));
+
+			//运行时证据: 把 DB 里的 user_name0/1 和内存里的对比, 钉死到底是哪一层错了
+			try{
+				var dbu = require('../utils/db');
+				dbu.query('SELECT user_name0,user_name1,user_score0,user_score1 FROM t_rooms WHERE id = "' + roomId + '"',function(e,rows){
+					if(!e && rows && rows.length){
+						console.log('[login db-check] roomId=' + roomId + ' db.name0(base64)=' + rows[0].user_name0 + ' db.name1(base64)=' + rows[0].user_name1 + ' db.score0=' + rows[0].user_score0 + ' db.score1=' + rows[0].user_score1);
+					}
+				});
+			}catch(e2){}
+
 
 			//通知前端
 			var ret = {
@@ -537,6 +548,29 @@ exports.start = function(conf,mgr){
 
 		//宝宝(免摆):发牌后确认系统牌型
 		socket.on('bb_confirm',function(){
+			if(socket.userId == null){
+				return;
+			}
+			if(socket.gameMgr.confirm){
+				socket.gameMgr.confirm(socket.userId);
+			}
+		});
+
+		//十三水:摆牌 {head:[3], mid:[5], tail:[5]} 或 {auto:true}
+		socket.on('sss_arrange',function(data){
+			if(socket.userId == null || data == null){
+				return;
+			}
+			if(typeof(data) == "string"){
+				try{ data = JSON.parse(data); }catch(e){ return; }
+			}
+			if(socket.gameMgr.arrange){
+				socket.gameMgr.arrange(socket.userId, data);
+			}
+		});
+
+		//十三水:确定摆牌
+		socket.on('sss_confirm',function(){
 			if(socket.userId == null){
 				return;
 			}

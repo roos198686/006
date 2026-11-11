@@ -1,0 +1,244 @@
+
+mj_gang.png
+size: 396,674
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+gang_chaji
+  rotate: false
+  xy: 241, 475
+  size: 47, 46
+  orig: 49, 48
+  offset: 1, 1
+  index: -1
+gang_chatuo
+  rotate: true
+  xy: 290, 485
+  size: 36, 16
+  orig: 38, 18
+  offset: 1, 1
+  index: -1
+gang_facai
+  rotate: true
+  xy: 129, 8
+  size: 109, 101
+  orig: 109, 101
+  offset: 0, 0
+  index: -1
+gang_gang
+  rotate: false
+  xy: 241, 286
+  size: 153, 135
+  orig: 156, 138
+  offset: 1, 2
+  index: -1
+gang_jiao_L
+  rotate: true
+  xy: 162, 175
+  size: 33, 38
+  orig: 33, 38
+  offset: 0, 0
+  index: -1
+gang_jiao_R
+  rotate: false
+  xy: 241, 450
+  size: 44, 23
+  orig: 44, 31
+  offset: 0, 0
+  index: -1
+gang_jinbi_1
+  rotate: true
+  xy: 387, 515
+  size: 9, 5
+  orig: 11, 7
+  offset: 1, 1
+  index: -1
+gang_jinbi_2
+  rotate: true
+  xy: 387, 504
+  size: 9, 5
+  orig: 11, 7
+  offset: 1, 1
+  index: -1
+gang_jinbi_3
+  rotate: true
+  xy: 387, 526
+  size: 10, 5
+  orig: 12, 7
+  offset: 1, 1
+  index: -1
+gang_jinbi_4
+  rotate: true
+  xy: 387, 549
+  size: 9, 7
+  orig: 11, 9
+  offset: 1, 1
+  index: -1
+gang_jinbi_5
+  rotate: true
+  xy: 387, 538
+  size: 9, 6
+  orig: 11, 8
+  offset: 1, 1
+  index: -1
+gang_jinbi_yinying_1
+  rotate: true
+  xy: 290, 430
+  size: 24, 10
+  orig: 26, 12
+  offset: 1, 1
+  index: -1
+gang_majiang
+  rotate: false
+  xy: 162, 119
+  size: 29, 23
+  orig: 31, 25
+  offset: 1, 1
+  index: -1
+gang_maozi_er_L
+  rotate: false
+  xy: 202, 140
+  size: 31, 20
+  orig: 31, 20
+  offset: 0, 0
+  index: -1
+gang_maozi_er_R
+  rotate: false
+  xy: 202, 162
+  size: 33, 23
+  orig: 33, 23
+  offset: 0, 0
+  index: -1
+gang_maozi_zhubao
+  rotate: false
+  xy: 162, 144
+  size: 38, 29
+  orig: 40, 31
+  offset: 1, 1
+  index: -1
+gang_meimao_L
+  rotate: false
+  xy: 290, 473
+  size: 16, 10
+  orig: 18, 12
+  offset: 1, 1
+  index: -1
+gang_meimao_R
+  rotate: true
+  xy: 385, 263
+  size: 21, 9
+  orig: 23, 11
+  offset: 1, 1
+  index: -1
+gang_shou_L
+  rotate: false
+  xy: 267, 424
+  size: 21, 24
+  orig: 21, 24
+  offset: 0, 0
+  index: -1
+gang_shou_R
+  rotate: true
+  xy: 203, 223
+  size: 26, 35
+  orig: 26, 35
+  offset: 0, 0
+  index: -1
+gang_yanjing
+  rotate: false
+  xy: 162, 251
+  size: 77, 32
+  orig: 79, 34
+  offset: 1, 1
+  index: -1
+gang_yinying
+  rotate: true
+  xy: 308, 423
+  size: 135, 77
+  orig: 139, 83
+  offset: 2, 2
+  index: -1
+gang_yinying_zuoyi
+  rotate: true
+  xy: 308, 560
+  size: 112, 83
+  orig: 114, 86
+  offset: 1, 1
+  index: -1
+gang_zui
+  rotate: true
+  xy: 387, 486
+  size: 16, 4
+  orig: 18, 6
+  offset: 1, 1
+  index: -1
+gang_zuoyi
+  rotate: false
+  xy: 2, 12
+  size: 125, 112
+  orig: 125, 112
+  offset: 0, 0
+  index: -1
+guangdian
+  rotate: false
+  xy: 290, 456
+  size: 15, 15
+  orig: 16, 16
+  offset: 1, 1
+  index: -1
+guanquana
+  rotate: false
+  xy: 2, 126
+  size: 158, 157
+  orig: 161, 161
+  offset: 0, 4
+  index: -1
+peng_di
+  rotate: false
+  xy: 2, 523
+  size: 304, 149
+  orig: 307, 151
+  offset: 2, 1
+  index: -1
+shaoguang
+  rotate: false
+  xy: 241, 143
+  size: 142, 141
+  orig: 142, 141
+  offset: 0, 0
+  index: -1
+shaoguang1
+  rotate: true
+  xy: 235, 2
+  size: 139, 154
+  orig: 139, 154
+  offset: 0, 0
+  index: -1
+xbxtypy_core_01
+  rotate: true
+  xy: 2, 285
+  size: 236, 237
+  orig: 244, 244
+  offset: 5, 3
+  index: -1
+zm_faguang
+  rotate: false
+  xy: 241, 424
+  size: 24, 24
+  orig: 28, 28
+  offset: 2, 2
+  index: -1
+zm_majiang2
+  rotate: false
+  xy: 162, 210
+  size: 39, 39
+  orig: 43, 42
+  offset: 2, 2
+  index: -1
+zm_majiangd1
+  rotate: false
+  xy: 203, 187
+  size: 34, 34
+  orig: 36, 36
+  offset: 1, 1
+  index: -1

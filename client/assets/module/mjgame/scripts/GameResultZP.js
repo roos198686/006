@@ -135,12 +135,25 @@ cc.Class({
         this.renderList(null, null);
     },
 
+    //结算弹窗弹入动画:从60%缩小+透明回弹到正常大小
+    _popIn:function(node){
+        if(!node){ return; }
+        if(this._popBase == null){ this._popBase = {}; }
+        var key = node.uuid;
+        if(this._popBase[key] == null){ this._popBase[key] = node.scaleX; }
+        var base = this._popBase[key];
+        cc.Tween.stopAllByTarget(node);
+        node.setScale(base * 0.6);
+        node.opacity = 0;
+        cc.tween(node).to(0.28, {scaleX: base, scaleY: base, opacity: 255}, {easing: "backOut"}).start();
+    },
+
     //game_end入口:整场结束优先展示每局得分明细+总成绩(roundHistory),无明细时降级
     onGameEnd:function(endinfo, roundHistory){
         if(this._gameresult == null){
             this._gameresult = this.node.getChildByName("game_result");
         }
-        if(this._gameresult){ this._gameresult.active = true; }
+        if(this._gameresult){ this._gameresult.active = true; this._popIn(this._gameresult); }
         if(roundHistory && roundHistory.length > 0){
             //需求:结算列表按局列出每局得分明细(正绿负红),最终总成绩保持显示,不展示全局统计数据
             this.renderList(null, roundHistory);

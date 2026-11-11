@@ -95,6 +95,23 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
 .card-body .row .v { color: #333; font-weight: 500; }
 .card-actions { margin-top: 12px; padding-top: 10px; border-top: 1px solid #f0f2f5; display: flex; gap: 6px; flex-wrap: wrap; }
 .card-tag { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; background: #e3f2fd; color: #1565c0; }
+/* 俱乐部详情:紧凑列表卡片 / 表格式成员 */
+.list-card { background: #fff; border: 1px solid #e4e8ef; border-radius: 8px; padding: 16px; transition: box-shadow .2s, transform .15s; }
+.list-card:hover { box-shadow: 0 4px 16px rgba(25,118,210,.12); border-color: #bbdefb; }
+.list-card-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #f0f2f5; }
+.list-card-title { font-size: 15px; font-weight: 600; color: #1a1a2e; }
+.list-card-type { font-size: 12px; color: #1976d2; background: #e3f2fd; padding: 2px 8px; border-radius: 10px; }
+.list-card-body { font-size: 13px; color: #555; line-height: 1.9; }
+.list-card-row { display: flex; justify-content: space-between; }
+.list-card-row .k { color: #999; }
+.list-card-row .v { color: #333; font-weight: 500; }
+.list-card-foot { margin-top: 12px; padding-top: 10px; border-top: 1px solid #f0f2f5; display: flex; gap: 6px; }
+.list-card-tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+.list-card-tag { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+.list-card-tag.on { background: #e8f5e9; color: #2e7d32; }
+.list-card-tag.off { background: #f5f5f5; color: #888; }
+.table-wrap { overflow-x: auto; }
+.btn-warning { background: #fb8c00; color: #fff; }
 /* 移动端 */
 @media (max-width: 768px) {
   .sidebar { width: 60px; }
@@ -157,11 +174,15 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
   <div class="sidebar">
     <div class="logo">超级管理后台</div>
     <div class="nav-item active" data-tab="clubs" onclick="switchTab('clubs', this)">俱乐部管理</div>
+    <div class="nav-item" data-tab="club_detail" onclick="switchTab('club_detail', this)">俱乐部详情</div>
+    <div class="nav-item" data-tab="club_partner" onclick="switchTab('club_partner', this)">合伙人管理</div>
     <div class="nav-item" data-tab="admins" onclick="switchTab('admins', this)">管理员管理</div>
     <div class="nav-item" data-tab="config" onclick="switchTab('config', this)">玩法配置</div>
     <div class="nav-item" data-tab="users" onclick="switchTab('users', this)">用户管理</div>
     <div class="nav-item" data-tab="games" onclick="switchTab('games', this)">战绩查询</div>
     <div class="nav-item" data-tab="app" onclick="switchTab('app', this)">APP发布</div>
+    <div class="nav-item" onclick="window.open('/admin/spectate.html','_blank')">牌局观战</div>
+    <div class="nav-item" data-tab="spectate_users" onclick="switchTab('spectate_users', this)">观战账号</div>
     <div class="nav-item" data-tab="sys" onclick="switchTab('sys', this)">系统配置</div>
   </div>
   <div class="main">
@@ -181,6 +202,88 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
       <div class="card-grid" id="clubList"></div>
     </div>
 
+    <!-- 俱乐部详情 -->
+    <div id="tab-club_detail" class="panel" style="display:none">
+      <div class="toolbar">
+        <select id="clubDetailSel" onchange="onClubDetailChange()" style="flex:1;padding:10px;border:1px solid #dcdfe6;border-radius:4px;font-size:14px"></select>
+        <button class="btn btn-primary" onclick="enterClubDetail()">刷新</button>
+      </div>
+      <div id="clubDetailEmpty" class="card-empty" style="display:none">暂无可管理的俱乐部</div>
+      <div id="clubDetailBody" style="display:none">
+        <div id="clubDetailInfo" style="font-size:13px;color:#1976d2;margin-bottom:14px"></div>
+        <div class="tabs">
+          <div class="tab active" id="cdTabGames" onclick="switchCdTab('games')">玩法列表</div>
+          <div class="tab" id="cdTabTables" onclick="switchCdTab('tables')">牌桌管理</div>
+          <div class="tab" id="cdTabMembers" onclick="switchCdTab('members')">成员房卡</div>
+        </div>
+        <!-- 玩法列表 -->
+        <div id="cdPanelGames">
+          <div class="toolbar">
+            <button class="btn btn-success btn-sm" onclick="clubShowAddGameModal()">+ 添加玩法</button>
+            <button class="btn btn-primary btn-sm" onclick="clubLoadGames()">刷新</button>
+          </div>
+          <div class="card-grid" id="cdGameList"></div>
+        </div>
+        <!-- 牌桌管理 -->
+        <div id="cdPanelTables" style="display:none">
+          <div class="toolbar">
+            <div class="tabs" id="cdTableTabs"></div>
+            <button class="btn btn-success btn-sm" onclick="clubShowTableModal()">+ 添加牌桌</button>
+            <button class="btn btn-primary btn-sm" onclick="clubLoadTables()">刷新</button>
+          </div>
+          <div class="card-grid" id="cdTableList"></div>
+        </div>
+        <!-- 成员房卡 -->
+        <div id="cdPanelMembers" style="display:none">
+          <div class="toolbar">
+            <input type="text" id="cdMemberKeyword" placeholder="搜索用户ID/账号/昵称" oninput="clubRenderMembers()">
+            <button class="btn btn-primary btn-sm" onclick="clubLoadMembers()">刷新</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>用户ID</th><th>账号</th><th>昵称</th><th>房卡</th><th>加入时间</th><th>操作</th></tr></thead>
+              <tbody id="cdMemberList"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 合伙人管理 -->
+    <div id="tab-club_partner" class="panel" style="display:none">
+      <div class="toolbar">
+        <select id="partnerClubSel" onchange="onPartnerClubChange()" style="flex:1;padding:10px;border:1px solid #dcdfe6;border-radius:4px;font-size:14px"></select>
+        <button class="btn btn-primary" onclick="enterPartnerPage()">加载合伙人</button>
+      </div>
+      <div id="partnerEmpty" class="card-empty" style="display:none">暂无可显示的合伙人(顶级俱乐部没有下级)</div>
+      <div id="partnerBody" style="display:none">
+        <div style="font-size:13px;color:#1976d2;margin-bottom:12px">
+          顶级俱乐部: <b id="partnerTopName"></b> (ID:<span id="partnerTopId"></span>)
+          —— 共 <span id="partnerTopCount">0</span> 个合伙人(含二级/三级)
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:40px">#</th>
+                <th style="width:70px">层级</th>
+                <th>俱乐部名(ID)</th>
+                <th>社长 昵称(ID)</th>
+                <th style="width:120px">归属上级</th>
+                <th style="width:90px">比例</th>
+                <th style="width:80px">成员</th>
+                <th style="width:110px">今日抽水</th>
+                <th style="width:120px">今日利润</th>
+                <th style="width:120px">累计利润</th>
+                <th style="width:140px">操作</th>
+              </tr>
+            </thead>
+            <tbody id="partnerList"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- 管理员管理 -->
     <div id="tab-admins" class="panel" style="display:none">
       <div class="toolbar">
@@ -188,6 +291,16 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <button class="btn btn-primary" onclick="loadAdmins()">刷新</button>
       </div>
       <div class="card-grid" id="adminList"></div>
+    </div>
+
+    <!-- 观战账号 -->
+    <div id="tab-spectate_users" class="panel" style="display:none">
+      <div class="toolbar">
+        <button class="btn btn-success" onclick="showSpectateUserModal()">+ 新增观战账号</button>
+        <button class="btn btn-primary" onclick="loadSpectateUsers()">刷新</button>
+        <span style="color:#888;font-size:12px;margin-left:10px">观战网页：<a href="/admin/spectate.html" target="_blank">/admin/spectate.html</a>（用此处录入的账号密码登录）</span>
+      </div>
+      <div class="card-grid" id="spectateUserList"></div>
     </div>
 
     <!-- 玩法配置 -->
@@ -242,6 +355,29 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         </div>
         <button class="btn btn-primary" id="appUploadBtn" onclick="uploadApp()">开始上传</button>
         <button class="btn" onclick="loadAppInfo()">刷新</button>
+      </div>
+
+      <div class="card" style="max-width:640px">
+        <h3 style="margin-top:0">APP热更新</h3>
+        <div id="hotupdateInfo" style="line-height:2;color:#666">加载中...</div>
+        <hr>
+        <h3>发布热更包</h3>
+        <div style="font-size:12px;color:#999;margin-bottom:10px;line-height:1.8">
+          把 Cocos Creator 构建产物目录（build/jsb-default 或 build/jsb-link，须包含 project.manifest、version.manifest、main.js、src、res 等）整体压缩为一个 zip 上传。
+          修改了脚本/资源走热更；改了引擎配置或原生插件时请到"APP发布"上传新 APK。
+        </div>
+        <div class="form-group">
+          <label>热更包(zip)</label>
+          <input type="file" id="hotupdateFile" accept=".zip">
+        </div>
+        <div id="hotupdateProgress" style="display:none;margin:10px 0">
+          <div style="background:#eee;height:18px;border-radius:9px;overflow:hidden">
+            <div id="hotupdateProgressBar" style="background:#27ae60;height:100%;width:0%;transition:width .2s"></div>
+          </div>
+          <div id="hotupdateProgressText" style="font-size:12px;color:#888;margin-top:4px"></div>
+        </div>
+        <button class="btn btn-primary" id="hotupdateUploadBtn" onclick="uploadHotupdate()">发布热更</button>
+        <button class="btn" onclick="loadHotupdateInfo()">刷新</button>
       </div>
     </div>
 
@@ -329,17 +465,31 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <label>密码 <span id="adm_pass_tip" style="color:#999;font-size:12px"></span></label>
         <input type="text" id="adm_password" placeholder="留空则不修改">
       </div>
-      <div class="form-group">
-        <label>角色</label>
-        <select id="adm_role">
-          <option value="super">超级管理后台(全部后台)</option>
-          <option value="club">管理后台</option>
-        </select>
-      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-default" onclick="closeAdminModal()">取消</button>
       <button class="btn btn-primary" onclick="saveAdmin()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 观战账号弹窗 -->
+<div id="spectateUserModal" class="modal">
+  <div class="modal-content">
+    <h3 id="spectateUserModalTitle">新增观战账号</h3>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>账号</label>
+        <input type="text" id="spu_username" placeholder="3-20位字母/数字/下划线">
+      </div>
+      <div class="form-group">
+        <label>密码 <span id="spu_pass_tip" style="color:#999;font-size:12px"></span></label>
+        <input type="text" id="spu_password" placeholder="至少4位">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="closeSpectateUserModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveSpectateUser()">保存</button>
     </div>
   </div>
 </div>
@@ -409,8 +559,16 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <label class="inline"><input type="checkbox" id="cfg_cai_chi" checked> 财神可参与吃</label>
         <label class="inline"><input type="checkbox" id="cfg_cai_peng" checked> 财神可参与碰</label>
         <label class="inline"><input type="checkbox" id="cfg_cai_gang" checked> 财神可参与杠</label>
+        <label class="inline"><input type="checkbox" id="cfg_cai_pure"> 纯财神吃碰杠(不需真牌)</label>
+        <label class="inline"><input type="checkbox" id="cfg_hu_guo_confirm" checked> 过胡二次确认</label>
         <label class="inline"><input type="checkbox" id="cfg_dianpao_hu" checked> 允许点炮胡</label>
-        <label class="inline" data-switch-group="2p"><input type="checkbox" id="cfg_remove_tiao"> 去掉条子(仅2人)</label>
+        <label class="inline">每杠流局加张
+          <input type="number" id="cfg_gang_liuju" value="0" min="0" max="20" style="width:60px;">
+          <span style="color:#888;">(0=不加;如设4,每有一个杠流局线26+4)</span>
+        </label>
+        <label class="inline" data-switch-group="2p"><input type="checkbox" id="cfg_remove_wan" onchange="removeGroupCheck(this)"> 去掉万子(仅2人)</label>
+        <label class="inline" data-switch-group="2p"><input type="checkbox" id="cfg_remove_tiao" onchange="removeGroupCheck(this)"> 去掉条子(仅2人)</label>
+        <label class="inline" data-switch-group="2p"><input type="checkbox" id="cfg_remove_tong" onchange="removeGroupCheck(this)"> 去掉筒子(仅2人)</label>
       </div>
       <!-- 翻财神/赖倒胡专属 -->
       <div class="cfg-grid" data-switch-group="fc">
@@ -502,8 +660,100 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
       <button class="btn btn-primary" onclick="confirmGemChange()">确认</button>
     </div>
   </div>
+</div>
 
+<!-- 俱乐部-添加玩法 -->
+<div id="clubAddGameModal" class="modal">
+  <div class="modal-content" style="max-width:420px">
+    <h3>添加玩法</h3>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>选择玩法</label>
+        <select id="club_add_game_type" onchange="clubOnAddGameTypeChange()"></select>
+      </div>
+      <div class="form-group">
+        <label>玩法名称</label>
+        <input type="text" id="club_add_game_name">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="clubCloseAddGameModal()">取消</button>
+      <button class="btn btn-primary" onclick="clubDoAddGame()">确定</button>
+    </div>
+  </div>
+</div>
 
+<!-- 俱乐部-编辑玩法 -->
+<div id="clubGameModal" class="modal">
+  <div class="modal-content" style="max-width:700px">
+    <h3 id="clubGameModalTitle">编辑玩法</h3>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>玩法名称</label>
+        <input type="text" id="club_game_name">
+      </div>
+      <div class="form-group">
+        <a href="javascript:void(0)" onclick="var d=document.getElementById('clubGameAdvanced'); d.style.display=(d.style.display==='none'?'block':'none');" style="font-size:13px;color:#1976d2;">底分 / 局数 / 房卡 ▾</a>
+      </div>
+      <div id="clubGameAdvanced" style="display:none">
+        <div class="form-group"><label>底分选项</label><div class="array-input" id="club_gdifenArr"></div></div>
+        <div class="form-group"><label>局数选项</label><div class="array-input" id="club_gjushuArr"></div></div>
+        <div class="form-group"><label>对应房卡消耗</label><div class="array-input" id="club_gcostArr"></div></div>
+      </div>
+      <div class="form-group">
+        <a href="javascript:void(0)" onclick="var d=document.getElementById('clubGameTaiBox'); d.style.display=(d.style.display==='none'?'block':'none');" style="font-size:13px;color:#1976d2;">台数规则 / 倍率 / 动画配置 ▾</a>
+      </div>
+      <div id="clubGameTaiBox" style="display:none;padding:8px 0;margin-bottom:12px"></div>
+      <div class="form-row">
+        <div class="form-group"><label>排序</label><input type="number" id="club_game_sort" value="0"></div>
+        <div class="form-group"><label class="inline" style="margin-top:30px"><input type="checkbox" id="club_game_enabled" checked> 启用</label></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="clubCloseGameModal()">取消</button>
+      <button class="btn btn-primary" onclick="clubSaveGame()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 俱乐部-添加牌桌 -->
+<div id="clubTableModal" class="modal">
+  <div class="modal-content" style="max-width:420px">
+    <h3>添加牌桌</h3>
+    <div class="modal-body">
+      <div class="form-group"><label>所属玩法</label><input type="text" id="club_tbl_game_label" readonly style="background:#f5f5f5"></div>
+      <div class="form-group"><label>人数上限</label><input type="text" id="club_tbl_players" readonly style="background:#f5f5f5"></div>
+      <div class="form-group"><label>玩法模式</label><input type="text" value="血战(无庄,六家互比)" readonly style="background:#f5f5f5"></div>
+      <div class="form-group"><label>底分</label><input type="number" id="club_tbl_difen" min="1"></div>
+      <div class="form-group"><label>局数</label><select id="club_tbl_jushu"></select></div>
+      <div class="form-group"><label>最低宝宝豆</label><input type="number" id="club_tbl_min_bean" value="0" min="0"></div>
+      <div class="form-group"><label>请出阈值</label><input type="number" id="club_tbl_kick_bean" value="0" min="0"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="clubCloseTableModal()">取消</button>
+      <button class="btn btn-primary" onclick="clubSaveTable()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 俱乐部-调整成员房卡 -->
+<div id="clubGemModal" class="modal">
+  <div class="modal-content" style="max-width:360px">
+    <h3>调整房卡</h3>
+    <div class="modal-body">
+      <p>用户ID: <span id="club_gemUserId"></span></p>
+      <p>当前房卡: <span id="club_gemCurrent"></span></p>
+      <div class="form-group">
+        <label>变动数量 (正数增加，负数减少)</label>
+        <input type="number" id="club_gemChange" value="0">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="clubCloseGemModal()">取消</button>
+      <button class="btn btn-primary" onclick="clubConfirmGemChange()">确认</button>
+    </div>
+  </div>
+</div>
 
 <script>
 var API_BASE = '';
@@ -652,7 +902,7 @@ function doLogin(){
   api('/admin/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:u,password:p})}).then(function(ret){
     if(ret.code === 0){
       if(ret.data.role !== 'super'){
-        alert('该账号是俱乐部管理员，请到俱乐部管理员后台登录');
+        alert('该账号不是超级管理员，无权登录后台');
         return;
       }
       token = ret.data.token;
@@ -728,7 +978,7 @@ if(token){
   });
 }
 
-var TAB_TITLES = {clubs:'俱乐部管理', club_detail:'俱乐部详情', admins:'管理员管理', config:'玩法配置', users:'用户管理', games:'战绩查询', app:'APP发布', sys:'系统配置'};
+var TAB_TITLES = {clubs:'俱乐部管理', club_detail:'俱乐部详情', club_partner:'合伙人管理', admins:'管理员管理', spectate_users:'观战账号', config:'玩法配置', users:'用户管理', games:'战绩查询', app:'APP发布', sys:'系统配置'};
 //刷新后停留在原页面
 function restoreTab(){
   var name = localStorage.getItem('admin_tab') || 'clubs';
@@ -746,21 +996,309 @@ function switchTab(name, btn){
   document.getElementById('tab-' + name).style.display = 'block';
   document.getElementById('pageTitle').textContent = TAB_TITLES[name] || '';
   if(name === 'clubs') loadClubs();
+  if(name === 'club_detail') enterClubDetail();
+  if(name === 'club_partner') enterPartnerPage();
   if(name === 'admins') loadAdmins();
   if(name === 'config') loadConfigs();
   if(name === 'users') loadUsers();
   if(name === 'sys') loadSysConfig();
   if(name === 'games') loadGames();
-  if(name === 'app') loadAppInfo();
+  if(name === 'app') { loadAppInfo(); loadHotupdateInfo(); }
+  if(name === 'spectate_users') loadSpectateUsers();
+}
+
+// ============ 合伙人管理(超级管理后台) ============
+var currentPartnerClubId = null;
+var partnerListCache = [];
+function enterPartnerPage(){
+  // 先拉全部俱乐部, 下拉里只显示顶级俱乐部(parent_clubid=0)
+  loadClubs(function(){
+    var sel = document.getElementById('partnerClubSel');
+    sel.innerHTML = '';
+    var tops = (allClubs || []).filter(function(c){ return !c.parent_clubid || c.parent_clubid === 0; });
+    tops.forEach(function(c){
+      var o = document.createElement('option');
+      o.value = c.id; o.textContent = c.name + ' (ID:'+c.id+') 社长:'+c.owner_userid;
+      sel.appendChild(o);
+    });
+    var saved = currentPartnerClubId || localStorage.getItem('admin_partner_club_id');
+    if(saved && sel.querySelector('option[value="'+saved+'"]')){ sel.value = saved; currentPartnerClubId = parseInt(saved); }
+    else if(sel.options.length > 0){ sel.value = sel.options[0].value; currentPartnerClubId = parseInt(sel.options[0].value); }
+    else { currentPartnerClubId = null; }
+    if(currentPartnerClubId){ onPartnerClubChange(); }
+    else {
+      document.getElementById('partnerEmpty').style.display = 'block';
+      document.getElementById('partnerBody').style.display = 'none';
+    }
+  });
+}
+function onPartnerClubChange(){
+  var v = parseInt(document.getElementById('partnerClubSel').value);
+  currentPartnerClubId = v || null;
+  if(!currentPartnerClubId){
+    document.getElementById('partnerEmpty').style.display = 'block';
+    document.getElementById('partnerBody').style.display = 'none';
+    return;
+  }
+  localStorage.setItem('admin_partner_club_id', currentPartnerClubId);
+  renderPartnerTopInfo();
+  loadClubPartners();
+}
+function renderPartnerTopInfo(){
+  var top = (allClubs || []).find(function(c){ return c.id === currentPartnerClubId; });
+  if(top){
+    document.getElementById('partnerTopName').textContent = top.name;
+    document.getElementById('partnerTopId').textContent = top.id;
+  }
+}
+function loadClubPartners(){
+  api('/admin/partners?club_id=' + currentPartnerClubId).then(function(ret){
+    if(ret.code !== 0){
+      document.getElementById('partnerEmpty').style.display = 'block';
+      document.getElementById('partnerEmpty').innerHTML = '加载失败: ' + (ret.msg || '');
+      document.getElementById('partnerBody').style.display = 'none';
+      return;
+    }
+    partnerListCache = ret.data || [];
+    document.getElementById('partnerTopCount').textContent = partnerListCache.length;
+    if(partnerListCache.length === 0){
+      document.getElementById('partnerEmpty').style.display = 'block';
+      document.getElementById('partnerEmpty').textContent = '顶级俱乐部没有下级合伙人';
+      document.getElementById('partnerBody').style.display = 'none';
+      return;
+    }
+    document.getElementById('partnerEmpty').style.display = 'none';
+    document.getElementById('partnerBody').style.display = 'block';
+    renderClubPartners();
+  });
+}
+function renderClubPartners(){
+  var tb = document.getElementById('partnerList');
+  tb.innerHTML = '';
+  partnerListCache.forEach(function(p, idx){
+    var tr = document.createElement('tr');
+    var levelTag = p.level === 1 ? '<span class="tag tag-green">一级</span>' : '<span class="tag tag-red">二级</span>';
+    if(p.level >= 3) levelTag = '<span class="tag tag-red">三级</span>';
+    var parentTxt = p.parent_club_name || '-';
+    var indent = (p.level || 1) > 1 ? ('　　'.repeat((p.level||1)-1) + '└ ') : '';
+    tr.innerHTML = '<td>' + (idx+1) + '</td>'
+      + '<td>' + levelTag + '</td>'
+      + '<td>' + indent + '<b>' + (p.name || '未命名') + '</b> (ID:' + p.id + ')</td>'
+      + '<td>' + (p.owner_name || '-') + ' (' + (p.owner_userid||'-') + ')</td>'
+      + '<td>' + parentTxt + '</td>'
+      + '<td>' + (p.profit_ratio || 0) + '%</td>'
+      + '<td>' + (p.member_count || 0) + '</td>'
+      + '<td>' + (p.today_rake || 0) + '</td>'
+      + '<td>' + (p.today_partner_profit || 0) + '</td>'
+      + '<td>' + (p.total_partner_profit || 0) + '</td>'
+      + '<td>'
+        + '<a class="btn btn-sm btn-primary" onclick="partnerGems('+p.id+')">调豆豆</a> '
+        + '<a class="btn btn-sm btn-default" onclick="partnerRatio('+p.id+','+(p.profit_ratio||0)+')">比例</a> '
+        + '<a class="btn btn-sm btn-danger" onclick="partnerDel('+p.id+')">删除</a>'
+      + '</td>';
+    tb.appendChild(tr);
+  });
+}
+function partnerGems(pid){
+  var g = prompt('调豆豆数量(正=加, 负=减):');
+  if(g == null || isNaN(parseInt(g))) return;
+  api('/admin/partner/gems', { club_id: currentPartnerClubId, partner_club_id: pid, gems: parseInt(g) }).then(function(ret){
+    if(ret.code === 0){ loadClubPartners(); } else alert(ret.msg);
+  });
+}
+function partnerRatio(pid, cur){
+  var r = prompt('设置比例(0-100):', cur);
+  if(r == null || isNaN(parseFloat(r))) return;
+  api('/admin/partner/ratio', { club_id: currentPartnerClubId, partner_club_id: pid, ratio: parseFloat(r) }).then(function(ret){
+    if(ret.code === 0){ loadClubPartners(); } else alert(ret.msg);
+  });
+}
+function partnerDel(pid){
+  if(!confirm('确认删除该合伙人俱乐部? (仅解除归属, 不删除俱乐部本身)')) return;
+  // 删除合伙人: 把该俱乐部 parent_clubid 设为 0(升级为顶级), 或软解绑定
+  api('/admin/partner/' + pid + '?club_id=' + currentPartnerClubId, null, 'DELETE').then(function(ret){
+    if(ret.code === 0){ loadClubPartners(); } else alert(ret.msg);
+  });
+}
+
+// ============ 观战账号 ============
+var spectateUsersCache = [];
+var editingSpectateUserId = null;
+function loadSpectateUsers(){
+  api('/admin/spectate/users').then(function(ret){
+    var grid = document.getElementById('spectateUserList');
+    if(ret.code !== 0){ grid.innerHTML = '<div class="card-empty">'+ (ret.msg || '加载失败') +'</div>'; return; }
+    spectateUsersCache = ret.data || [];
+    grid.innerHTML = '';
+    if(spectateUsersCache.length === 0){
+      grid.innerHTML = '<div class="card-empty">暂无观战账号，点击上方「新增观战账号」录入</div>';
+      return;
+    }
+    spectateUsersCache.forEach(function(a){
+      var time = a.created_at ? new Date(a.created_at * 1000).toLocaleString() : '-';
+      var last = a.last_login ? new Date(a.last_login * 1000).toLocaleString() : '从未登录';
+      var enabled = Number(a.enabled) === 1;
+      var card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = '<div class="card-header">'+
+        '<div><div class="card-title">'+escapeHtml(a.username)+'</div>'+
+        '<div class="card-sub">ID: '+a.id+'</div></div>'+
+        (enabled ? '<span class="tag tag-green">启用</span>' : '<span class="tag tag-red">禁用</span>')+'</div>'+
+        '<div class="card-body">'+
+        '<div class="row"><span class="k">最近登录</span><span class="v">'+last+'</span></div>'+
+        '<div class="row"><span class="k">创建时间</span><span class="v">'+time+'</span></div></div>'+
+        '<div class="card-actions">'+
+        '<button class="btn btn-default btn-sm" onclick="editSpectateUser('+a.id+')">重置密码</button>'+
+        '<button class="btn btn-default btn-sm" onclick="toggleSpectateUser('+a.id+','+(enabled?0:1)+')">'+(enabled?'禁用':'启用')+'</button>'+
+        '<button class="btn btn-danger btn-sm" onclick="delSpectateUser('+a.id+')">删除</button></div>';
+      grid.appendChild(card);
+    });
+  });
+}
+function showSpectateUserModal(){
+  editingSpectateUserId = null;
+  document.getElementById('spectateUserModalTitle').textContent = '新增观战账号';
+  document.getElementById('spu_username').value = '';
+  document.getElementById('spu_username').disabled = false;
+  document.getElementById('spu_password').value = '';
+  document.getElementById('spu_pass_tip').textContent = '';
+  document.getElementById('spectateUserModal').style.display = 'flex';
+}
+function editSpectateUser(id){
+  var a = spectateUsersCache.filter(function(x){ return x.id === id; })[0];
+  if(!a) return;
+  editingSpectateUserId = id;
+  document.getElementById('spectateUserModalTitle').textContent = '重置密码：' + a.username;
+  document.getElementById('spu_username').value = a.username;
+  document.getElementById('spu_username').disabled = true;
+  document.getElementById('spu_password').value = '';
+  document.getElementById('spu_pass_tip').textContent = '留空则不修改';
+  document.getElementById('spectateUserModal').style.display = 'flex';
+}
+function closeSpectateUserModal(){
+  document.getElementById('spectateUserModal').style.display = 'none';
+}
+function saveSpectateUser(){
+  var username = document.getElementById('spu_username').value.trim();
+  var password = document.getElementById('spu_password').value;
+  if(editingSpectateUserId){
+    if(!password){ closeSpectateUserModal(); return; }
+    api('/admin/spectate/user/' + editingSpectateUserId, {
+      method:'PUT', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({password: password})
+    }).then(function(ret){
+      if(ret.code === 0){ closeSpectateUserModal(); loadSpectateUsers(); }
+      else alert(ret.msg);
+    });
+    return;
+  }
+  if(!username){ alert('请输入账号'); return; }
+  if(!password){ alert('请输入密码'); return; }
+  api('/admin/spectate/user', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({username: username, password: password})
+  }).then(function(ret){
+    if(ret.code === 0){ closeSpectateUserModal(); loadSpectateUsers(); }
+    else alert(ret.msg);
+  });
+}
+function toggleSpectateUser(id, enabled){
+  api('/admin/spectate/user/' + id, {
+    method:'PUT', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({enabled: !!enabled})
+  }).then(function(ret){
+    if(ret.code === 0) loadSpectateUsers();
+    else alert(ret.msg);
+  });
+}
+function delSpectateUser(id){
+  if(!confirm('确定删除该观战账号？删除后无法登录。')) return;
+  api('/admin/spectate/user/' + id, {method:'DELETE'}).then(function(ret){
+    if(ret.code === 0) loadSpectateUsers();
+    else alert(ret.msg);
+  });
+}
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+// ============ APP热更新发布 ============
+function loadHotupdateInfo(){
+  api('/admin/hotupdate/info').then(function(ret){
+    var el = document.getElementById('hotupdateInfo');
+    if(ret.code !== 0){ el.innerHTML = '<span style="color:red">'+ret.msg+'</span>'; return; }
+    var d = ret.data || {};
+    if(!d.has_update){
+      el.innerHTML = '尚未发布过热更包';
+    } else {
+      var t = d.update_time ? new Date(d.update_time*1000).toLocaleString() : '—';
+      el.innerHTML = '当前热更版本：<b style="color:#27ae60">'+(d.version||'未知')+'</b>'
+        + '　文件数：' + (d.file_count||0)
+        + '　总大小：' + fmtSize(d.total_size)
+        + '　发布时间：' + t;
+    }
+  });
+}
+var hotupdateUploadTimer = null;
+function uploadHotupdate(){
+  var file = document.getElementById('hotupdateFile').files[0];
+  if(!file){ alert('请选择热更zip包'); return; }
+  if(!/\.zip$/i.test(file.name)){ alert('请选择 .zip 格式的热更包'); return; }
+  var btn = document.getElementById('hotupdateUploadBtn');
+  var box = document.getElementById('hotupdateProgress');
+  var bar = document.getElementById('hotupdateProgressBar');
+  var txt = document.getElementById('hotupdateProgressText');
+  btn.disabled = true;
+  box.style.display = 'block';
+  var reader = new FileReader();
+  reader.onload = function(){
+    var dataUrl = reader.result;
+    txt.textContent = '正在上传（' + fmtSize(file.size) + '），发布后客户端启动时会自动下载更新...';
+    if(hotupdateUploadTimer) clearInterval(hotupdateUploadTimer);
+    var pct = 0;
+    hotupdateUploadTimer = setInterval(function(){
+      pct = Math.min(90, pct + Math.max(1, (90-pct)*0.08));
+      bar.style.width = pct.toFixed(1) + '%';
+    }, 200);
+    api('/admin/hotupdate/upload', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({base64: dataUrl})
+    }).then(function(ret){
+      clearInterval(hotupdateUploadTimer); hotupdateUploadTimer = null;
+      if(ret.code === 0){
+        bar.style.width = '100%';
+        txt.textContent = '发布成功，当前热更版本 ' + (ret.data.version || '未知') + '（共 ' + (ret.data.file_count||0) + ' 个文件）';
+        document.getElementById('hotupdateFile').value = '';
+        loadHotupdateInfo();
+      } else {
+        bar.style.width = '0%';
+        txt.textContent = '发布失败：' + ret.msg + (ret.code === 403 ? '（当前登录账号不是超级管理员）' : '');
+      }
+      btn.disabled = false;
+    }).catch(function(e){
+      clearInterval(hotupdateUploadTimer); hotupdateUploadTimer = null;
+      txt.textContent = '上传出错：' + e.message;
+      btn.disabled = false;
+    });
+  };
+  reader.onerror = function(){
+    txt.textContent = '文件读取失败';
+    btn.disabled = false;
+  };
+  reader.readAsDataURL(file);
 }
 
 // ============ 俱乐部管理 ============
 var allClubs = [];
-function loadClubs(){
+function loadClubs(cb){
   api('/admin/clubs').then(function(ret){
-    if(ret.code !== 0){ alert(ret.msg); return; }
+    if(ret.code !== 0){ alert(ret.msg); if(cb) cb(); return; }
     allClubs = ret.data || [];
     renderClubs();
+    if(cb) cb();
   });
 }
 function renderClubs(){
@@ -796,7 +1334,7 @@ function renderClubs(){
         ? '<button class="btn btn-default btn-sm" onclick="setTopLevel('+c.id+',0)">取消一级</button>'
         : '<button class="btn btn-success btn-sm" onclick="setTopLevel('+c.id+',1)">设为一级俱乐部</button>')+
       '<button class="btn btn-default btn-sm" onclick="editClub('+c.id+')">编辑</button>'+
-      '<button class="btn btn-primary btn-sm" onclick="location.href=\'club.html?club_id='+c.id+'\'">俱乐部管理</button>'+
+      '<button class="btn btn-primary btn-sm" onclick="manageClubContent('+c.id+')">俱乐部管理</button>'+
       '<button class="btn btn-danger btn-sm" onclick="delClub('+c.id+')">删除</button></div>';
     grid.appendChild(card);
   });
@@ -902,37 +1440,14 @@ function loadAdmins(){
   });
 }
 var editingAdminId = null;
-function onAdmRoleChange(){
-  document.getElementById('adm_club_group').style.display =
-    document.getElementById('adm_role').value === 'club' ? 'block' : 'none';
-}
-function fillClubSelect(selected){
-  var sel = document.getElementById('adm_club_id');
-  sel.innerHTML = '';
-  allClubs.forEach(function(c){
-    var o = document.createElement('option');
-    o.value = c.id; o.textContent = c.name + ' (ID:' + c.id + ')';
-    if(selected != null && selected == c.id) o.selected = true;
-    sel.appendChild(o);
-  });
-  if(allClubs.length === 0){
-    var o = document.createElement('option');
-    o.value = ''; o.textContent = '暂无可选俱乐部，请先添加俱乐部';
-    sel.appendChild(o);
-  }
-}
 function showAdminModal(){
-  var open = function(){
-    editingAdminId = null;
-    document.getElementById('adminModalTitle').textContent = '新增管理员';
-    document.getElementById('adm_username').value = '';
-    document.getElementById('adm_username').disabled = false;
-    document.getElementById('adm_password').value = '';
-    document.getElementById('adm_pass_tip').textContent = '';
-    document.getElementById('adm_role').value = 'super';
-    document.getElementById('adminModal').style.display = 'flex';
-  };
-  open();
+  editingAdminId = null;
+  document.getElementById('adminModalTitle').textContent = '新增管理员';
+  document.getElementById('adm_username').value = '';
+  document.getElementById('adm_username').disabled = false;
+  document.getElementById('adm_password').value = '';
+  document.getElementById('adm_pass_tip').textContent = '';
+  document.getElementById('adminModal').style.display = 'flex';
 }
 function editAdmin(id){
   api('/admin/admin_users').then(function(ret){
@@ -944,7 +1459,6 @@ function editAdmin(id){
     document.getElementById('adm_username').disabled = true;
     document.getElementById('adm_password').value = '';
     document.getElementById('adm_pass_tip').textContent = '留空则不修改';
-    document.getElementById('adm_role').value = a.role === 'super' ? 'super' : 'club';
     document.getElementById('adminModal').style.display = 'flex';
   });
 }
@@ -952,16 +1466,15 @@ function closeAdminModal(){ document.getElementById('adminModal').style.display 
 function saveAdmin(){
   var username = document.getElementById('adm_username').value.trim();
   var password = document.getElementById('adm_password').value;
-  var role = document.getElementById('adm_role').value;
   if(editingAdminId){
-    var fields = {role:role};
+    var fields = {role:'super'};
     if(password) fields.password = password;
     api('/admin/admin_user/'+editingAdminId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(fields)}).then(function(ret){
       if(ret.code === 0){ closeAdminModal(); loadAdmins(); loadClubs(); } else alert(ret.msg);
     });
   } else {
     if(!username || !password){ alert('请填写用户名和密码'); return; }
-    api('/admin/admin_user', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:username, password:password, role:role})}).then(function(ret){
+    api('/admin/admin_user', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({username:username, password:password, role:'super'})}).then(function(ret){
       if(ret.code === 0){ closeAdminModal(); loadAdmins(); loadClubs(); } else alert(ret.msg);
     });
   }
@@ -1032,11 +1545,10 @@ var WUJIN_TAI_RULE_FIELDS = [
 ];
 // 宝宝免摆配置字段（type == "baobao_mian" 时使用）
 var BB_MIAN_FIELDS = [
-  {key:'banker_mode', label:'有无庄(1有庄/0无庄)', def:1},
   {key:'arrange_timeout', label:'确认弹窗倒计时(秒)', def:60},
   {key:'result_timeout', label:'结算倒计时(秒)', def:30},
   {key:'m_sf6', label:'6同花顺 倍率', def:4},
-  {key:'m_sf5', label:'5同花顺带1 倍率', def:4},
+  {key:'m_4p', label:'4条带对 倍率', def:4},
   {key:'m_4', label:'4条带2单 倍率', def:4},
   {key:'m_33', label:'3条带3条 倍率', def:4},
   {key:'m_3p1', label:'3条带对带1 倍率', def:4},
@@ -1049,7 +1561,7 @@ var BB_MIAN_FIELDS = [
   {key:'m_san', label:'散牌 倍率', def:1},
   // 每个免摆牌型选动画: 0=关 1=打枪 2=全垒打, 默认开启(打枪)
   {key:'anim_sf6', label:'6同花顺', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
-  {key:'anim_sf5', label:'5同花顺带1', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
+  {key:'anim_4p', label:'4条带对', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
   {key:'anim_4', label:'4条带2单', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
   {key:'anim_33', label:'3条带3条', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
   {key:'anim_3p1', label:'3条带对带1', def:1, opts:[[0,'关'],[1,'打枪'],[2,'全垒打']]},
@@ -1065,7 +1577,6 @@ var BB_MIAN_FIELDS = [
 ];
 // 宝宝手动摆配置字段（type == "baobao_shou" 时使用）
 var BB_SHOU_FIELDS = [
-  {key:'banker_mode', label:'有无庄(1有庄/0无庄)', def:1},
   {key:'arrange_timeout', label:'摆牌超时(秒)', def:60},
   {key:'result_timeout', label:'结算倒计时(秒)', def:30},
   {key:'wulong_check', label:'乌龙校验(1开/0关)', def:1},
@@ -1091,8 +1602,13 @@ var BB_SHOU_FIELDS = [
   {key:'s_win2', label:'赢两道 倍率', def:1},
   {key:'s_win3', label:'赢三道(打枪) 倍率', def:3}
 ];
+// 十三水配置字段(type == "sss2"/"sss4" 时使用)
+var SSS_FIELDS = [
+  {key:'arrange_timeout', label:'摆牌超时(秒)', def:30}
+];
 function getTaiRuleFields(){
   var type = document.getElementById('cfg_type').value;
+  if(type && type.indexOf('sss') === 0) return SSS_FIELDS;
   if(type === 'baobao_mian' || type === 'baobao_shou'){
     var all = BB_MIAN_FIELDS.slice();
     for(var i = 0; i < BB_SHOU_FIELDS.length; i++){
@@ -1166,6 +1682,13 @@ function getTaiRules(){
   });
   return rules;
 }
+//去万/去条/去筒三选互斥:勾一个清另外两个
+function removeGroupCheck(el){
+  if(!el.checked) return;
+  ['cfg_remove_wan','cfg_remove_tiao','cfg_remove_tong'].forEach(function(id){
+    if(id !== el.id){ document.getElementById(id).checked = false; }
+  });
+}
 var allConfigs = [];
 var cfgTab = localStorage.getItem('admin_cfg_tab') || 'on';
 function switchCfgTab(t){
@@ -1210,7 +1733,7 @@ function renderConfigs(){
         (isMJ ? '<div class="row"><span class="k">封顶台数</span><span class="v">'+(c.max_tai||10)+'</span></div>'+
         '<div class="row"><span class="k">财神可吃/碰/杠</span><span class="v">'+(c.cai_chi?'吃':'-')+'/'+(c.cai_peng?'碰':'-')+'/'+(c.cai_gang?'杠':'-')+'</span></div>'+
         '<div class="row"><span class="k">点炮胡</span><span class="v">'+(c.dianpao_hu?'是':'否')+'</span></div>'+
-        '<div class="row"><span class="k">去条</span><span class="v">'+(c.remove_tiao?'是':'否')+'</span></div>' : '')+
+        '<div class="row"><span class="k">去牌</span><span class="v">'+(function(){var tr=c.tai_rules||{};var arr=[];if(tr.remove_wan)arr.push('万');if(c.remove_tiao)arr.push('条');if(tr.remove_tong)arr.push('筒');return arr.length?arr.join(''):'无';})()+'</span></div>' : '')+
         '<div class="row"><span class="k">自动解散</span><span class="v">'+(c.auto_dissolve_seconds != null ? c.auto_dissolve_seconds : 300)+'秒</span></div></div>'+
         '<div class="card-actions">'+
         '<button class="btn btn-default btn-sm" onclick="editConfig('+c.id+')">编辑</button>'+
@@ -1233,8 +1756,13 @@ function showConfigModal(){
   document.getElementById('cfg_cai_chi').checked = true;
   document.getElementById('cfg_cai_peng').checked = true;
   document.getElementById('cfg_cai_gang').checked = true;
+  document.getElementById('cfg_cai_pure').checked = false;
+  document.getElementById('cfg_hu_guo_confirm').checked = true;
   document.getElementById('cfg_dianpao_hu').checked = true;
+  document.getElementById('cfg_gang_liuju').value = 0;
+  document.getElementById('cfg_remove_wan').checked = false;
   document.getElementById('cfg_remove_tiao').checked = false;
+  document.getElementById('cfg_remove_tong').checked = false;
   document.getElementById('cfg_cai7').checked = true;
   document.getElementById('cfg_laozhuang_multiplier').value = 2;
   document.getElementById('cfg_tianhu_di').checked = true;
@@ -1312,8 +1840,14 @@ function editConfig(id){
     document.getElementById('cfg_cai_chi').checked = c.cai_chi != null ? !!c.cai_chi : (c.caishen_cpg != null ? !!c.caishen_cpg : true);
     document.getElementById('cfg_cai_peng').checked = c.cai_peng != null ? !!c.cai_peng : (c.caishen_cpg != null ? !!c.caishen_cpg : true);
     document.getElementById('cfg_cai_gang').checked = c.cai_gang != null ? !!c.cai_gang : (c.caishen_cpg != null ? !!c.caishen_cpg : true);
+    document.getElementById('cfg_cai_pure').checked = c.cai_pure != null ? !!c.cai_pure : false;
+    document.getElementById('cfg_hu_guo_confirm').checked = c.hu_guo_confirm != null ? !!c.hu_guo_confirm : true;
     document.getElementById('cfg_dianpao_hu').checked = c.dianpao_hu != null ? !!c.dianpao_hu : true;
+    var trRules = c.tai_rules || {};
+    document.getElementById('cfg_gang_liuju').value = trRules.gang_liuju != null ? trRules.gang_liuju : 0;
+    document.getElementById('cfg_remove_wan').checked = !!trRules.remove_wan;
     document.getElementById('cfg_remove_tiao').checked = !!c.remove_tiao;
+    document.getElementById('cfg_remove_tong').checked = !!trRules.remove_tong;
     document.getElementById('cfg_cai7').checked = !!c.cai7;
     document.getElementById('cfg_laozhuang_multiplier').value = c.laozhuang_multiplier != null ? c.laozhuang_multiplier : 2;
     document.getElementById('cfg_tianhu_di').checked = c.tianhu_di != null ? !!c.tianhu_di : true;
@@ -1388,6 +1922,8 @@ function saveConfig(){
     cai_chi: document.getElementById('cfg_cai_chi').checked ? 1 : 0,
     cai_peng: document.getElementById('cfg_cai_peng').checked ? 1 : 0,
     cai_gang: document.getElementById('cfg_cai_gang').checked ? 1 : 0,
+    cai_pure: document.getElementById('cfg_cai_pure').checked ? 1 : 0,
+    hu_guo_confirm: document.getElementById('cfg_hu_guo_confirm').checked ? 1 : 0,
     dianpao_hu: document.getElementById('cfg_dianpao_hu').checked ? 1 : 0,
     remove_tiao: document.getElementById('cfg_remove_tiao').checked ? 1 : 0,
     cai7: document.getElementById('cfg_cai7').checked ? 1 : 0,
@@ -1419,6 +1955,11 @@ function saveConfig(){
     // 非宝宝玩法也存台数规则(麻将/漳浦等倍率配置)
     data.tai_rules = getTaiRules();
   }
+  //每杠流局加张/去万/去筒 随 tai_rules JSON 存储(去条保持原有独立列)
+  data.tai_rules = data.tai_rules || {};
+  data.tai_rules.gang_liuju = parseInt(document.getElementById('cfg_gang_liuju').value) || 0;
+  data.tai_rules.remove_wan = document.getElementById('cfg_remove_wan').checked ? 1 : 0;
+  data.tai_rules.remove_tong = document.getElementById('cfg_remove_tong').checked ? 1 : 0;
   if(editingConfigId){
     api('/admin/game_config/'+editingConfigId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(ret){
       if(ret.code === 0){ closeConfigModal(); afterSaveConfig(data); }
@@ -1551,14 +2092,13 @@ function saveSysConfig(){
 // ============ 战绩查询 ============
 function loadGames(){
   api('/admin/games?limit=100').then(function(ret){
-    var tbody = document.getElementById('gameList');
-    tbody.innerHTML = '';
+    var box = document.getElementById('gameList');
+    box.innerHTML = '';
     if(!ret.data || ret.data.length === 0){
-      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#999;">暂无战绩</td></tr>';
+      box.innerHTML = '<div class="card-empty">暂无战绩</div>';
       return;
     }
     ret.data.forEach(function(g){
-      var tr = document.createElement('tr');
       var resultStr = '';
       if(g.result && g.result.forEach){
         var parts = [];
@@ -1570,37 +2110,46 @@ function loadGames(){
       var caishen = g.base_info && g.base_info.caishen != null ? g.base_info.caishen : '-';
       var button = g.base_info && g.base_info.button != null ? g.base_info.button : '-';
       var time = g.create_time ? new Date(g.create_time * 1000).toLocaleString() : '-';
-      tr.innerHTML = '<td>'+(g.room_id || '-')+'</td>'+
-        '<td>'+g.game_index+'</td>'+
-        '<td>'+button+'</td>'+
-        '<td>'+caishen+'</td>'+
-        '<td style="font-size:13px">'+resultStr+'</td>'+
-        '<td>'+time+'</td>';
-      tbody.appendChild(tr);
+      var card = document.createElement('div');
+      card.className = 'list-card';
+      card.innerHTML =
+        '<div class="list-card-head">'+
+          '<div><div class="list-card-title">房号 '+(g.room_id || '-')+'</div>'+
+          '<span class="list-card-type">第 '+(g.game_index||'-')+' 局</span></div>'+
+          '<span class="list-card-type">'+((g.base_info && g.base_info.type) || '-')+'</span>'+
+        '</div>'+
+        '<div class="list-card-body">'+
+          '<div class="list-card-row"><span class="k">庄位</span><span class="v">'+button+'</span></div>'+
+          '<div class="list-card-row"><span class="k">财神</span><span class="v">'+caishen+'</span></div>'+
+          '<div class="list-card-row"><span class="k">战绩</span><span class="v">'+(resultStr||'-')+'</span></div>'+
+          '<div class="list-card-row"><span class="k">时间</span><span class="v">'+time+'</span></div>'+
+        '</div>';
+      box.appendChild(card);
     });
   });
 }
 
 // ============ 俱乐部详情: 总管理端 ============
 function enterClubDetail(){
-  var sel = document.getElementById('clubDetailSel');
-  sel.innerHTML = '';
-  if(!window.allClubs || window.allClubs.length === 0){ loadClubs(); }
-  if(window.allClubs){
-    window.allClubs.forEach(function(c){
+  // 先从服务端拉最新俱乐部列表(下拉里带社长信息), 再选中当前俱乐部
+  loadClubs(function(){
+    var sel = document.getElementById('clubDetailSel');
+    sel.innerHTML = '';
+    (allClubs || []).forEach(function(c){
       var o = document.createElement('option');
       o.value = c.id; o.textContent = c.name + ' (ID:'+c.id+') 社长:'+c.owner_userid;
       sel.appendChild(o);
     });
-  }
-  var saved = currentClubId || localStorage.getItem('admin_club_detail_id');
-  if(saved && sel.querySelector('option[value="'+saved+'"]')){ sel.value = saved; currentClubId = parseInt(saved); }
-  else if(sel.options.length > 0 && sel.options[0].value){ sel.value = sel.options[0].value; currentClubId = parseInt(sel.options[0].value); }
-  if(currentClubId){ onClubDetailChange(); }
-  else {
-    document.getElementById('clubDetailEmpty').style.display = 'block';
-    document.getElementById('clubDetailBody').style.display = 'none';
-  }
+    var saved = currentClubId || localStorage.getItem('admin_club_detail_id');
+    if(saved && sel.querySelector('option[value="'+saved+'"]')){ sel.value = saved; currentClubId = parseInt(saved); }
+    else if(sel.options.length > 0 && sel.options[0].value){ sel.value = sel.options[0].value; currentClubId = parseInt(sel.options[0].value); }
+    else { currentClubId = null; }
+    if(currentClubId){ onClubDetailChange(); }
+    else {
+      document.getElementById('clubDetailEmpty').style.display = 'block';
+      document.getElementById('clubDetailBody').style.display = 'none';
+    }
+  });
 }
 function onClubDetailChange(){
   var v = parseInt(document.getElementById('clubDetailSel').value);
@@ -1646,7 +2195,7 @@ function clubLoadGames(cb){
     clubGames = ret.data || [];
     var box = document.getElementById('cdGameList'); box.innerHTML = '';
     if(clubGames.length === 0){
-      box.innerHTML = '<div class="card-empty">该俱乐部暂无玩法, 需由管理后台"玩法配置"添加后, 再由社长在玩法管理里添加</div>';
+      box.innerHTML = '<div class="card-empty">该俱乐部暂无玩法, 点击上方"+ 添加玩法"从玩法配置里选用</div>';
       if(cb) cb(); return;
     }
     clubGames.forEach(function(g){
@@ -1685,7 +2234,78 @@ function clubEditGame(id){
   clubRenderArray('club_gcostArr', g.cost_options);
   document.getElementById('club_game_sort').value = g.sort;
   document.getElementById('club_game_enabled').checked = !!g.enabled;
+  // 台数规则 / 倍率 / 动画配置
+  var taiRules = g.tai_rules;
+  if(typeof taiRules === 'string'){ try { taiRules = JSON.parse(taiRules); } catch(e) { taiRules = null; } }
+  clubRenderTaiRules(taiRules, g.game_type);
   document.getElementById('clubGameModal').style.display = 'flex';
+}
+// 按玩法类型取台数规则字段(复用全局配置的字段定义)
+function clubGetTaiRuleFields(gameType){
+  if(gameType && gameType.indexOf('sss') === 0) return SSS_FIELDS;
+  if(gameType === 'baobao_mian' || gameType === 'baobao_shou'){
+    var all = BB_MIAN_FIELDS.slice();
+    for(var i = 0; i < BB_SHOU_FIELDS.length; i++){
+      var sf = BB_SHOU_FIELDS[i], dup = false;
+      for(var j = 0; j < all.length; j++){ if(all[j].key === sf.key){ dup = true; break; } }
+      if(!dup) all.push(sf);
+    }
+    return all;
+  }
+  if(gameType === 'wujin') return WUJIN_TAI_RULE_FIELDS;
+  return (gameType && gameType.indexOf('zp') === 0) ? ZP_TAI_RULE_FIELDS : TAI_RULE_FIELDS;
+}
+function clubRenderTaiRules(rules, gameType){
+  var box = document.getElementById('clubGameTaiBox'); box.innerHTML = '';
+  if(!gameType){ box.innerHTML = '<div style="color:#999;font-size:12px">请先选择玩法</div>'; return; }
+  var fields = clubGetTaiRuleFields(gameType);
+  rules = rules || {};
+  function renderGroup(label, list, isNum){
+    if(list.length === 0) return;
+    var g = document.createElement('div');
+    g.style.cssText = 'margin-bottom:12px';
+    g.innerHTML = '<div style="font-size:13px;color:#444;margin-bottom:6px;font-weight:600">' + label + '</div>';
+    list.forEach(function(f){
+      var row = document.createElement('div');
+      row.style.cssText = 'display:inline-block;width:33%;vertical-align:top;margin-bottom:4px;';
+      var cur = rules[f.key] != null ? rules[f.key] : f.def;
+      var ctrl;
+      if(isNum){
+        ctrl = '<input type="number" id="ct_' + f.key + '" value="' + cur + '" style="width:60px">';
+      } else {
+        ctrl = '<select id="ct_' + f.key + '" style="width:150px">' +
+          f.opts.map(function(o){ return '<option value="' + o[0] + '"' + (Number(cur) == o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') +
+          '</select>';
+      }
+      row.innerHTML = '<label style="font-size:12px;color:#666">' + f.label + '</label><br>' + ctrl;
+      g.appendChild(row);
+    });
+    box.appendChild(g);
+  }
+  if(gameType === 'baobao_mian' || gameType === 'baobao_shou'){
+    renderGroup('免摆牌型倍率', fields.filter(function(f){ return !f.opts && f.key.indexOf('m_') === 0; }), true);
+    renderGroup('手摆道倍率 / 其他参数', fields.filter(function(f){ return !f.opts && f.key.indexOf('m_') !== 0; }), true);
+    renderGroup('免摆牌型动画选择', fields.filter(function(f){ return !!f.opts; }), false);
+  } else {
+    renderGroup('台数规则 / 数值配置', fields.filter(function(f){ return !f.opts; }), true);
+    renderGroup('动画开关', fields.filter(function(f){ return !!f.opts; }), false);
+  }
+}
+function clubGetTaiRules(gameType){
+  var rules = {};
+  clubGetTaiRuleFields(gameType).forEach(function(f){
+    var el = document.getElementById('ct_' + f.key);
+    if(!el) return;
+    var v = parseInt(el.value);
+    rules[f.key] = isNaN(v) ? f.def : v;
+  });
+  return rules;
+}
+function clubOnAddGameTypeChange(){
+  var sel = document.getElementById('club_add_game_type');
+  var t = sel.value;
+  var hit = allGameTypes.find(function(x){ return x.type === t; });
+  if(hit) document.getElementById('club_add_game_name').value = hit.name;
 }
 function clubRenderArray(id, arr){
   var box = document.getElementById(id); box.innerHTML = '';
@@ -1726,11 +2346,11 @@ function clubDoAddGame(){
   var type = document.getElementById('club_add_game_type').value;
   var name = document.getElementById('club_add_game_name').value;
   if(!type || !name){ alert('请选择玩法并填写名称'); return; }
-  api('/admin/club_game', {club_id: curClubId, game_type: type, name: name}).then(function(ret){
+  api('/admin/club_game', postBody(withClub({game_type: type, name: name}))).then(function(ret){
     if(ret.code !== 0){ alert(ret.msg); return; }
     alert('添加成功');
     clubCloseAddGameModal();
-    clubLoadGames();
+    clubLoadGames(function(){ clubRebuildTableTabs(); clubLoadTables(); });
   });
 }
 function clubSaveGame(){
@@ -1743,6 +2363,8 @@ function clubSaveGame(){
     enabled: document.getElementById('club_game_enabled').checked ? 1 : 0
   };
   if(!data.name){ alert('请填写玩法名称'); return; }
+  var curGame = clubGames.find(function(x){ return x.id === editingGameId; });
+  if(curGame){ data.tai_rules = clubGetTaiRules(curGame.game_type); }
   if(editingGameId){
     api('/admin/club_game/'+editingGameId, putBody(data)).then(function(ret){
       if(ret.code === 0){ clubCloseGameModal(); clubLoadGames(); } else alert(ret.msg);
@@ -1797,7 +2419,7 @@ function clubLoadTables(){
         '</div>'+
         '<div class="list-card-body">'+
           '<div class="list-card-row"><span class="k">底分</span><span class="v">'+(difen!=null?difen:'-')+'</span></div>'+
-          '<div class="list-card-row"><span class="k">有无庄</span><span class="v">'+(Number(conf.banker_mode)?'有庄':'无庄')+'</span></div>'+
+          '<div class="list-card-row"><span class="k">玩法模式</span><span class="v">血战(无庄)</span></div>'+
           '<div class="list-card-row"><span class="k">局数</span><span class="v">'+(jushu!=null?jushu:'-')+'</span></div>'+
           '<div class="list-card-row"><span class="k">最低宝宝豆</span><span class="v">'+(conf.min_bean||0)+'</span></div>'+
           '<div class="list-card-row"><span class="k">请出阈值</span><span class="v">'+((conf.kick_bean||0)>0?conf.kick_bean:'不请出')+'</span></div>'+
@@ -1823,7 +2445,6 @@ function clubShowTableModal(){
   if(!g){ alert('请先选择玩法'); return; }
   document.getElementById('club_tbl_game_label').value = g.name + ' (' + g.game_type + ')';
   document.getElementById('club_tbl_players').value = (g.max_players!=null)?(g.max_players + ' 人'):'未知';
-  document.getElementById('club_tbl_banker_mode').value = '1';
   document.getElementById('club_tbl_min_bean').value = '0';
   document.getElementById('club_tbl_kick_bean').value = '0';
   var dOpts = g.difen_options || [];
@@ -1841,12 +2462,15 @@ function clubSaveTable(){
   var g = clubGames.find(function(x){ return x.game_type === gt; }) || {};
   var difenVal = parseInt(document.getElementById('club_tbl_difen').value) || 0;
   var difenIdx = (g.difen_options || []).indexOf(difenVal);
+  var jushuIdx = parseInt(document.getElementById('club_tbl_jushu').value) || 0;
+  var jushuVal = (g.jushu_options || [])[jushuIdx];
   var conf = {
     type: gt,
     difen: difenIdx >= 0 ? difenIdx : 0,
     difen_value: difenVal,
-    jushuxuanze: parseInt(document.getElementById('club_tbl_jushu').value) || 0,
-    banker_mode: parseInt(document.getElementById('club_tbl_banker_mode').value),
+    jushuxuanze: jushuIdx,
+    jushu_value: (jushuVal != null ? jushuVal : jushuIdx),
+    banker_mode: 0,   // 血战模式: 固定无庄
     min_bean: parseInt(document.getElementById('club_tbl_min_bean').value) || 0,
     kick_bean: parseInt(document.getElementById('club_tbl_kick_bean').value) || 0
   };
@@ -1869,7 +2493,7 @@ function clubClearTable(id){
 }
 
 // ============ 成员房卡 ============
-var gemUserId = null;
+var clubGemUserId = null;
 function clubLoadMembers(){
   api('/admin/club_members').then(function(ret){
     if(ret.code !== 0){ alert(ret.msg); return; }
@@ -1894,7 +2518,7 @@ function clubRenderMembers(){
   });
 }
 function clubShowGemModal(uid, current){
-  gemUserId = uid;
+  clubGemUserId = uid;
   document.getElementById('club_gemUserId').textContent = uid;
   document.getElementById('club_gemCurrent').textContent = current;
   document.getElementById('club_gemChange').value = 0;
@@ -1903,7 +2527,7 @@ function clubShowGemModal(uid, current){
 function clubCloseGemModal(){ document.getElementById('clubGemModal').style.display = 'none'; }
 function clubConfirmGemChange(){
   var change = parseInt(document.getElementById('club_gemChange').value) || 0;
-  var data = withClub({userid:gemUserId, gems:change});
+  var data = withClub({userid:clubGemUserId, gems:change});
   api('/admin/club_member/gems', postBody(data)).then(function(ret){
     if(ret.code === 0){ clubCloseGemModal(); clubLoadMembers(); } else alert(ret.msg);
   });

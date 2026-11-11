@@ -16,6 +16,11 @@ cc.Class({
         _emoji:null,
         _lastChatTime:-1,
         
+        //场景里额外那棵 ncSprite 子树(昵称+积分, 玩家进来才显示; 没进座位 active=false)
+        _ncSprite:null,
+        _ncLblName:null,
+        _ncLblScore:null,
+        
         _userName:"",
         _score:0,
         _dayingjia:false,
@@ -53,9 +58,6 @@ cc.Class({
         this._lblScore = this.node.getChildByName("score").getComponent(cc.Label);
         //获取语音
         this._voicemsg = this.node.getChildByName("voicemsg");
-        //获取选派
-        this._xuanpai = this.node.getChildByName("xuanpai");
-        this.refreshXuanPaiState();
         
         //判断语音出了你是否有其他人在说话
         if(this._voicemsg){
@@ -77,6 +79,16 @@ cc.Class({
         
         this._scoreBg = this.node.getChildByName("Z_money_frame");
         this._nddayingjia = this.node.getChildByName("dayingjia");
+        
+        //ncSprite: 场景里额外那棵昵称+积分子树(默认active=false, 玩家进来才显示)
+        this._ncSprite = this.node.getChildByName("ncSprite");
+        if(this._ncSprite){
+            var ncNameNode = this._ncSprite.getChildByName("name");
+            var ncScoreNode = this._ncSprite.getChildByName("score");
+            this._ncLblName = ncNameNode ? ncNameNode.getComponent(cc.Label) : null;
+            this._ncLblScore = ncScoreNode ? ncScoreNode.getComponent(cc.Label) : null;
+            this._ncSprite.active = false; //初始未入座时强制隐藏, refresh()里按 userName 自动打开
+        }
         
         this._chatBubble = this.node.getChildByName("ChatBubble");
         if(this._chatBubble != null){
@@ -120,6 +132,14 @@ cc.Class({
         
         if(this._lblScore != null){
             this._lblScore.string = this._score;            
+        }
+
+        //ncSprite: 玩家入座后显示昵称+积分, 离开自动隐藏
+        if(this._ncSprite){
+            var hasUser = (this._userName != null && this._userName !== "");
+            this._ncSprite.active = hasUser;
+            if(this._ncLblName){ this._ncLblName.string = this._userName || ""; }
+            if(this._ncLblScore){ this._ncLblScore.string = this._score != null ? this._score : 0; }
         }        
         
         if(this._nddayingjia != null){
@@ -224,42 +244,21 @@ cc.Class({
     },
     
     chat:function(content){
-        if(this._chatBubble == null || this._emoji == null){
+        if(this._chatBubble == null){
             return;
         }
-        this._emoji.active = false;
         this._chatBubble.active = true;
-        var WHITE = new cc.Color(255,255,255,255);
-        // 暴力清理: ChatBubble 自身及所有子节点上的 Label/LabelOutline/LabelShadow 全部禁用,
-        // 彻底杜绝任何路径的文字渲染; 仅 New Label 节点自身保留其 LabelOutline/LabelShadow(白字需描边清晰)
-        var _newLblNode = this._chatBubble.getChildByName("New Label");
-        var _killTextComps = function(node){
-            var isNewLbl = (node === _newLblNode);
-            var comps = node.getComponents(cc.Label);
-            for(var k = 0; k < comps.length; k++) comps[k].enabled = false;
-            if(!isNewLbl){
-                var outs = node.getComponents(cc.LabelOutline);
-                for(var k2 = 0; k2 < outs.length; k2++) outs[k2].enabled = false;
-                var shads = node.getComponents(cc.LabelShadow);
-                for(var k3 = 0; k3 < shads.length; k3++) shads[k3].enabled = false;
-            }
-            for(var c = 0; c < node.children.length; c++){
-                _killTextComps(node.children[c]);
-            }
-        };
-        _killTextComps(this._chatBubble);
-        // New Label: 唯一实际渲染的文字,启用自身的 Label 组件
-        if(_newLblNode){
-            _newLblNode.active = true;
-            var newLbl = _newLblNode.getComponent(cc.Label);
-            if(newLbl){
-                newLbl.enabled = true;
-                newLbl.string = content;
-                newLbl.node.color = WHITE;
-                newLbl.color = WHITE;
+        this._emoji.active = false;
+        var lblNode = this._chatBubble.getChildByName("New Label");
+        if(lblNode){
+            lblNode.active = true;
+            var lbl = lblNode.getComponent(cc.Label);
+            if(lbl){
+                lbl.string = content;
+                lbl.node.color = cc.color(255,255,255,255);
             }
         }
-        // chatbg_ld: children[0],加载底图
+        // chatbg_ld: 气泡底图
         var bgNode = this._chatBubble.getChildByName("chatbg_ld");
         if(bgNode){
             bgNode.active = true;
@@ -274,11 +273,9 @@ cc.Class({
     },
     
     emoji:function(emoji){
-        //emoji = JSON.parse(emoji);
-        if(this._emoji == null || this._emoji == null){
+        if(this._emoji == null){
             return;
         }
-        console.log(emoji);
         this._chatBubble.active = false;
         this._emoji.active = true;
         this._emoji.getComponent(cc.Animation).play(emoji);
@@ -288,30 +285,6 @@ cc.Class({
     voiceMsg:function(show){
         if(this._voicemsg){
             this._voicemsg.active = show;
-        }
-    },
-    
-    refreshXuanPaiState:function(){
-        if(this._xuanpai == null){
-            return;
-        }
-        
-        this._xuanpai.active = cc.vv.gameNetMgr.isHuanSanZhang;
-        if(cc.vv.gameNetMgr.isHuanSanZhang == false){ 
-            return;
-        }
-       
-        this._xuanpai.getChildByName("xz").active = false;
-        this._xuanpai.getChildByName("xd").active = false;
-        
-        var seat = cc.vv.gameNetMgr.getSeatByID(this._userId);
-        if(seat){
-            if(seat.huanpais == null){
-                this._xuanpai.getChildByName("xz").active = true;
-            }
-            else{
-                this._xuanpai.getChildByName("xd").active = true;
-            }
         }
     },
    

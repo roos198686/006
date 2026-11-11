@@ -1,0 +1,251 @@
+
+mj_peng.png
+size: 475,520
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+guangdian
+  rotate: false
+  xy: 313, 54
+  size: 14, 15
+  orig: 16, 16
+  offset: 1, 1
+  index: -1
+guanquana
+  rotate: false
+  xy: 307, 365
+  size: 154, 153
+  orig: 161, 161
+  offset: 4, 4
+  index: -1
+peng_di
+  rotate: false
+  xy: 2, 370
+  size: 303, 148
+  orig: 307, 151
+  offset: 2, 2
+  index: -1
+peng_doupeng
+  rotate: true
+  xy: 237, 246
+  size: 122, 68
+  orig: 122, 68
+  offset: 0, 0
+  index: -1
+peng_doupeng_up
+  rotate: false
+  xy: 262, 2
+  size: 84, 29
+  orig: 84, 33
+  offset: 0, 4
+  index: -1
+peng_facai
+  rotate: false
+  xy: 150, 12
+  size: 110, 121
+  orig: 110, 121
+  offset: 0, 0
+  index: -1
+peng_gaoguang_L
+  rotate: true
+  xy: 463, 426
+  size: 13, 6
+  orig: 15, 8
+  offset: 1, 1
+  index: -1
+peng_gaoguang_R
+  rotate: false
+  xy: 463, 498
+  size: 10, 8
+  orig: 12, 10
+  offset: 1, 1
+  index: -1
+peng_maoer_L
+  rotate: false
+  xy: 269, 116
+  size: 33, 26
+  orig: 33, 26
+  offset: 0, 0
+  index: -1
+peng_maogan_R
+  rotate: true
+  xy: 237, 213
+  size: 31, 23
+  orig: 31, 23
+  offset: 0, 0
+  index: -1
+peng_maozi_zhubao
+  rotate: true
+  xy: 262, 67
+  size: 47, 32
+  orig: 49, 34
+  offset: 1, 1
+  index: -1
+peng_meimao_L
+  rotate: true
+  xy: 449, 71
+  size: 15, 16
+  orig: 17, 18
+  offset: 1, 1
+  index: -1
+peng_meimao_L_yinying
+  rotate: false
+  xy: 296, 36
+  size: 15, 15
+  orig: 17, 17
+  offset: 1, 1
+  index: -1
+peng_meimao_R
+  rotate: true
+  xy: 463, 460
+  size: 17, 8
+  orig: 19, 10
+  offset: 1, 1
+  index: -1
+peng_meimao_R_yinying
+  rotate: true
+  xy: 463, 441
+  size: 17, 6
+  orig: 19, 8
+  offset: 1, 1
+  index: -1
+peng_peng
+  rotate: false
+  xy: 2, 2
+  size: 146, 131
+  orig: 150, 134
+  offset: 1, 2
+  index: -1
+peng_shou_R
+  rotate: false
+  xy: 449, 195
+  size: 24, 27
+  orig: 24, 27
+  offset: 0, 0
+  index: -1
+peng_shoubi
+  rotate: false
+  xy: 269, 144
+  size: 34, 31
+  orig: 34, 31
+  offset: 0, 0
+  index: -1
+peng_tongkong_L
+  rotate: false
+  xy: 463, 508
+  size: 10, 10
+  orig: 12, 12
+  offset: 1, 1
+  index: -1
+peng_tongkong_R
+  rotate: true
+  xy: 463, 479
+  size: 8, 9
+  orig: 10, 11
+  offset: 1, 1
+  index: -1
+peng_tui_L
+  rotate: false
+  xy: 262, 218
+  size: 41, 26
+  orig: 41, 27
+  offset: 0, 0
+  index: -1
+peng_tui_R
+  rotate: true
+  xy: 237, 138
+  size: 37, 30
+  orig: 37, 32
+  offset: 0, 0
+  index: -1
+peng_yanbai_L
+  rotate: false
+  xy: 237, 192
+  size: 20, 19
+  orig: 22, 21
+  offset: 1, 1
+  index: -1
+peng_yanbai_R
+  rotate: false
+  xy: 449, 128
+  size: 18, 18
+  orig: 20, 20
+  offset: 1, 1
+  index: -1
+peng_yanxian_L
+  rotate: false
+  xy: 449, 148
+  size: 20, 19
+  orig: 22, 21
+  offset: 1, 1
+  index: -1
+peng_yanxian_R
+  rotate: false
+  xy: 449, 108
+  size: 18, 18
+  orig: 20, 20
+  offset: 1, 1
+  index: -1
+peng_yanzhu_L
+  rotate: false
+  xy: 449, 88
+  size: 18, 18
+  orig: 20, 20
+  offset: 1, 1
+  index: -1
+peng_yanzhu_R
+  rotate: true
+  xy: 296, 53
+  size: 16, 15
+  orig: 18, 17
+  offset: 1, 1
+  index: -1
+peng_zui
+  rotate: false
+  xy: 463, 489
+  size: 10, 7
+  orig: 12, 9
+  offset: 1, 1
+  index: -1
+shaoguang
+  rotate: false
+  xy: 305, 81
+  size: 142, 141
+  orig: 142, 141
+  offset: 0, 0
+  index: -1
+shaoguang1
+  rotate: true
+  xy: 307, 224
+  size: 139, 154
+  orig: 139, 154
+  offset: 0, 0
+  index: -1
+xbxtypy_core_01
+  rotate: false
+  xy: 2, 135
+  size: 233, 233
+  orig: 244, 244
+  offset: 6, 5
+  index: -1
+zm_faguang
+  rotate: false
+  xy: 449, 169
+  size: 24, 24
+  orig: 28, 28
+  offset: 2, 2
+  index: -1
+zm_majiang2
+  rotate: false
+  xy: 262, 177
+  size: 39, 39
+  orig: 43, 42
+  offset: 2, 2
+  index: -1
+zm_majiangd1
+  rotate: false
+  xy: 262, 33
+  size: 32, 32
+  orig: 36, 36
+  offset: 2, 2
+  index: -1

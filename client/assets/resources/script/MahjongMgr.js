@@ -141,11 +141,15 @@ cc.Class({
         cc.vv.audioMgr.playSFX("nv/" + prefix + idx + ".mp3");
     },
 
-    //胡牌/自摸 spine 动画(逆向包 mj_hu / mj_zimo, 挂在对应座位的 play_efx 节点上)
+    //胡牌/自摸 spine 动画(兼容旧调用, 转通用接口)
     playHuSpine:function(parentNode, zimo){
+        this.playSpineEfx(parentNode, zimo ? "mj_zimo" : "mj_hu");
+    },
+
+    //通用 spine 特效: 吃/碰/杠/胡/自摸(逆向包资源 resources/spine/<key>/, 未导入时静默跳过)
+    playSpineEfx:function(parentNode, key){
         if(!parentNode || !cc.isValid(parentNode) || typeof sp === "undefined"){ return; }
         var self = this;
-        var key = zimo ? "mj_zimo" : "mj_hu";
         var cache = this._huSpineCache || (this._huSpineCache = {});
         var old = parentNode.getChildByName("hu_spine");
         if(old){ old.destroy(); }

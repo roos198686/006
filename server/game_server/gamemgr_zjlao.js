@@ -64,18 +64,27 @@ function isCaishenPai(game, pai){
 }
 
 function shuffle(game) {
+    var removeWan = game.remove_wan === 1;
     var removeTiao = game.remove_tiao === 1;
+    var removeTong = game.remove_tong === 1;
+    // 容错:去万/去条/去筒只生效一种(优先级 万>条>筒)
+    if(removeWan){ removeTiao = false; removeTong = false; }
+    else if(removeTiao){ removeTong = false; }
     var tmp = [];
-    for(var i = 0; i < 9; ++i){
-        for(var c = 0; c < 4; ++c){ tmp.push(i); }
+    if(!removeTong){
+        for(var i = 0; i < 9; ++i){
+            for(var c = 0; c < 4; ++c){ tmp.push(i); }
+        }
     }
     if(!removeTiao){
         for(var i = 9; i < 18; ++i){
             for(var c = 0; c < 4; ++c){ tmp.push(i); }
         }
     }
-    for(var i = 18; i < 27; ++i){
-        for(var c = 0; c < 4; ++c){ tmp.push(i); }
+    if(!removeWan){
+        for(var i = 18; i < 27; ++i){
+            for(var c = 0; c < 4; ++c){ tmp.push(i); }
+        }
     }
     for(var i = 27; i < 34; ++i){
         for(var c = 0; c < 4; ++c){ tmp.push(i); }
@@ -134,9 +143,30 @@ function fanCaishen(game){
     }
 }
 
-function mopai(game, seatIndex) {
-    if(game.currentIndex >= game.mahjongs.length) return -1;
+function mopai(game, seatIndex, fromTail) {
+    //死墙26张:摸到只剩26张即荒庄判和,不再发牌(doUserMoPai拿到-1会doGameOver)
+    //后台 tai_rules.gang_liuju: 每杠一次流局线额外+N张(如设4,场上每有一个杠剩30/34..张即流局直接结束本局)
+    //杠后补牌(fromTail=true):从死墙尾部(墙尾)摸,不从墙头
+    var limit = 26;
+    var gangExtra = taiRule(game, 'gang_liuju', 0);
+    if(gangExtra > 0){
+        for(var gi = 0; gi < game.gameSeats.length; ++gi){
+            limit += gangExtra * ((game.gameSeats[gi].gangs || []).length);
+        }
+    }
     var data = game.gameSeats[seatIndex];
+    if(fromTail){
+        if(game.tailIndex == null) game.tailIndex = game.mahjongs.length;
+        if(game.tailIndex <= game.currentIndex) return -1; //墙尾已被杠补摸完
+        game.tailIndex--;
+        var tailPai = game.mahjongs[game.tailIndex];
+        data.holds.push(tailPai);
+        data.countMap[tailPai] = (data.countMap[tailPai] || 0) + 1;
+        return tailPai;
+    }
+    //剩余可摸=墙尾-墙头(杠补已消耗的尾部不计入);<=流局线即荒庄
+    var remain = (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex;
+    if(remain <= limit) return -1;
     var pai = game.mahjongs[game.currentIndex];
     game.currentIndex++;
     data.holds.push(pai);
@@ -146,6 +176,7 @@ function mopai(game, seatIndex) {
 
 function deal(game){
     game.currentIndex = 0;
+    game.tailIndex = game.mahjongs.length; //墙尾指针:杠后补牌从死墙尾部摸
     game.caishen = -1;
     game.caishen2 = -1;
     game.fanPai = -1;
@@ -451,7 +482,7 @@ function checkCanPeng(game, seatData, targetPai){
     if(isCaishenPai(game, targetPai)) return;
     var count = seatData.countMap[targetPai] || 0;
     var csCount = game.cai_peng ? getCaishenCount(seatData, game.caishen, game.caishen2) : 0;
-    if(count + csCount >= 2 && count >= 1) seatData.canPeng = true;
+    if(count + csCount >= 2 && (game.cai_pure || count >= 1)) seatData.canPeng = true;
 }
 
 // 某张牌是否已被该玩家杠过（真杠/财神杠均算），杠过的牌禁止再杠
@@ -470,7 +501,7 @@ function checkCanGang(game, seatData, targetPai){
     if(isCaishenPai(game, targetPai)) return;
     var count = seatData.countMap[targetPai] || 0;
     var csCount = game.cai_gang ? getCaishenCount(seatData, game.caishen, game.caishen2) : 0;
-    if(count + csCount >= 3 && count >= 1){
+    if(count + csCount >= 3 && (game.cai_pure || count >= 1)){
         seatData.canGang = true;
         seatData.gangPai.push(targetPai);
     }
@@ -489,7 +520,7 @@ function checkCanAnGang(game, seatData){
                 seatData.gangPai.push(pai);
             }
         } else {
-            if(count + csCount >= 4 && count >= 2){
+            if(count + csCount >= 4 && (game.cai_pure || count >= 2)){
                 seatData.canGang = true;
                 seatData.gangPai.push(pai);
             }
@@ -553,7 +584,7 @@ function checkCanChi(game, seatData, targetPai){
         if(!h2) needCs++;
 
         // 至少要有一张真实牌 + 财神补位不超过配置数量 + 补位总数不超过实际财神数
-        if(needCs <= csCount && (h1 || h2)){
+        if(needCs <= csCount && (game.cai_pure || h1 || h2)){
             seatData.canChi = true;
             if(!seatData.chiPai) seatData.chiPai = [];
             seatData.chiPai.push([p1, p2, targetPai]);
@@ -658,11 +689,12 @@ function clearMoPaiTimeout(game){
     }
 }
 // 设置自动摸牌 timeout，500ms 后摸牌；自动清除旧的
-function scheduleMoPai(game){
+// fromTail=true: 杠后补牌从死墙尾部摸
+function scheduleMoPai(game, fromTail){
     clearMoPaiTimeout(game);
     game.mopaiTimeoutId = setTimeout(function(){
         game.mopaiTimeoutId = null;
-        doUserMoPai(game);
+        doUserMoPai(game, fromTail);
     }, 500);
 }
 
@@ -702,16 +734,16 @@ function scheduleTurnTimeout(game, seatIndex, isAction){
     }, sec * 1000);
 }
 
-function doUserMoPai(game){
+function doUserMoPai(game, fromTail){
     if(!game || game.gameOver) return; //残留定时器守卫：局已结束不得再摸牌推送
     console.log("[doUserMoPai] stack:", new Error().stack.split('\n').slice(1,4).join(' | '));
-    console.log("[doUserMoPai] turn=",game.turn,"caishen=",game.caishen,"caishen2=",game.caishen2);
+    console.log("[doUserMoPai] turn=",game.turn,"caishen=",game.caishen,"caishen2=",game.caishen2,"fromTail=",!!fromTail);
     game.chuPai = -1;
     var turnSeat = game.gameSeats[game.turn];
     // 摸牌前先计算听牌表（此时 holds=13），摸牌后直接 checkCanHu 判断自摸
     rebuildCountMap(turnSeat);
     checkTingPai(turnSeat, game.caishen, game.caishen2);
-    var pai = mopai(game, game.turn);
+    var pai = mopai(game, game.turn, fromTail);
     if(pai == -1){
         doGameOver(game);
         return;
@@ -749,7 +781,8 @@ function doUserMoPai(game){
 
     // 逐个发送，摸牌者收到真实手牌和牌，其他人只收到数量
     var roomId = roomMgr.getRoomIdOfUser(turnSeat.userId);
-    var numofmj = game.mahjongs.length - game.currentIndex;
+    //剩余牌数=墙尾指针-墙头指针(杠补从尾摸后 tailIndex 前移,须扣除)
+    var numofmj = (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex;
     for(var i = 0; i < 2; ++i){
         var sd = game.gameSeats[i];
         var isTurn = (i === game.turn);
@@ -1159,7 +1192,7 @@ exports.gang = function(userId, pai){
         // 暗杠：4张真实牌
         removePai(4);
         seatData.gangs.push({pai: pai, type: 'an'});
-    } else if(game.chuPai == pai && count >= 1 && count + csCount >= 3){
+    } else if(game.chuPai == pai && (game.cai_pure || count >= 1) && count + csCount >= 3){
         // 点杠（明杠）：别人打出，需要3张
         var needCs = 3 - count;
         // 后台开关:禁止财杠时,需要财神补位的点杠一律拒绝
@@ -1173,7 +1206,7 @@ exports.gang = function(userId, pai){
         removePai(count);
         removeCs(needCs);
         seatData.gangs.push({pai: pai, type: 'ming'});
-    } else if(!isCaishenPai(game, pai) && count + csCount >= 4 && count >= 2){
+    } else if(!isCaishenPai(game, pai) && count + csCount >= 4 && (game.cai_pure || count >= 2)){
         // 暗杠用财神替代
         var needCs = 4 - count;
         // 后台开关:禁止财杠时,需要财神补位的暗杠一律拒绝
@@ -1226,7 +1259,7 @@ exports.gang = function(userId, pai){
     }
 
     clearAllOptions(game);
-    scheduleMoPai(game);
+    scheduleMoPai(game, true); //杠后补牌从死墙尾部摸
 };
 
 exports.chi = function(userId, chiPais){
@@ -1268,8 +1301,18 @@ exports.chi = function(userId, chiPais){
                     && getMJType(real) == ctype && diff >= 1 && diff <= 2
                     && (seatData.countMap[csPai] || 0) > 0
                     && (seatData.countMap[real] || 0) > 0;
+            } else if(csUsed == 2){
+                // 纯财吃：两张财神补位成顺(受cai_pure开关控制;2张财神总能与pai凑成同花色顺子)
+                if(game.cai_pure){
+                    if(mine[0] === mine[1]){
+                        valid = (seatData.countMap[mine[0]] || 0) >= 2;
+                    } else {
+                        valid = (seatData.countMap[mine[0]] || 0) > 0
+                            && (seatData.countMap[mine[1]] || 0) > 0;
+                    }
+                }
             }
-            // csUsed == 2：两张全用财神补位不合法（与checkCanChi至少要有一张真实牌一致），valid保持false
+            // csUsed > 2 不可能(只有两张mine牌),valid保持false
         }
     }
     if(!valid){
@@ -1534,7 +1577,7 @@ exports.guo = function(userId){
                     userMgr.sendMsg(sdQG.userId, 'game_gang_push', dataQG);
                 }
                 clearAllOptions(game);
-                scheduleMoPai(game);
+                scheduleMoPai(game, true); //杠后补牌从死墙尾部摸
             }
             return;
         }
@@ -2185,6 +2228,7 @@ exports.start = function(roomInfo){
         cai_chi: roomInfo.conf.cai_chi != null ? roomInfo.conf.cai_chi : (roomInfo.conf.caishen_cpg != null ? roomInfo.conf.caishen_cpg : 1),
         cai_peng: roomInfo.conf.cai_peng != null ? roomInfo.conf.cai_peng : (roomInfo.conf.caishen_cpg != null ? roomInfo.conf.caishen_cpg : 1),
         cai_gang: roomInfo.conf.cai_gang != null ? roomInfo.conf.cai_gang : (roomInfo.conf.caishen_cpg != null ? roomInfo.conf.caishen_cpg : 1),
+        cai_pure: roomInfo.conf.cai_pure != null ? roomInfo.conf.cai_pure : 0,
         dianpao_hu: roomInfo.conf.dianpao_hu != null ? roomInfo.conf.dianpao_hu : 1,
         tianhu_di: roomInfo.conf.tianhu_di != null ? roomInfo.conf.tianhu_di : 1,
         cai_diao: roomInfo.conf.cai_diao != null ? roomInfo.conf.cai_diao : 1,
@@ -2193,7 +2237,11 @@ exports.start = function(roomInfo){
         baoTai: roomInfo.conf.baoTai || 2,
         baoTaiFee: roomInfo.conf.baoTaiFee || 0,
         remove_tiao: roomInfo.conf.remove_tiao != null ? roomInfo.conf.remove_tiao : 0,
-        cai7: roomInfo.conf.cai7 != null ? roomInfo.conf.cai7 : 0
+        remove_wan: roomInfo.conf.remove_wan != null ? roomInfo.conf.remove_wan : 0,
+        remove_tong: roomInfo.conf.remove_tong != null ? roomInfo.conf.remove_tong : 0,
+        cai7: roomInfo.conf.cai7 != null ? roomInfo.conf.cai7 : 0,
+        // 可胡点过是否弹二次确认(1开0关,缺省开),随开局数据下发客户端
+        hu_guo_confirm: roomInfo.conf.hu_guo_confirm != null ? roomInfo.conf.hu_guo_confirm : 1
     };
 
     console.log('[zj_lao][start] roomid=' + roomInfo.id +
@@ -2246,7 +2294,9 @@ exports.start = function(roomInfo){
         fanPai: game.fanPai,
         playStyle: game.playStyle,
         chupaiTimeout: getChupaiTimeout(game), //出牌倒计时(秒),后台可配,客户端同步显示
-        numofmj: game.mahjongs.length - game.currentIndex,
+        numofmj: (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex,
+        hu_guo_confirm: game.hu_guo_confirm,
+        gang_liuju: taiRule(game, 'gang_liuju', 0), //每杠流局加张,客户端牌墙据此把可摸牌尾部对应张数置灰
         seats: []
     };
     for(var i = 0; i < 2; ++i){
@@ -2327,7 +2377,9 @@ exports.resendGameState = function(roomId, userId){
         fanPai: game.fanPai,
         playStyle: game.playStyle,
         chupaiTimeout: getChupaiTimeout(game), //出牌倒计时(秒),后台可配,客户端同步显示
-        numofmj: game.mahjongs.length - game.currentIndex,
+        numofmj: (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex,
+        hu_guo_confirm: game.hu_guo_confirm,
+        gang_liuju: taiRule(game, 'gang_liuju', 0), //每杠流局加张,客户端牌墙据此把可摸牌尾部对应张数置灰
         seats: []
     };
     for(var i = 0; i < 2; ++i){

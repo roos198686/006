@@ -3,9 +3,10 @@
 //   baobao_shou  6张手动摆:玩家摆前2/中2/后2三道,逐道独立结算
 // 牌 id 编码: id = (rank-2)*4 + suit, rank 2..14(J=11,Q=12,K=13,A=14), suit 0黑桃 1红桃 2梅花 3方块
 // 花色优先级: 黑桃 > 红桃 > 梅花 > 方片 (suit 越小越大)
+// 血战模式: 固定无庄(六家两两互比), 后台「有无庄」配置不再生效
 // 可配置项全部走 t_game_config.tai_rules JSON:
-//   公共: banker_mode(1有庄/0无庄,默认1) arrange_timeout(摆牌秒数,默认60)
-//   免摆牌型倍率: m_sf6 m_sf5 m_4p m_4 m_33 m_3p1 m_f6 m_s6 m_f5 m_s5 m_p3 m_n9 m_san
+//   公共: arrange_timeout(摆牌秒数,默认60)
+//   免摆牌型倍率: m_sf6 m_4p m_4 m_33 m_3p1 m_f6 m_s6 m_f5 m_s5 m_p3 m_n9 m_san
 //   手摆道倍率: s_bao_2..s_bao_14(13张宝独立) s_dian9 s_dian8 s_dian7 s_dianlow
 //   手摆: wulong_check(1校验乌龙,默认1) tongdian_mode(同点比较:1比最大牌花色/2和/3先比最大单张点数再比花色,默认3)
 var roomMgr = require("./roommgr");
@@ -84,11 +85,12 @@ function straightKeys(ranks){
     return [straightPower(ranks)].concat(out);
 }
 
-// ============ 免摆: 整手6张牌型识别 ============
-// 牌型 level: 13=6同花顺 12=5同花顺带1 11=4条带对 10=4条带2单 9=3条带3条 8=3条带对带1 7=6同花
-//             6=6连顺 5=5同花带1 4=5连顺带1 3=3对 2=3组9 1=散牌
-var MIAN_NAMES = {13:"6同花顺",12:"5同花顺带1",11:"4条带对",10:"4条带2单",9:"3条带3条",8:"3条带对带1",7:"6同花",6:"6连顺",5:"5同花带1",4:"5连顺带1",3:"3对",2:"3组9",1:"散牌"};
-var MIAN_RATE_KEYS = {13:"m_sf6",12:"m_sf5",11:"m_4p",10:"m_4",9:"m_33",8:"m_3p1",7:"m_f6",6:"m_s6",5:"m_f5",4:"m_s5",3:"m_p3",2:"m_n9",1:"m_san"};
+// ============ 免摆: 整手6张牌型识别(对齐逆向 Pk_Lb_lb_card_type) ============
+// value 越大牌型越大: 590 6同花顺 > 580 4条带对 > 570 4条带2单 > 560 3条带3条 > 550 3条带对带1
+//                     > 540 6同花 > 530 6连顺 > 520 5同花带1 > 510 5连顺带1 > 500 3对 > 490 3组9
+// 0 = 散牌: 原版不算免摆(手摆玩法要自己摆三道); 纯免摆玩法仍按整手比大小
+var MIAN_NAMES = {590:"6同花顺",580:"4条带对",570:"4条带2单",560:"3条带3条",550:"3条带对带1",540:"6同花",530:"6连顺",520:"5同花带1",510:"5连顺带1",500:"3对",490:"3组9",0:"散牌"};
+var MIAN_RATE_KEYS = {590:"m_sf6",580:"m_4p",570:"m_4",560:"m_33",550:"m_3p1",540:"m_f6",530:"m_s6",520:"m_f5",510:"m_s5",500:"m_p3",490:"m_n9",0:"m_san"};
 
 function identMian(cards){
     var ranks = cards.map(rankOf);
@@ -106,7 +108,7 @@ function identMian(cards){
     var top6 = uniqRanks.length == 6 ? straightTop(uniqRanks) : -1;
     // 1) 6同花顺
     if(flush6 && top6 > 0){
-        return { level:13, keys: straightKeys(uniqRanks), cards: cards.slice() };
+        return { level:590, keys: straightKeys(uniqRanks), cards: cards.slice() };
     }
     // 5张组合枚举辅助
     function combos5(){
@@ -119,77 +121,68 @@ function identMian(cards){
         return out;
     }
     function flushAll(c5){ var s0 = suitOf(c5[0]); for(var i = 1; i < 5; ++i){ if(suitOf(c5[i]) != s0) return false; } return true; }
-    // 2) 5同花顺带1
     var c5s = combos5();
-    for(var i = 0; i < c5s.length; ++i){
-        var c5 = c5s[i];
-        if(!flushAll(c5)) continue;
-        var r5 = c5.map(rankOf);
-        if(straightTop(r5) > 0){
-            return { level:12, keys: straightKeys(r5).concat([rankOf(c5._kick)]), kick: c5._kick, cards: cards.slice() };
-        }
-    }
-    // 3) 4条带对
+    // 2) 4条带对
     for(var r in cnt){
         if(cnt[r] == 4){
             var pairRanks = uniqRanks.filter(function(x){ return cnt[x] == 2; });
             if(pairRanks.length == 1){
-                return { level:11, keys: [Number(r), pairRanks[0]], cards: cards.slice() };
+                return { level:580, keys: [Number(r), pairRanks[0]], cards: cards.slice() };
             }
         }
     }
-    // 4) 4条带2单(两张散牌点数不同)
+    // 3) 4条带2单(两张散牌)
     for(var r in cnt){
         if(cnt[r] == 4){
             var kickers = cards.filter(function(c){ return rankOf(c) != r; }).map(rankOf).sort(function(a,b){ return b-a; });
-            return { level:10, keys: [Number(r)].concat(kickers), cards: cards.slice() };
+            return { level:570, keys: [Number(r)].concat(kickers), cards: cards.slice() };
         }
     }
-    // 5) 3条带3条
+    // 4) 3条带3条
     var triples = uniqRanks.filter(function(r){ return cnt[r] == 3; }).sort(function(a,b){ return b-a; });
     if(triples.length == 2){
-        return { level:9, keys: triples, cards: cards.slice() };
+        return { level:560, keys: triples, cards: cards.slice() };
     }
-    // 6) 3条带对带1
+    // 5) 3条带对带1
     var pairs = uniqRanks.filter(function(r){ return cnt[r] == 2; }).sort(function(a,b){ return b-a; });
     var singles = uniqRanks.filter(function(r){ return cnt[r] == 1; }).sort(function(a,b){ return b-a; });
     if(triples.length == 1 && pairs.length == 1 && singles.length == 1){
-        return { level:8, keys: [triples[0], pairs[0], singles[0]], cards: cards.slice() };
+        return { level:550, keys: [triples[0], pairs[0], singles[0]], cards: cards.slice() };
     }
-    // 7) 6同花(不成顺)
+    // 6) 6同花(不成顺)
     if(flush6){
-        return { level:7, keys: desc, cards: cards.slice() };
+        return { level:540, keys: desc, cards: cards.slice() };
     }
-    // 8) 6连顺(不同花)
+    // 7) 6连顺(不同花)
     if(top6 > 0){
-        return { level:6, keys: [straightPower(uniqRanks)], cards: cards.slice() };
+        return { level:530, keys: [straightPower(uniqRanks)], cards: cards.slice() };
     }
-    // 9) 5同花带1(不连续)
+    // 8) 5同花带1(原版在此判定, 5张同花顺带1也归这一类)
     for(var i = 0; i < c5s.length; ++i){
         var c5 = c5s[i];
         if(!flushAll(c5)) continue;
         var r5d = c5.map(rankOf).sort(function(a,b){ return b-a; });
-        return { level:5, keys: r5d.concat([rankOf(c5._kick)]), kick: c5._kick, cards: cards.slice() };
+        return { level:520, keys: r5d.concat([rankOf(c5._kick)]), kick: c5._kick, cards: cards.slice() };
     }
-    // 10) 5连顺带1
+    // 9) 5连顺带1
     for(var i = 0; i < c5s.length; ++i){
         var c5 = c5s[i];
         var r5 = c5.map(rankOf);
         var tp = straightTop(r5);
         if(tp > 0){
-            return { level:4, keys: [straightPower(r5), rankOf(c5._kick)], kick: c5._kick, cards: cards.slice() };
+            return { level:510, keys: [straightPower(r5), rankOf(c5._kick)], kick: c5._kick, cards: cards.slice() };
         }
     }
-    // 11) 3对
+    // 10) 3对
     if(pairs.length == 3){
-        return { level:3, keys: pairs, cards: cards.slice() };
+        return { level:500, keys: pairs, cards: cards.slice() };
     }
-    // 12) 3组9: 六张分三组,每组点数和为9 (10/J/Q/K=0, A=1)
+    // 11) 3组9: 六张分三组,每组点数和为9 (10/J/Q/K=0, A=1)
     if(canSplitNines(cards)){
-        return { level:2, keys: desc, cards: cards.slice() };
+        return { level:490, keys: desc, cards: cards.slice() };
     }
-    // 13) 散牌
-    return { level:1, keys: desc, cards: cards.slice() };
+    // 12) 散牌: 原版 value=0, 不算免摆
+    return { level:0, keys: desc, cards: cards.slice() };
 }
 
 // 3组9判定: 枚举15种 (2,2,2) 分法
@@ -237,7 +230,7 @@ function compareMian(a, b){
 
 function mianRate(level, tr){
     var key = MIAN_RATE_KEYS[level];
-    var defs = {m_sf6:4, m_sf5:4, m_4p:4, m_4:4, m_33:4, m_3p1:4, m_f6:4, m_s6:4, m_f5:4, m_s5:4, m_p3:4, m_n9:4, m_san:1};
+    var defs = {m_sf6:4, m_4p:4, m_4:4, m_33:4, m_3p1:4, m_f6:4, m_s6:4, m_f5:4, m_s5:4, m_p3:4, m_n9:4, m_san:1};
     var v = tr && tr[key] != null ? Number(tr[key]) : defs[key];
     return v > 0 ? v : defs[key];
 }
@@ -275,7 +268,12 @@ function cmpDao(a, b, mode){
         return cmpSuit(a.suit, b.suit);
     }
     if(a.dian != b.dian) return a.dian > b.dian ? 1 : -1;
-    if(a.dian == 0) return mode == 2 ? 0 : cmpSuit(a.maxSuit, b.maxSuit);
+    if(a.dian == 0){
+        // 0点(如 KQ / 10+10 / 7+3): 同样先比最大单张点数, 再比花色; mode 2 才算和
+        if(mode == 2) return 0;
+        if(mode == 3 && a.maxRank != b.maxRank) return a.maxRank > b.maxRank ? 1 : -1;
+        return cmpSuit(a.maxSuit, b.maxSuit);
+    }
     if(a.sum != b.sum) return a.sum > b.sum ? 1 : -1;
     if(mode == 2) return 0;
     if(mode != 3) return cmpSuit(a.maxSuit, b.maxSuit);
@@ -442,9 +440,8 @@ function taiRules(game){
 }
 function isShou(game){ return game.conf.type == "baobao_shou"; }
 function bankerMode(game){
-    // 牌桌级配置(添加牌桌时选有庄/无庄)优先, 老牌桌/老房间回落后台玩法配置
-    if(game.conf.banker_mode != null) return !!Number(game.conf.banker_mode);
-    var tr = taiRules(game); return tr.banker_mode != null ? !!Number(tr.banker_mode) : true;
+    // 血战模式: 固定无庄, 六家两两互比, 后台「有无庄」配置不再生效
+    return false;
 }
 function wulongCheck(game){ var tr = taiRules(game); return tr.wulong_check != null ? !!Number(tr.wulong_check) : true; }
 // 同点比较模式(后台 tai_rules.tongdian_mode): 1=比最大牌花色 2=和(打平) 3=先比最大单张点数再比花色
@@ -647,18 +644,18 @@ function mianOrder(cards, mian){
         return arr.slice().sort(function(a, b){ return rankOf(b) - rankOf(a) || suitOf(a) - suitOf(b); });
     }
     // 散牌/6同花/6连顺/6同花顺: 纯点数降序
-    if(level == 0 || level == 1 || level == 6 || level == 7 || level == 13) return desc(list);
+    if(level == 0 || level == 590 || level == 540 || level == 530) return desc(list);
     var cnt = {};
     list.forEach(function(c){ var r = rankOf(c); (cnt[r] = cnt[r] || []).push(c); });
     var ranks = Object.keys(cnt).map(Number).sort(function(a, b){ return b - a; });
     function ofCount(n){ return ranks.filter(function(r){ return cnt[r].length == n; }); }
     function concatRanks(rs){ var out = []; rs.forEach(function(r){ out = out.concat(desc(cnt[r])); }); return out; }
     // 4条带对 / 4条带2单
-    if(level == 11 || level == 10){
+    if(level == 580 || level == 570){
         var q = ofCount(4);
         if(q.length == 1){
             var outQ = desc(cnt[q[0]]);
-            if(level == 11){
+            if(level == 580){
                 var pq = ofCount(2);
                 if(pq.length == 1) outQ = outQ.concat(desc(cnt[pq[0]]));
             } else {
@@ -668,36 +665,36 @@ function mianOrder(cards, mian){
         }
     }
     // 3条带3条
-    if(level == 9){
+    if(level == 560){
         var t = ofCount(3);
         if(t.length == 2){ var out9 = concatRanks(t); if(out9.length == 6) return out9; }
     }
     // 3条带对带1
-    if(level == 8){
+    if(level == 550){
         var t8 = ofCount(3), p8 = ofCount(2), s8 = ofCount(1);
         if(t8.length == 1 && p8.length == 1 && s8.length == 1){
             return desc(cnt[t8[0]]).concat(desc(cnt[p8[0]]), desc(cnt[s8[0]]));
         }
     }
     // 3对
-    if(level == 3){
+    if(level == 500){
         var p3 = ofCount(2);
         if(p3.length == 3){ var out3 = concatRanks(p3); if(out3.length == 6) return out3; }
     }
-    // 5同花带1 / 5同花顺带1 / 5连顺带1: 成组的5张在前, 带的那张在最后
-    if(level == 5 || level == 12 || level == 4){
+    // 5同花带1 / 5连顺带1: 成组的5张在前, 带的那张在最后
+    if(level == 520 || level == 510){
         for(var i = 0; i < 6; ++i){
             var c5 = list.slice();
             var kick = c5.splice(i, 1)[0];
             var s0 = suitOf(c5[0]), sameSuit = true;
             for(var j = 1; j < 5; ++j){ if(suitOf(c5[j]) != s0){ sameSuit = false; break; } }
             var seq = straightTop(c5.map(rankOf)) > 0;
-            var ok = (level == 5) ? sameSuit : ((level == 12) ? (sameSuit && seq) : seq);
+            var ok = (level == 520) ? sameSuit : seq;
             if(ok) return desc(c5).concat([kick]);
         }
     }
     // 3组9: 三组各两张点数和为9, 组间按组内最大点数降序
-    if(level == 2){
+    if(level == 490){
         var idx = [0,1,2,3,4,5];
         var pairs = [];
         for(var a = 0; a < 6; ++a) for(var b = a + 1; b < 6; ++b) pairs.push([a, b]);
@@ -979,6 +976,9 @@ function doGameOver(game){
                 rakePerRound: pick('rake_per_round', c.rake_per_round != null ? Number(c.rake_per_round) : 1),
                 roomFee: pick('room_fee', Number(c.room_fee) || 0),
                 roomFeePayer: pick('room_fee_payer', Number(c.room_fee_payer) || 0),
+                //费用类(进房/表情/洗牌)的抽取比例: 未配置按100%(全额进俱乐部链)
+                fee_rake_percent: pick('fee_rake_percent', (c.fee_rake_percent == null) ? 100 : (Number(c.fee_rake_percent) || 0)),
+                club_id: Number(c.club_id) || Number(src.club_id) || Number(roomInfo.conf.clubid) || 0,
                 clubId: Number(c.club_id) || Number(src.club_id) || Number(roomInfo.conf.clubid) || 0
             };
             roomInfo.conf.clubGameConfig = clubConfig;
@@ -1265,13 +1265,7 @@ exports.start = function(roomInfo, readyUids){
 };
 
 function doStart(roomInfo, seatedPlayers){
-    //进房后第一局开局扣豆: 每人只扣一次, 出房再进重新算(座位上的 entryCharged 在入座时清空)
-    seatedPlayers.forEach(function(sp){
-        var se = roomInfo.seats[sp.roomSeatIndex];
-        if(!se || se.entryCharged) return;
-        se.entryCharged = true;
-        charge.charge(roomInfo.conf.type, sp.userId, "enter", roomInfo.id);
-    });
+    // 进场费=房费: 不在开局扣, 统一在整场结束按后台配置结算(不扣/大赢家出)
     // 先批量查每家性别(报牌语音分男/女), 查完再发牌开局
     var sexMap = {};
     var pendingSex = seatedPlayers.length;
@@ -1314,6 +1308,7 @@ function doStartDeal(roomInfo, seatedPlayers, sexMap){
             holds: [],
             arranged: false,
             continued: false,
+            shuffleCharged: false,   // 本局是否已扣过洗牌费(重复点洗牌不再扣)
             autoArranged: false,
             wulong: false,
             daos: null,
@@ -1331,8 +1326,8 @@ function doStartDeal(roomInfo, seatedPlayers, sexMap){
         }
     }
 
-    // 庄家随机定
-    game.bankerSeat = Math.floor(Math.random() * game.gameSeats.length);
+    // 血战模式: 无庄, bankerSeat 固定 -1(亮牌顺序按座位 0 起)
+    game.bankerSeat = -1;
     game.bankerMode = bankerMode(game);
 
     // 上一局有人点了洗牌: 本局发牌前全员统一播洗牌动画(只播一次)
@@ -1347,7 +1342,10 @@ function doStartDeal(roomInfo, seatedPlayers, sexMap){
             var ms = game.gameSeats[i];
             ms.mian = identMian(ms.holds);
             ms.mian.rate = mianRate(ms.mian.level, taiRules(game));
-            ms.mianFree = ms.mian.level >= 2;   // 非散牌即免摆(散牌才手动摆)
+            ms.mianFree = ms.mian.level > 0;   // 原版 value>0 才算免摆, 散牌(0)要手摆
+            //牌型识别日志(排查免摆漏识别用): 座位 手牌 识别等级/名称 是否免摆
+            console.log('[bb_mian] room=' + game.roomId + ' seat=' + ms.userId + ' holds=' + JSON.stringify(ms.holds) + ' -> level=' + ms.mian.level + '(' + (MIAN_NAMES[ms.mian.level] || '?') + ') mianFree=' + ms.mianFree);   // 非散牌即免摆(散牌才手动摆)
+            try{ require('fs').appendFileSync(__dirname + '/../logs/bb_mian.log', '[' + new Date().toISOString() + '] room=' + game.roomId + ' seat=' + ms.userId + ' holds=' + JSON.stringify(ms.holds) + ' level=' + ms.mian.level + ' free=' + ms.mianFree + '\n'); }catch(e){}
             // 免摆也要点确认按钮: 不再自动 arranged, 和手摆一样进摆牌阶段等确认/超时自动补
         }
         // 手摆: 进入摆牌阶段, 倒计时结束自动补齐未摆的
@@ -1431,12 +1429,16 @@ exports.continueRound = function(userId, data){
         if(ri0) ri0._shuffleNext = true;
         game.shuffleNext = true;
         //点了洗牌就扣豆(谁点扣谁): 俱乐部房间按玩法「洗牌分」扣, 普通房间按全局配置扣
-        var riShuffle = roomMgr.getRoom(game.roomId);
-        var afterShuffleCharge = function(){ roomMgr.refreshSeatGems(game.roomId, userId); };
-        if(riShuffle && riShuffle.conf && riShuffle.conf.clubGameConfig){
-            charge.chargeRoom(riShuffle.conf, userId, "shuffle", game.roomId, afterShuffleCharge);
-        } else {
-            charge.charge(game.conf.type, userId, "shuffle", game.roomId, afterShuffleCharge);
+        //每个玩家每局只扣一次: 客户端连点/重发都不会重复扣
+        if(!s.shuffleCharged){
+            s.shuffleCharged = true;
+            var riShuffle = roomMgr.getRoom(game.roomId);
+            var afterShuffleCharge = function(){ roomMgr.refreshSeatGems(game.roomId, userId); };
+            if(riShuffle && riShuffle.conf && riShuffle.conf.clubGameConfig){
+                charge.chargeRoom(riShuffle.conf, userId, "shuffle", game.roomId, afterShuffleCharge);
+            } else {
+                charge.charge(game.conf.type, userId, "shuffle", game.roomId, afterShuffleCharge);
+            }
         }
     }
     if(s.continued){

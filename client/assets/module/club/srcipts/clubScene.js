@@ -602,9 +602,8 @@ cc.Class({
             clubid:id
         },function(ret){
             if(ret.errcode === 0){
-                //新加入成功:关闭弹窗,刷新列表,进入俱乐部
+                //新加入成功:关闭弹窗,刷新列表,进入俱乐部(不再弹"已加入"提示,直接看到列表里的新俱乐部即可)
                 if(self._clubJoinWin){ self._clubJoinWin.active = false; }
-                cc.vv.wc.showError("已加入俱乐部「" + ret.name + "」");
                 self._clubShowMine();
                 self._clubRefreshList();
                 return;
@@ -971,6 +970,8 @@ cc.Class({
         if(s.indexOf("baobao_mian") === 0){ return "六宝免摆"; }
         if(s.indexOf("baobao_shou") === 0){ return "六宝手动"; }
         if(s.indexOf("baobao") === 0){ return "六宝"; }
+        if(s == "sss2"){ return "十三水(2人)"; }
+        if(s == "sss4"){ return "十三水(4人)"; }
         return s ? s : "-";
     },
 
@@ -1074,7 +1075,7 @@ cc.Class({
             var logs = ret.logs || [];
             for(var i = 0; i < logs.length; ++i){
                 var lg = logs[i];
-                var amt = parseInt(lg.amount) || 0;
+                var amt = Number(lg.amount) || 0;
                 var row = self._wfPopupAddRow(ls.list,ls.tpl,i,[
                     self._wfPopupTime(lg.create_time),
                     lg.roomid || "-",
@@ -1174,8 +1175,8 @@ cc.Class({
         if(!backBtn._clubBound){
             backBtn._clubBound = true;
             backBtn.on(cc.Node.EventType.TOUCH_END,function(){
-                //wfPage返回按钮:直接回大厅场景(不再回clubPage列表)
-                if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
+                //wfPage返回按钮:回到俱乐部列表页(clubPage),不直接回大厅
+                self._wfBack();
             });
         }
         this._clubBackBtn = backBtn;
@@ -1453,7 +1454,7 @@ cc.Class({
         var gt = (t && t.game_type) ? t.game_type
             : ((this._clubCurGame && this._clubCurGame.game_type) ? this._clubCurGame.game_type : "");
         if(gt.indexOf("baobao") === 0){ return 6; } //宝宝牌固定6座
-        return (gt.indexOf("zj4") === 0 || gt.indexOf("zp4") === 0 || gt == "wujin") ? 4 : 2;
+        return (gt.indexOf("zj4") === 0 || gt.indexOf("zp4") === 0 || gt == "wujin" || gt == "sss4") ? 4 : 2;
     },
 
     //创建牌桌卡片(绿色桌面+按玩法人数画座位+名称+人数),返回卡片节点
@@ -1532,8 +1533,8 @@ cc.Class({
             : ((typeof confObj.difen === 'number' && difens[confObj.difen] != null) ? difens[confObj.difen] : confObj.difen);
         var js = (confObj.jushu_value != null) ? confObj.jushu_value
             : ((typeof confObj.jushuxuanze === 'number' && jushus[confObj.jushuxuanze] != null) ? jushus[confObj.jushuxuanze] : confObj.jushuxuanze);
-        //是否有庄:banker_mode未配置默认有庄,0为无庄
-        var bankerTxt = (confObj.banker_mode != null && !Number(confObj.banker_mode)) ? "无庄" : "有庄";
+        //血战模式: 固定无庄, 六家两两互比
+        var bankerTxt = "血战无庄";
         var minBean = Number(confObj.min_bean) || 0;
         //底分/局数填到所有名为c(或C)的直子节点(模板里有新旧两个c,都填,由场景决定留哪个)
         for(var ci = 0; ci < card.children.length; ++ci){
@@ -1820,7 +1821,7 @@ cc.Class({
             var nameLb = nameN.getComponent(cc.Label);
             if(nameLb){ nameLb.string = name; }
         }
-        if(slotNode._uid === uid && slotNode._seatName === name){ return; } //同一玩家不重复加载
+        //同一玩家也要继续往下走: 头像/名字可能在别处改过, 交给 ImageLoader 比对头像地址后再决定要不要换图
         slotNode._uid = uid;
         slotNode._seatName = name;
         var chara = slotNode.getChildByName("chara");    //男
@@ -1850,9 +1851,10 @@ cc.Class({
                 if(img){
                     var spr = img.getComponent(cc.Sprite);
                     var il = img.getComponent("ImageLoader");
-                    if(il){ il._spriteFrame = null; }
-                    //先显示默认头像,真实头像加载完成后由ImageLoader覆盖
-                    if(spr){
+                    //同一个人且头像已加载: 保持现有头像, 不重复贴默认图(否则每次刷新都会闪)
+                    var sameUser = !!(il && il._userid === ("" + uid) && il._spriteFrame);
+                    //换人时先显示默认头像,真实头像加载完成后由ImageLoader覆盖
+                    if(spr && !sameUser){
                         if(self._clubHeadFrame){
                             spr.spriteFrame = self._clubHeadFrame;
                         }
@@ -1869,8 +1871,10 @@ cc.Class({
                 }
             }
         };
-        if(cc.vv.baseInfoMap && cc.vv.baseInfoMap[uid] != null && cc.vv.baseInfoMap[uid].sex != null){
-            apply(cc.vv.baseInfoMap[uid]);
+        //缓存5分钟内直接复用, 过期重新拉一次(玩家换头像/改名能同步)
+        var cachedInfo = cc.vv.baseInfoMap && cc.vv.baseInfoMap[uid];
+        if(cachedInfo != null && cachedInfo.sex != null && (Date.now() - (cachedInfo.ts || 0) < 5 * 60 * 1000)){
+            apply(cachedInfo);
             return;
         }
         //性别走账号服/base_info(含sex),结果进baseInfoMap缓存
@@ -1883,7 +1887,8 @@ cc.Class({
                 name:ret.name || "",
                 sex:ret.sex,
                 localKey:isLocal ? key : null,
-                url:(key && !isLocal) ? key + ".jpg" : null
+                url:(key && !isLocal) ? key + ".jpg" : null,
+                ts:Date.now()
             };
             if(cc.vv.baseInfoMap == null){ cc.vv.baseInfoMap = {}; }
             cc.vv.baseInfoMap[uid] = info;

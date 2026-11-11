@@ -18,8 +18,23 @@ setInterval(function(){
         var room = rooms[roomId];
         if(room == null || room.seats == null){ continue; }
         checkRoomAutoDissolve(room, userMgr, now);
+        flushRoomScores(room);
     }
 }, 60*1000);
+
+//座位积分定期落库: 服务重启从 t_rooms 恢复房间时才能还原积分(宝宝玩法座位分是宝宝豆余额, 不写)
+function flushRoomScores(room){
+    var conf = room.conf || {};
+    var type = conf.game_type || conf.type || "";
+    if(type == "baobao_mian" || type == "baobao_shou"){ return; }
+    for(var i = 0; i < room.seats.length; ++i){
+        var s = room.seats[i];
+        if(!s || !(s.userId > 0)){ continue; }
+        if(s.savedScore === s.score){ continue; }
+        s.savedScore = s.score;
+        db.update_seat_score(room.id, i, s.score);
+    }
+}
 
 //对单个房间执行自动解散检查
 function checkRoomAutoDissolve(room, userMgr, now){
@@ -151,6 +166,9 @@ function getGameMgrByType(type){
 	if(type == "niuniu"){
 		return require("./gamemgr_niuniu");  // 抢庄牛牛
 	}
+	if(type == "sss2" || type == "sss4"){
+		return require("./gamemgr_sss");     // 十三水 2人/4人
+	}
 	if(type == "dzpk"){
 		return require("./gamemgr_dzpk");   // 德州扑克(仅服务端,无客户端场景)
 	}
@@ -203,13 +221,15 @@ function constructRoomFromDb(dbdata){
 	roomInfo.gameMgr = getGameMgrByType(conf.type);
 	var roomId = roomInfo.id;
 
+	var _seatsLog = [];
 	for(var i = 0; i < maxPlayers; ++i){
 		var s = roomInfo.seats[i] = {};
 		s.userId = dbdata["user_id" + i] || 0;
 		s.score = dbdata["user_score" + i] || 0;
 		s.name = dbdata["user_name" + i] || "";
-		//t_rooms.user_name 存的是 base64, 房间从DB恢复时必须解码, 否则牌桌广播的座位昵称是一串英文
-		if(s.name){ try{ s.name = require('../utils/crypto').fromBase64(s.name); }catch(e){} }
+		//注意:get_room_data 已把 user_name 从 base64 解成明文, 这里不能再解一次(会变乱码/空)
+		s.savedScore = s.score;
+		_seatsLog.push('#' + i + ' uid=' + s.userId + ' name=[' + s.name + '] score=' + s.score + ' (db.user_name' + i + '=[' + (dbdata["user_name" + i] || "") + '])');
 		s.ready = false;
 		s.seatIndex = i;
 		s.numZiMo = 0;
@@ -227,6 +247,7 @@ function constructRoomFromDb(dbdata){
 		}
 	}
 	rooms[roomId] = roomInfo;
+	console.log('[constructRoomFromDb seats] roomId=' + roomId + ' type=' + type + ' ' + _seatsLog.join(' | '));
 	totalRooms++;
 	return roomInfo;
 }
@@ -234,7 +255,7 @@ function constructRoomFromDb(dbdata){
 exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 	var type = roomConf.type;
 	// 开放玩法: 宝宝(免摆/手摆) + 翻财神/包麻将/赖倒胡/自选财神/漳浦/无金/跑得快/牛牛
-	var allowedTypes = ["baobao_mian","baobao_shou","zj","zj4","zj4_bt","zj_bt","zj_lao","zj_zx","zj4_zx","zp","zp4","wujin","guanpai2","guanpai3","niuniu"];
+	var allowedTypes = ["baobao_mian","baobao_shou","zj","zj4","zj4_bt","zj_bt","zj_lao","zj_zx","zj4_zx","zp","zp4","wujin","guanpai2","guanpai3","niuniu","sss2","sss4"];
 	if(allowedTypes.indexOf(type) < 0){
 		callback(1,null);
 		return;
@@ -332,9 +353,24 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							conf.cai_chi = cfg.cai_chi != null ? cfg.cai_chi : 1;
 							conf.cai_peng = cfg.cai_peng != null ? cfg.cai_peng : 1;
 							conf.cai_gang = cfg.cai_gang != null ? cfg.cai_gang : 1;
+							conf.cai_pure = cfg.cai_pure != null ? cfg.cai_pure : 0;
+							// 后台全局开关:可胡点过是否弹二次确认(客户端据下发值决定,缺省开)
+							conf.hu_guo_confirm = cfg.hu_guo_confirm != null ? cfg.hu_guo_confirm : 1;
 							conf.dianpao_hu = cfg.dianpao_hu != null ? cfg.dianpao_hu : 1;
 							// 二人诸暨玩法:是否去掉条子(仅 zj/zj_lao/zj_bt 生效,zj4/zj4_bt 忽略)
 							conf.remove_tiao = cfg.remove_tiao != null ? cfg.remove_tiao : 0;
+							conf.remove_wan = cfg.remove_wan != null ? cfg.remove_wan : 0;
+							conf.remove_tong = cfg.remove_tong != null ? cfg.remove_tong : 0;
+							// 俱乐部玩法配置的 remove_* 存在 tai_rules JSON 里,展开到 conf(俱乐部牌桌配置覆盖全局)
+							var tr = conf.taiRules;
+							if(typeof tr === 'string'){
+								try{ tr = JSON.parse(tr); }catch(e){ tr = null; }
+							}
+							if(tr && typeof tr === 'object'){
+								if(tr.remove_tiao != null) conf.remove_tiao = tr.remove_tiao;
+								if(tr.remove_wan != null) conf.remove_wan = tr.remove_wan;
+								if(tr.remove_tong != null) conf.remove_tong = tr.remove_tong;
+							}
 							// 翻财神/赖倒胡:财神模式(1=双财神7财,0=单财神4财)
 							conf.cai7 = cfg.cai7 != null ? cfg.cai7 : 0;
 							// 赖倒胡专属开关:天胡地胡翻倍/财吊翻倍
@@ -362,6 +398,19 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 						if(type == "dzpk"){
 							conf.smallBlind = DI_FEN[roomConf.difen];
 							conf.chips = CHIPS[roomConf.chips];
+						}
+
+						// 十三水:摆牌超时来自 tai_rules.arrange_timeout(俱乐部/后台配置),默认30秒
+						if(type == "sss2" || type == "sss4"){
+							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
+							var sssRules = conf.taiRules;
+							if(typeof sssRules === "string"){
+								try{ sssRules = JSON.parse(sssRules); }catch(e){ sssRules = null; }
+							}
+							if(sssRules && sssRules.arrange_timeout != null){
+								var at = Number(sssRules.arrange_timeout);
+								conf.arrangeTimeout = (at > 0) ? at : 30;
+							}
 						}
 
 						// 宝宝(6张): 倍率表/有无庄/乌龙校验/摆牌超时 全部走 tai_rules(俱乐部自配优先)
@@ -395,6 +444,9 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 											rakePerRound: pick('rake_per_round', clubCfg.rake_per_round != null ? clubCfg.rake_per_round : 1),
 											roomFee: pick('room_fee', clubCfg.room_fee || 0),
 											roomFeePayer: pick('room_fee_payer', clubCfg.room_fee_payer || 0),
+											//费用类(进房/表情/洗牌)抽取比例: 未配置按100%(全额进俱乐部链)
+											fee_rake_percent: pick('fee_rake_percent', (clubCfg.fee_rake_percent == null) ? 100 : (Number(clubCfg.fee_rake_percent) || 0)),
+											club_id: clubCfg.club_id || 0,
 											clubId: clubCfg.club_id || 0
 										};
 										conf.face_score = pick('face_score', conf.face_score);
@@ -559,6 +611,12 @@ exports.enterRoom = function(roomId,userId,userName,callback){
 						if(ud && ud.gems != null && seat.userId == userId) seat.score = ud.gems;
 					});
 				}
+				else{
+					//麻将房间: 座位积分按本房间从0起算, 否则新玩家会继承上一位坐这里的玩家的分数
+					seat.score = 0;
+					seat.savedScore = 0;
+					db.update_seat_score(roomId,i,0);
+				}
 				userLocation[userId] = {
 					roomId:roomId,
 					seatIndex:i
@@ -698,9 +756,11 @@ exports.exitRoom = function(userId,callback){
 	var seat = room.seats[seatIndex];
 	seat.userId = 0;
 	seat.name = "";
+	seat.score = 0;       //退出清积分, 防止下一位进座继承
+	seat.savedScore = 0;
 
-	//清座位与清绑定两条SQL都落库后再回调,避免调用方立即回查读到旧座位(牌桌列表"退出后不更新")
-	var left = 2;
+	//清座位、清积分、清绑定三条SQL都落库后再回调,避免调用方立即回查读到旧座位(牌桌列表"退出后不更新")
+	var left = 3;
 	var done = function(){
 		left--;
 		if(left <= 0 && callback){ callback(); }
@@ -708,6 +768,7 @@ exports.exitRoom = function(userId,callback){
 
 	//同步清掉DB座位,否则俱乐部详情页/club_tables(LEFT JOIN t_rooms)仍显示已退出玩家
 	db.update_seat_info(roomId,seatIndex,0,"","",done);
+	db.update_seat_score(roomId,seatIndex,0,done);
 
 	//条件清绑定:仅当DB绑定仍指向本房间才置NULL,
 	//防止"退出→立刻重进新房间"时本清空SQL异步后到误清新房间的绑定

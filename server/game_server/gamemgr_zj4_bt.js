@@ -452,7 +452,7 @@ function checkCanPeng(game, seatData, targetPai){
     if(isCaishenPai(game, targetPai)) return;
     var count = seatData.countMap[targetPai] || 0;
     var csCount = game.cai_peng ? getCaishenCount(seatData, game.caishen, game.caishen2) : 0;
-    if(count + csCount >= 2 && count >= 1) seatData.canPeng = true;
+    if(count + csCount >= 2 && (game.cai_pure || count >= 1)) seatData.canPeng = true;
 }
 
 function checkCanGang(game, seatData, targetPai){
@@ -461,7 +461,7 @@ function checkCanGang(game, seatData, targetPai){
     if(isCaishenPai(game, targetPai)) return;
     var count = seatData.countMap[targetPai] || 0;
     var csCount = game.cai_gang ? getCaishenCount(seatData, game.caishen, game.caishen2) : 0;
-    if(count + csCount >= 3 && count >= 1){
+    if(count + csCount >= 3 && (game.cai_pure || count >= 1)){
         seatData.canGang = true;
         seatData.gangPai.push(targetPai);
     }
@@ -479,7 +479,7 @@ function checkCanAnGang(game, seatData){
                 seatData.gangPai.push(pai);
             }
         } else {
-            if(count + csCount >= 4 && count >= 2){
+            if(count + csCount >= 4 && (game.cai_pure || count >= 2)){
                 seatData.canGang = true;
                 seatData.gangPai.push(pai);
             }
@@ -539,7 +539,7 @@ function checkCanChi(game, seatData, targetPai){
         if(!h1) needCs++;
         if(!h2) needCs++;
 
-        if(needCs <= csCount && (h1 || h2)){
+        if(needCs <= csCount && (game.cai_pure || h1 || h2)){
             seatData.canChi = true;
             if(!seatData.chiPai) seatData.chiPai = [];
             seatData.chiPai.push([p1, p2, targetPai]);
@@ -973,7 +973,7 @@ exports.gang = function(userId, pai){
         // 暗杠：4张真实牌
         removePai(4);
         seatData.gangs.push({pai: pai, type: 'an'});
-    } else if(game.chuPai == pai && count >= 1 && count + csCount >= 3){
+    } else if(game.chuPai == pai && (game.cai_pure || count >= 1) && count + csCount >= 3){
         // 点杠（明杠）：别人打出，需要3张
         var discarderIdx = game.turn;
         var discarder = game.gameSeats[discarderIdx];
@@ -985,7 +985,7 @@ exports.gang = function(userId, pai){
         removePai(count);
         removeCs(needCs);
         seatData.gangs.push({pai: pai, type: 'ming'});
-    } else if(!isCaishenPai(game, pai) && count + csCount >= 4 && count >= 2){
+    } else if(!isCaishenPai(game, pai) && count + csCount >= 4 && (game.cai_pure || count >= 2)){
         // 暗杠用财神替代
         var needCs = 4 - count;
         removePai(count);
@@ -1747,6 +1747,9 @@ function isPingHuCheck(seatData, caishen, caishen2){
 
 exports.checkCanHu = checkCanHu;
 
+// 观战/调试:取房间当前牌局对象(不存在返回null)
+exports.__getGame = function(roomId){ return games[roomId] || null; };
+
 exports.start = function(roomInfo){
     var game = {
         mahjongs: new Array(136),
@@ -1767,6 +1770,7 @@ exports.start = function(roomInfo){
         cai_chi: roomInfo.conf.cai_chi != null ? roomInfo.conf.cai_chi : (roomInfo.conf.caishen_cpg != null ? roomInfo.conf.caishen_cpg : 1),
         cai_peng: roomInfo.conf.cai_peng != null ? roomInfo.conf.cai_peng : (roomInfo.conf.caishen_cpg != null ? roomInfo.conf.caishen_cpg : 1),
         cai_gang: roomInfo.conf.cai_gang != null ? roomInfo.conf.cai_gang : (roomInfo.conf.caishen_cpg != null ? roomInfo.conf.caishen_cpg : 1),
+        cai_pure: roomInfo.conf.cai_pure != null ? roomInfo.conf.cai_pure : 0,
         dianpao_hu: roomInfo.conf.dianpao_hu != null ? roomInfo.conf.dianpao_hu : 1,
         laozhuangCount: roomInfo.laozhuangCount || 0,
         baoSeatIndex: roomInfo.conf.baoSeatIndex != null ? roomInfo.conf.baoSeatIndex : -1,

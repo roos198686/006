@@ -574,7 +574,7 @@ app.get('/my_bean_logs',function(req,res){
 		var from = parseInt(req.query.from) || 0;
 		db.get_bean_logs(data.userid, from, function(rows){
 			http.send(res,0,"ok",{logs:rows || []});
-		});
+		}, true);
 	});
 });
 
@@ -1545,8 +1545,12 @@ function pickGameConfig(req,withDefault){
 	if(req.query.difen_options != null || withDefault){ fields.difen_options = parseNumList(req.query.difen_options,[1,2,5]); }
 	if(req.query.jushu_options != null || withDefault){ fields.jushu_options = parseNumList(req.query.jushu_options,[4,8]); }
 	if(req.query.cost_options != null || withDefault){ fields.cost_options = parseNumList(req.query.cost_options,[2,3]); }
-	['sort','min_players','max_players_custom','rake_percent','hidden_rake_percent','rake_per_round','room_fee','room_fee_payer','face_score','shuffle_score','min_bean','kick_bean'].forEach(function(k){
+	['sort','min_players','max_players_custom','rake_percent','hidden_rake_percent','fee_rake_percent','rake_per_round','room_fee','room_fee_payer','face_score','shuffle_score','min_bean','kick_bean'].forEach(function(k){
 		if(req.query[k] != null && req.query[k] !== ''){ fields[k] = parseFloat(req.query[k]) || 0; }
+	});
+	//去万/去条/去筒(存 tai_rules JSON,三选互斥由客户端保证,服务端按优先级容错)
+	['remove_wan','remove_tiao','remove_tong'].forEach(function(k){
+		if(req.query[k] != null && req.query[k] !== ''){ fields[k] = (parseInt(req.query[k]) ? 1 : 0); }
 	});
 	if(req.query.enabled != null && req.query.enabled !== ''){ fields.enabled = (parseInt(req.query.enabled) ? 1 : 0); }
 	return fields;
@@ -1613,8 +1617,13 @@ app.get('/club_admin/member_set_partner',function(req,res){
 	clubAdminAccess(req,res,function(clubId){
 		var userid = parseInt(req.query.userid);
 		if(!(userid > 0)){ http.send(res,-1,"userid required"); return; }
-		db.club_member_set_partner(clubId,userid,req.query.name || "",function(ok){
-			http.send(res,ok ? 0 : -1,ok ? "ok" : "set partner failed");
+		//先确认玩家存在,避免随便输入ID也"成功"
+		db.get_user_base_info(userid,function(info){
+			if(!info){ http.send(res,-1,"玩家不存在"); return; }
+			db.club_member_set_partner(clubId,userid,req.query.name || "",function(newClubId){
+				if(newClubId == null){ http.send(res,-1,"设置合伙人失败"); return; }
+				http.send(res,0,"ok",{partner_club_id:newClubId});
+			});
 		});
 	});
 });
@@ -1671,7 +1680,7 @@ app.get('/club_admin/partner_gems',function(req,res){
 	clubAdminAccess(req,res,function(clubId){
 		var pid = parseInt(req.query.partner_club_id);
 		var gems = parseInt(req.query.gems);
-		if(!(pid > 0) || !gems){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		if(!(pid > 0) || !(gems > 0)){ http.send(res,-1,"parameters don't match api requirements."); return; }
 		db.club_get(pid,function(pclub){
 			if(pclub == null){ http.send(res,3,"partner club not found."); return; }
 			//必须是本俱乐部的下级俱乐部(合伙人), 防止给任意俱乐部加豆
@@ -1693,12 +1702,19 @@ app.get('/club_admin/partner_ratio',function(req,res){
 	clubAdminAccess(req,res,function(clubId){
 		var pid = parseInt(req.query.partner_club_id);
 		var ratio = parseFloat(req.query.ratio);
+		var feeRatio = (req.query.fee_ratio == null || req.query.fee_ratio === '') ? null : parseFloat(req.query.fee_ratio);
+		var hiddenRatio = (req.query.hidden_ratio == null || req.query.hidden_ratio === '') ? null : parseFloat(req.query.hidden_ratio);
 		if(!(pid > 0) || isNaN(ratio)){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		if(feeRatio != null && (isNaN(feeRatio) || feeRatio < 0 || feeRatio > 100)){ http.send(res,-1,"fee ratio invalid."); return; }
+		if(hiddenRatio != null && (isNaN(hiddenRatio) || hiddenRatio < 0 || hiddenRatio > 100)){ http.send(res,-1,"hidden ratio invalid."); return; }
 		db.club_get(pid,function(pclub){
 			if(pclub == null){ http.send(res,3,"partner club not found."); return; }
 			//必须是本俱乐部的下级俱乐部(合伙人)
 			if(pclub.parent_clubid != clubId){ http.send(res,4,"partner club not found."); return; }
-			db.partner_upsert(clubId,pid,{profit_ratio:ratio},function(ok){
+			var fields = {profit_ratio:ratio};
+			if(feeRatio != null){ fields.fee_profit_ratio = feeRatio; }
+			if(hiddenRatio != null){ fields.hidden_profit_ratio = hiddenRatio; }
+			db.partner_upsert(clubId,pid,fields,function(ok){
 				http.send(res,ok ? 0 : -1,ok ? "ok" : "update ratio failed");
 			});
 		});
@@ -1791,7 +1807,7 @@ app.get('/club_admin/table_update',function(req,res){
 			if(jushu && jushu.length){ conf.jushu_value = jushu[0]; conf.jushuxuanze = 0; }
 			var cost = parseNumList(req.query.cost_options,null);
 			if(cost && cost.length){ conf.cost = cost[0]; }
-			var map = { min_players:'min_players', max_players_custom:'max_players', face_score:'face_score', shuffle_score:'shuffle_score', min_bean:'min_bean', kick_bean:'kick_bean', rake_percent:'rake_percent', hidden_rake_percent:'hidden_rake_percent', rake_per_round:'rake_per_round', room_fee:'room_fee', room_fee_payer:'room_fee_payer' };
+			var map = { min_players:'min_players', max_players_custom:'max_players', face_score:'face_score', shuffle_score:'shuffle_score', min_bean:'min_bean', kick_bean:'kick_bean', rake_percent:'rake_percent', hidden_rake_percent:'hidden_rake_percent', fee_rake_percent:'fee_rake_percent', rake_per_round:'rake_per_round', room_fee:'room_fee', room_fee_payer:'room_fee_payer' };
 			for(var k in map){
 				var v = num(k);
 				if(v != null){ conf[map[k]] = v; }

@@ -32,6 +32,8 @@ cc.Class({
             this._origLblY = this.lblContent.node.y;
             this._origLblW = this.lblContent.node.width;
             this._origOverflow = this.lblContent.overflow;
+            this._origHAlign = this.lblContent.horizontalAlign;
+            this._origVAlign = this.lblContent.verticalAlign;
         }
         this.node.active = this._isShow;
     },
@@ -103,7 +105,7 @@ cc.Class({
     },
     //失败提示:直接复用等待遮罩显示错误原因,不依赖恒为undefined的cc.vv.alert,3秒后自动隐藏
     //错误提示是纯文字消息,不显示转圈(转圈仅用于加载等待)
-    //黑框自适应: 文字全部收进框内(自动换行), 框随文字尺寸缩放, 不再出现文字挂在框外
+    //黑框固定为场景里的方形尺寸(不再随文字拉伸), 文字超宽自动换行并上下左右居中
     showError:function(msg){
         var self = this;
         this.show(msg == null ? "操作失败,请重试" : String(msg));
@@ -111,15 +113,14 @@ cc.Class({
         if(this.lblContent && this._frame){
             var lb = this.lblContent;
             var lbNode = lb.node;
-            lb.overflow = cc.Label.Overflow.RESIZE_HEIGHT;   // 超宽自动换行, 高度随行数撑开
-            lbNode.width = 520;
+            var fw = (this._origFrameW > 0) ? this._origFrameW : 300;
+            var fh = (this._origFrameH > 0) ? this._origFrameH : 300;
+            this._frame.setContentSize(fw, fh);
+            lb.overflow = cc.Label.Overflow.CLAMP;            // 固定框: 超出宽度自动换行, 超出高度裁剪
+            lbNode.setContentSize(Math.max(60, fw - 48), Math.max(40, fh - 48));
             lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+            lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
             lbNode.setPosition(0, 0);
-            // 等 Label 渲染一帧算出真实高度, 再把黑框缩放到包住文字
-            this.scheduleOnce(function(){
-                if(!cc.isValid(lbNode) || !cc.isValid(self._frame)) return;
-                self._frame.setContentSize(lbNode.width + 60, lbNode.height + 56);
-            }, 0.03);
         }
         if(this._errTimer){ clearTimeout(this._errTimer); }
         this._errTimer = setTimeout(function(){
@@ -132,6 +133,8 @@ cc.Class({
         if(!this.lblContent || !this._frame) return;
         this._frame.setContentSize(this._origFrameW, this._origFrameH);
         this.lblContent.overflow = this._origOverflow;
+        this.lblContent.horizontalAlign = this._origHAlign;
+        this.lblContent.verticalAlign = this._origVAlign;
         this.lblContent.node.width = this._origLblW;
         this.lblContent.node.setPosition(this._origLblX, this._origLblY);
     }

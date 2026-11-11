@@ -2,10 +2,20 @@ var crypto = require('../utils/crypto');
 var express = require('express');
 var db = require('../utils/db');
 var http = require("../utils/http");
+var path = require('path');
+var fs = require('fs');
 // fibers 已废弃，改用原生异步回调
 
 var app = express();
 var hallAddr = "";
+
+// APP热更新资源托管:/hotupdate/project.manifest、version.manifest 及构建资源文件(由管理后台上传发布)
+var HOTUPDATE_DIR = path.join(__dirname, 'hotupdate');
+try { fs.mkdirSync(HOTUPDATE_DIR); } catch(e){} // 已存在则忽略
+app.use('/hotupdate', express.static(HOTUPDATE_DIR, {
+    etag: false,
+    setHeaders: function(res){ res.setHeader('Cache-Control', 'no-cache'); }
+}));
 
 function send(res,ret){
 	var str = JSON.stringify(ret);
@@ -457,6 +467,20 @@ app.get('/set_avatar',function(req,res){
 	db.update_user_headimg(account,avatar,function(ok){
 		if(ok){ send(res,{errcode:0,errmsg:"ok"}); }
 		else{ send(res,{errcode:3,errmsg:"设置失败"}); }
+	});
+});
+
+//修改用户昵称(1~12个字符,去除首尾空格;不允许空白控制符)
+app.get('/set_name',function(req,res){
+	var account = req.query.account;
+	var name = req.query.name;
+	if(!account || name == null){ send(res,{errcode:1,errmsg:"missing params"}); return; }
+	name = String(name).trim();
+	if(name.length === 0 || name.length > 12){ send(res,{errcode:2,errmsg:"昵称需为1~12个字符"}); return; }
+	if(/[\r\n\t]/.test(name)){ send(res,{errcode:2,errmsg:"昵称不能包含换行等控制字符"}); return; }
+	db.update_user_name(account,name,function(ok){
+		if(ok){ send(res,{errcode:0,errmsg:"ok"}); }
+		else{ send(res,{errcode:3,errmsg:"修改失败"}); }
 	});
 });
 

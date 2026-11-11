@@ -1,0 +1,3 @@
+account server is listening on 9100
+dealer api is listening on 127.0.0.1:13581
+admin api is listening on 127.0.0.1:13582

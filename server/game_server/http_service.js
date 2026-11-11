@@ -241,6 +241,26 @@ app.get('/clear_room',function(req,res){
 	http.send(res,0,"ok");
 });
 
+//管理员观战:返回房间进行中牌局的全明牌快照(账号服管理后台代理调用, 不对外暴露)
+app.get('/spectate',function(req,res){
+	var roomId = req.query.roomid;
+	var sign = req.query.sign;
+	if(roomId == null || sign == null){
+		http.send(res,1,"invalid parameters");
+		return;
+	}
+	if(crypto.md5(roomId + config.ROOM_PRI_KEY) != sign){
+		http.send(res,2,"sign check failed.");
+		return;
+	}
+	var snap = require('./spectate').getSnapshot(roomId);
+	if(!snap.ok){
+		http.send(res,3,snap.msg || "not found");
+		return;
+	}
+	res.send(JSON.stringify({errcode:0, errmsg:"ok", data:snap}));
+});
+
 var gameServerInfo = null;
 var lastTickTime = 0;
 

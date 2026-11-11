@@ -34,6 +34,12 @@ cc.Class({
         return null;
     },
     setStr: function (node, s) { if (node) { var lb = node.getComponent(cc.Label); if (lb) lb.string = s; } },
+    // 按钮文字: Label 可能挂在自己身上或子节点, 原版按钮文字是「免摆出牌」
+    _setBtnText: function (node, s) {
+        if (!node) return;
+        var lb = node.getComponent(cc.Label) || node.getComponentInChildren(cc.Label);
+        if (lb) lb.string = s;
+    },
     // 结算文字样式: 本局结算明牌行多, 用场景默认字号; 整场总结算只有总分几行, 用更小字号
     _setSettleContentStyle: function (fontSize, lineHeight, y) {
         var node = this._n.resultContent;
@@ -85,7 +91,6 @@ cc.Class({
             }
             self._cardBack = get("card_back");
             // 图集异步加载完成: 补填已打开的弹窗/牌面(否则先到的推送会显示空白牌)
-            if (self._confirmRoot && self._confirmRoot.active) self._fillConfirmCards();
             if (self._arrangeRoot && self._arrangeRoot.active) self._renderArrange();
             // 结算明牌先于图集加载: 加载完成后补绘一次
             if (self._n.resultPanel && self._n.resultPanel.active && self._lastResults) {
@@ -172,8 +177,6 @@ cc.Class({
         this._confirmRemain = 0;
         this._confirmRemainAt = 0;
         this._confirmCount = 0;
-        this._confirmAutoShown = false;   // 免摆弹窗: 点了「免摆」按钮后才在上排摆最大牌型
-        this._confirmMoving = false;      // 免摆上移动画进行中: 期间确认按钮不可点
         this._cdTimer = null;
         this._dealTimer = null;
         this._dealing = false;
@@ -353,7 +356,8 @@ cc.Class({
                 slots: slots,
                 daoLabels: labels,
                 summary: summary,
-                bubble: this.findNode(seat, "bbBubble")
+                bubble: this.findNode(seat, "bbBubble"),
+                mianType: this.findNode(seat, "bbMianType")   // 免摆牌型文字(场景里配, 位置/字号可调)
             };
         }
     },
@@ -453,29 +457,15 @@ cc.Class({
         root.active = false;
     },
 
-    // 免摆确认弹窗: 全部使用场景内 bbConfirm 节点(文字/牌位/按钮都在场景里)
+    // 免摆确认弹窗: 场景 bbConfirm 下只保留「免摆出牌」按钮
     _buildConfirmUI: function () {
         var root = this.findNode(this.node, "bbConfirm");
         if (!root) return;
         if (this._confirmRoot) return;
-        var slots = [];
-        for (var i = 0; i < 6; ++i) slots.push(this.findNode(root, "bbConfirmCard" + i));
-        var topSlots = [];
-        for (var t = 0; t < 6; ++t) topSlots.push(this.findNode(root, "bbConfirmTopCard" + t));
         this._confirmRoot = root;
-        this._confirmType = this.findNode(root, "bbConfirmType");
-        this._confirmCards = slots;
-        this._confirmTopCards = topSlots;
-        this._confirmHint = this.findNode(root, "bbConfirmHint");
-        this._confirmCd = this.findNode(root, "bbConfirmCd");
-        if (this._confirmCd) this._confirmCd.active = true;   // 场景里该节点默认隐藏: 先激活才能看到倒计时数字
-        this._confirmBtn = this.findNode(root, "bbConfirmBtn");
-        this._confirmAutoBtn = this.findNode(root, "bbConfirmBtn-a");   // 免摆按钮: 点击后下排牌依次上移成最大牌型
-        this._confirmTitle = this.findNode(root, "bbConfirmTitle");
-        // 手摆弹窗 / 结算弹窗的倒计时(场景内节点, 位置由编辑器调); bbArrangeCd 在 _buildArrangeUI 收集
+        this._confirmAutoBtn = this.findNode(root, "bbConfirmBtn-a");
+        // 结算弹窗的倒计时(场景内节点, 位置由编辑器调); bbArrangeCd 在 _buildArrangeUI 收集
         this._settleCd = this.findNode(this._n.resultPanel, "settleCd");
-        // _n 里规则弹窗/分享/解散按钮在 _findNodes 已收集
-        for (var z = 0; z < slots.length; ++z) if (slots[z]) slots[z].active = false;
         root.active = false;
     },
 
@@ -483,8 +473,6 @@ cc.Class({
         this.bindButton(this._n.readyBtn, this.onReady, this);
         this.bindButton(this._n.exitBtn, this.onExit, this);
         this.bindButton(this._n.dissolveBtn, this.onDissolve, this);
-        this.bindButton(this._confirmBtn, this.onConfirmTap, this);
-        this.bindButton(this._confirmAutoBtn, this.onConfirmAuto, this);
         this.bindButton(this._arrangeOkBtn, this.onConfirmArrange, this);
         this.bindButton(this._arrangeAutoBtn, this.onAutoArrange, this);
         this.bindButton(this._n.resultCloseBtn, this.onResultClose, this);
@@ -1118,6 +1106,7 @@ cc.Class({
         this._started = false;
         this._arranging = false;
         this._revealByGs = {};
+        this._clearMianTypeLabels();
         this.hideArrangeUI();
         this.hideConfirmUI();
         if (this._n.bbMidCd) this._setMidCd(false);
@@ -1166,10 +1155,7 @@ cc.Class({
         if (!data) return;
         var nm = cc.vv.gameNetMgr;
         if (data.seatIndex == nm.bbMySeat) nm.bbConfirmed = true;
-        if (data.confirmedCount != null) {
-            this._confirmCount = data.confirmedCount;
-            if (this._confirmHint) this.setStr(this._confirmHint, "已确定 " + data.confirmedCount + "/" + (data.total || this._total) + "，等待其他玩家…");
-        }
+        if (data.confirmedCount != null) this._confirmCount = data.confirmedCount;
         if (nm.bbConfirmed) {
             this.hideConfirmUI();
             this.showTip("已确定 (" + (data.confirmedCount != null ? data.confirmedCount : this._confirmCount) + "/" + (data.total || this._total) + ")，等待其他玩家…");
@@ -1177,10 +1163,8 @@ cc.Class({
     },
 
     showConfirmUI: function () {
-        var nm = cc.vv.gameNetMgr;
         this._buildConfirmUI();
         var root = this._confirmRoot;
-        console.log("[BB] 免摆弹窗 root=" + !!root + " phase=" + nm.bbPhase + " mian=" + JSON.stringify(nm.bbMyMian));
         if (!root) { console.error("[BB] 场景内找不到 bbConfirm 节点"); return; }
         // 父链全部激活, 避免弹窗挂在未激活的父节点下导致不显示
         var p = root.parent;
@@ -1188,30 +1172,19 @@ cc.Class({
         root.active = true;
         var par = root.parent;
         if (par) root.setSiblingIndex(par.children.length - 1);
-        this._clearConfirmFly(); //弹窗前先清掉上一局残留的飞牌副本
-        var mian = nm.bbMyMian;
-        if (this._confirmType) {
-            this.setStr(this._confirmType, mian ? ((mian.typeName || "") + "  ×" + (mian.rate || 1)) : "计算中…");
+        // 逆向 Pk.Lb.Out: 免摆只留「免摆出牌」按钮, 无标题/提示/倒计时
+        this._stopCountdown();
+        if (this._confirmAutoBtn) {
+            this._confirmAutoBtn.active = true;
+            this._confirmAutoBtn.opacity = 255;
+            this._setBtnText(this._confirmAutoBtn, "免摆出牌");
+            this.bindButton(this._confirmAutoBtn, this.onConfirmTap, this);
         }
-        // 弹出后不先摆最大牌型: 等用户点「免摆」按钮再依次上移; 未点免摆前确认按钮禁用
-        this._confirmAutoShown = false;
-        this._confirmMoving = false;
-        if (this._confirmAutoBtn) { this._confirmAutoBtn.active = true; this._confirmAutoBtn.opacity = 255; }
-        if (this._confirmBtn) { this._confirmBtn.active = true; this._confirmBtn.opacity = 120; }
-        if (this._confirmCd) this._confirmCd.active = true;
-        this._fillConfirmCards();
         this._confirmCount = 0;
-        this._startCountdown(this._leftOf(this._confirmRemain != null ? this._confirmRemain : (nm.bbConfirmRemain || 0), this._confirmRemainAt), this._confirmCd, function () {
-            // 超时未点免摆/确认: 关闭弹窗, 自动按免摆(最大牌型)确认亮牌
-            this.hideConfirmUI();
-            this.showTip("超时未操作，系统自动免摆亮牌");
-            cc.vv.net.send("bb_confirm");
-        });
     },
 
-    // 手摆免摆弹窗(项1): 复用 bbConfirm 节点, 只展示「免摆」二字+牌型名+后端倍率, 不可操作, 等亮牌
+    // 手摆房里的免摆: 与原版一致, 收起摆牌区只留「免摆出牌」按钮, 点了按最优三道提交
     showMianFreeUI: function () {
-        var nm = cc.vv.gameNetMgr;
         this._buildConfirmUI();
         var root = this._confirmRoot;
         if (!root) { console.error("[BB] 场景内找不到 bbConfirm 节点"); return; }
@@ -1220,22 +1193,15 @@ cc.Class({
         root.active = true;
         var par = root.parent;
         if (par) root.setSiblingIndex(par.children.length - 1);
-        this._clearConfirmFly();
-        var mian = nm.bbMyMian;
-        if (this._confirmTitle) this.setStr(this._confirmTitle, "免摆");
-        if (this._confirmType) this.setStr(this._confirmType, mian ? ((mian.typeName || "") + "  ×" + (mian.rate || 1)) : "");
-        if (this._confirmHint) { this._confirmHint.active = true; this.setStr(this._confirmHint, "免摆无需摆牌，点确定等待亮牌"); }
-        if (this._confirmCd) this.setStr(this._confirmCd, "");
-        // 免摆也要用户点确认: 显示「确定」按钮, 点击后按最优摆法提交 bb_arrange
-        if (this._confirmBtn) {
-            this._confirmBtn.active = true;
-            this.bindButton(this._confirmBtn, this.onConfirmMianFree, this);
+        // 逆向 Pk.Lb.Out: 免摆玩家只给一个「免摆出牌」按钮, 点了按最优三道直接提交
+        this._stopCountdown();
+        if (this._confirmAutoBtn) {
+            this._confirmAutoBtn.active = true;
+            this._confirmAutoBtn.opacity = 255;
+            this._setBtnText(this._confirmAutoBtn, "免摆出牌");
+            this.bindButton(this._confirmAutoBtn, this.onConfirmMianFree, this);
         }
-        if (this._confirmAutoBtn) this._confirmAutoBtn.active = false;
-        this._confirmAutoShown = true;
-        this._confirmMoving = false;
-        this._fillConfirmCards();
-        console.log("[BB] 手摆免摆弹窗 mian=" + JSON.stringify(mian));
+        this._confirmCount = 0;
     },
 
     // 手摆免摆确认: 按本地最优摆法提交 bb_arrange, 关弹窗, 倒计时挪中间等待亮牌
@@ -1257,149 +1223,15 @@ cc.Class({
         this.showTip("已确定，等待其他玩家…");
     },
 
-    // 弹窗: 下排按牌型结构排好的 6 张, 上排是排序后的最大牌型(大图)
-    _fillConfirmCards: function () {
-        var nm = cc.vv.gameNetMgr;
-        var raw = (nm.bbMyCards || []);
-        var mian = nm.bbMyMian;
-        var top = (mian && mian.cards && mian.cards.length ? mian.cards : raw);
-        // 下排也按牌型结构排列(免摆牌型按免摆牌型排), 与上排一一对应, 点免摆时原地往上飞
-        var order = (mian && mian.cards && mian.cards.length ? top.slice() : raw.slice());
-        this._confirmOrder = order;
-        for (var i = 0; i < 6; ++i) {
-            var cn = this._confirmCards && this._confirmCards[i];
-            if (cn) {
-                if (order[i] != null) {
-                    cn.active = true;
-                    var sp = cn.getComponent(cc.Sprite);
-                    if (sp) sp.spriteFrame = this.frameOf(order[i]) || this._cardBack || null;
-                } else cn.active = false;
-            }
-            var tn = this._confirmTopCards && this._confirmTopCards[i];
-            if (tn) {
-                // 未点「免摆」前上排不显示最大牌型
-                if (this._confirmAutoShown && top[i] != null) {
-                    tn.active = true;
-                    var tsp = tn.getComponent(cc.Sprite);
-                    if (tsp) tsp.spriteFrame = this.frameOf(top[i]) || this._cardBack || null;
-                } else tn.active = false;
-            }
-        }
-    },
-
-    // 免摆按钮: 下方原始牌依次往上移动, 组成最大牌型
-    onConfirmAuto: function () {
-        if (this._confirmAutoShown || this._confirmMoving) return;
-        this._confirmAutoShown = true;
-        this._confirmMoving = true;
-        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("sort.wav");   //免摆摆牌音效
-        if (this._confirmAutoBtn) this._confirmAutoBtn.opacity = 120;
-        var nm = cc.vv.gameNetMgr;
-        // 下排已按牌型结构排好(_confirmOrder), 与上排顺序一致
-        var raw = (this._confirmOrder && this._confirmOrder.length ? this._confirmOrder.slice() : (nm.bbMyCards || []).slice());
-        var mian = nm.bbMyMian;
-        var top = (mian && mian.cards && mian.cards.length) ? mian.cards : raw;
-        var used = {};   // 下排已被上移走的索引
-        var self = this;
-        for (var i = 0; i < 6; ++i) {
-            var id = top[i];
-            if (id == null) continue;
-            var from = -1;
-            for (var j = 0; j < 6; ++j) { if (!used[j] && raw[j] === id) { from = j; break; } }
-            if (from < 0) continue;
-            used[from] = true;
-            (function (fromIdx, toIdx, cardId) {
-                setTimeout(function () { self._moveConfirmCard(fromIdx, toIdx, cardId); }, toIdx * 150);
-            })(from, i, id);
-        }
-        // 全部上移动画结束后才放开确认按钮(最后一张 5*150ms 起飞 + 飞行 250ms)
-        setTimeout(function () {
-            if (!cc.isValid(self.node)) return;
-            self._confirmMoving = false;
-            if (self._confirmBtn) self._confirmBtn.opacity = 255;
-        }, 5 * 150 + 300);
-    },
-
-    // 一张牌从弹窗下排飞到上排: 副本飞行, 落位后上排显示牌面, 下排让出
-    _moveConfirmCard: function (fromIdx, toIdx, id) {
-        var bottom = this._confirmCards && this._confirmCards[fromIdx];
-        var top = this._confirmTopCards && this._confirmTopCards[toIdx];
-        var frame = this.frameOf(id) || this._cardBack || null;
-        if (!bottom || !top || !cc.isValid(bottom) || !cc.isValid(top)) {
-            if (top && cc.isValid(top)) { top.active = true; var sp0 = top.getComponent(cc.Sprite); if (sp0) sp0.spriteFrame = frame; }
-            return;
-        }
-        var parent = bottom.parent;
-        var targetPos = top.position;
-        if (top.parent !== parent) {
-            var w = top.convertToWorldSpaceAR(cc.v2(0, 0));
-            targetPos = parent.convertToNodeSpaceAR(w);
-        }
-        var ghost = new cc.Node("confirmFly");
-        var gsp = ghost.addComponent(cc.Sprite);
-        gsp.spriteFrame = frame;
-        ghost.parent = parent;
-        ghost.setPosition(bottom.position);
-        ghost.setScale(bottom.scaleX, bottom.scaleY);
-        bottom.active = false;
-        ghost.runAction(cc.sequence(
-            cc.moveTo(0.25, targetPos),
-            cc.callFunc(function () {
-                ghost.destroy();
-                if (!cc.isValid(top)) return;
-                top.active = true;
-                var sp = top.getComponent(cc.Sprite);
-                if (sp) sp.spriteFrame = frame;
-            })
-        ));
-    },
-
     hideConfirmUI: function () {
-        this._clearConfirmFly();
-        this._confirmMoving = false;
-        // 清掉上/下排牌面贴图, 避免下一局弹窗刚出现时先闪一帧上一局的残留牌
-        var i, sp;
-        for (i = 0; this._confirmCards && i < 6; ++i) {
-            var cn = this._confirmCards[i];
-            if (cn) { cn.active = false; sp = cn.getComponent(cc.Sprite); if (sp) sp.spriteFrame = null; }
-        }
-        for (i = 0; this._confirmTopCards && i < 6; ++i) {
-            var tn = this._confirmTopCards[i];
-            if (tn) { tn.active = false; sp = tn.getComponent(cc.Sprite); if (sp) sp.spriteFrame = null; }
-        }
         if (this._confirmRoot) this._confirmRoot.active = false;
         this._stopCountdown();
-    },
-
-    // 清掉上一局残留的"飞牌"副本(弹窗关闭会暂停节点动作, destroy回调不执行, 副本会一直留着并在下次弹窗时露出)
-    // 副本可能挂在下排牌所在的容器里(不是 bbConfirm 的直接子节点), 必须递归整棵子树查找
-    _clearConfirmFly: function () {
-        var root = this._confirmRoot;
-        if (!root) return;
-        var stack = [root];
-        while (stack.length > 0) {
-            var p = stack.pop();
-            var ch = p.children.slice();
-            for (var i = 0; i < ch.length; ++i) {
-                if (!cc.isValid(ch[i])) continue;
-                if (ch[i].name === "confirmFly") {
-                    ch[i].stopAllActions();
-                    ch[i].destroy();
-                } else {
-                    stack.push(ch[i]);
-                }
-            }
-        }
     },
 
     onConfirmTap: function () {
         var nm = cc.vv.gameNetMgr;
         if (!this._confirmRoot || !this._confirmRoot.active) return;
         if (nm.bbConfirmed) return;
-        // 免摆上移动画未结束前确认按钮不可点
-        if (this._confirmMoving) { this.showTip("摆牌中，请稍候…"); return; }
-        // 未点「免摆」前确认按钮禁用
-        if (!this._confirmAutoShown) { this.showTip("请先点击「免摆」按钮"); return; }
         nm.bbConfirmed = true;
         cc.vv.net.send("bb_confirm");
         this.hideConfirmUI();
@@ -1615,10 +1447,10 @@ cc.Class({
 
     // ===== 牌面渲染 =====
     // 免摆明牌按牌型排列: 同点牌成组(三条/对子在前), 其余按点数降序(顺子自然连续)
-    // 3组9(level 2) 按三个9点分组(与服务端 mianOrder 一致): 7+2 / 6+3 / 6+3, 组间按组内最大点数降序
+    // 3组9(level 490) 按三个9点分组(与服务端 mianOrder 一致): 7+2 / 6+3 / 6+3, 组间按组内最大点数降序
     _mianOrder: function (cards, level) {
         var self = this;
-        if (level == 2 && cards && cards.length == 6) {
+        if (level == 490 && cards && cards.length == 6) {
             var idx9 = [0, 1, 2, 3, 4, 5], pairs9 = [];
             for (var a9 = 0; a9 < 6; ++a9) for (var b9 = a9 + 1; b9 < 6; ++b9) pairs9.push([a9, b9]);
             var v9 = cards.map(function (c) { return self.dianVal(self.rankOf(c)); });
@@ -2312,6 +2144,8 @@ cc.Class({
                         self.renderCards();
                         if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("fanpai.mp3");
                         if (p) self._reportDaoVoice(p, ss);
+                        // 免摆玩家三道全亮后: 牌旁显示牌型名(逆向 Pk_Lb_Player ShowOutCard outListType)
+                        if (p && ss == 2 && (p.mianFree || (p.groups && !p.daos)) && p.typeName && seatIdx != null) self._showMianTypeAtSeat(seatIdx, p.typeName);
                     }, idx * STEP);
                 })(s3, o, stepIdx);
                 stepIdx++;
@@ -2339,6 +2173,53 @@ cc.Class({
         var isMian = p.mianFree || (p.groups && !p.daos);
         if (isMian && daoIdx == 2) this._playVoice(sex, "lipai");
     },
+    // 免摆玩家亮牌后牌旁显示牌型名(金色描边大字, 逆向 Pk_Lb_Player outListType[0].text = typename[mianbai])
+    _showMianTypeAtSeat: function (seatIdx, typeName) {
+        var seat = this._seatNodes && this._seatNodes[seatIdx];
+        if (!seat || !seat.root) return;
+        this._mianTypeLabels = this._mianTypeLabels || {};
+        // 优先用场景里每个座位下配好的 bbMianType(位置/大小/颜色在场景里调)
+        var n = (seat.mianType && cc.isValid(seat.mianType)) ? seat.mianType : this.findNode(seat.root, "bbMianType");
+        var showNode = null;
+        if (!n) {
+            // 场景里没有该节点时兜底动态创建
+            var old = this._mianTypeLabels[seatIdx];
+            if (old && cc.isValid(old)) old.destroy();
+            n = new cc.Node("bbMianType");
+            n.parent = seat.root;
+            n.setPosition(0, seatIdx == 0 ? 150 : 110);
+            var lb0 = n.addComponent(cc.Label);
+            lb0.fontSize = 36;
+            lb0.lineHeight = 40;
+            lb0.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+            n.color = new cc.Color(255, 220, 90, 255);
+            var ol = n.addComponent(cc.LabelOutline);
+            ol.color = new cc.Color(120, 40, 0, 255);
+            ol.width = 3;
+            n._bbDynamic = true;
+            showNode = n;
+        } else {
+            // bbMianType 外面套了底图(如 bbMb)时, 从最外层一起显示/隐藏
+            showNode = n;
+            var p = n.parent;
+            while (p && p !== seat.root) { showNode = p; p = p.parent; }
+        }
+        var lb = n.getComponent(cc.Label);
+        if (lb) lb.string = typeName;
+        showNode.active = true;
+        this._mianTypeLabels[seatIdx] = showNode;
+    },
+    _clearMianTypeLabels: function () {
+        if (!this._mianTypeLabels) return;
+        for (var k in this._mianTypeLabels) {
+            var n = this._mianTypeLabels[k];
+            if (!n || !cc.isValid(n)) continue;
+            // 场景里的节点只隐藏(销毁会把场景节点删掉), 动态创建的才销毁
+            if (n._bbDynamic) n.destroy();
+            else n.active = false;
+        }
+        this._mianTypeLabels = {};
+    },
     _voiceOfDao: function (desc) {
         if (!desc) return null;
         if (("" + desc).indexOf("对") == 0 || ("" + desc).indexOf("宝") == 0) return "bao";
@@ -2346,7 +2227,11 @@ cc.Class({
         return m ? ("dian" + (+m[1])) : null;
     },
     _playVoice: function (sex, name) {
-        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("bb/" + (sex == 2 ? "nv" : "nan") + "/" + name + ".mp3");
+        // 语音性别: 大厅设置里可强制 男声(nan)/女声(nv), 默认按玩家性别
+        var pref = "";
+        try { pref = cc.sys.localStorage.getItem("bb_voice") || ""; } catch (e) {}
+        var g = pref == "nv" ? "nv" : (pref == "nan" ? "nan" : (sex == 2 ? "nv" : "nan"));
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("bb/" + g + "/" + name + ".mp3");
     },
     _playVoiceDelay: function (sex, name, ms) {
         var self = this;
@@ -2526,7 +2411,9 @@ cc.Class({
         this.renderCards();
         this._setSeatCardsVisible(false);   // 摆牌时牌桌上的牌全部收起, 只弹窗里显示
         if (nm.bbMianFree && nm.bbMyMian) {
-            this.showTip("免摆牌型：" + nm.bbMyMian.typeName + " ×" + (nm.bbMyMian.rate || 1) + "，已按牌型预填，可调整或确定");
+            // 逆向 Pk.Lb.Out: 免摆玩家不弹摆牌区, 只留一个「免摆出牌」按钮
+            if (this._arrangeRoot) this._arrangeRoot.active = false;
+            this.showMianFreeUI();
         } else {
             this.showTip("请摆牌：拖手牌到前/中/后道位，道内牌可再拖动换位，点道内牌退回");
         }
@@ -2547,6 +2434,7 @@ cc.Class({
         if (this._arrangeRoot) this._arrangeRoot.active = false;
         if (this._n.bbArrReopen) this._n.bbArrReopen.active = false;
         if (this._arrangeCd) this.setStr(this._arrangeCd, "");
+        this._hideMianOutBtn();
         this._stopCountdown();
         // 摆牌阶段不能整桌恢复: 只恢复已确认出牌的那几家, 未确认的继续空桌
         this._restoreSeatCardsVisible();
@@ -2957,6 +2845,7 @@ cc.Class({
         if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("sort.wav");   //确认摆牌音效
         cc.vv.gameNetMgr.bbArranged = false;
         this._arranging = false;
+        this._hideMianOutBtn();
         if (this._arrangeRoot) this._arrangeRoot.active = false;
         this._stopCountdown();
         // 只恢复自己这一家的牌: 其他玩家各自确认后才显示自己的牌
@@ -2985,6 +2874,67 @@ cc.Class({
         this._wulongWarned = false;
         this._renderArrange();
         this.renderCards();
+    },
+
+    // 免摆提示(逆向 Pk_Lb_Out mianbaiout): 牌桌中间弹金色「免摆出牌」大按钮,
+    // 上面一行小字显示牌型名, 点按钮=播 lipai 音效并出牌(手摆房里按预填三道提交)
+    // parent/handler/y 可选: 免摆玩法直接挂到房间节点上, 不弹摆牌弹窗
+    _showMianOutBtn: function (parent, handler, y) {
+        this._hideMianOutBtn();
+        var root = parent || this._arrangeRoot;
+        if (!root) return;
+        var nm = cc.vv.gameNetMgr;
+        var mian = nm && nm.bbMyMian;
+        var wrap = new cc.Node("bbMianOutBtn");
+        wrap.parent = root;
+        wrap.setPosition(0, y == null ? -150 : y);
+        wrap.setContentSize(340, 120);
+        wrap.setSiblingIndex(root.children.length - 1);
+        // 牌型名(按钮上方)
+        var tn = new cc.Node("typeName");
+        tn.parent = wrap;
+        tn.setPosition(0, 78);
+        var tnl = tn.addComponent(cc.Label);
+        tnl.string = "免摆牌型：" + (mian ? mian.typeName : "") + "  ×" + (mian ? (mian.rate || 1) : 1);
+        tnl.fontSize = 30;
+        tnl.lineHeight = 34;
+        tnl.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+        var tnc = tnl.node.color;
+        tnc.setR(255); tnc.setG(220); tnc.setB(90);   // 金色
+        // 按钮底
+        var bg = new cc.Node("bg");
+        bg.parent = wrap;
+        bg.setContentSize(320, 88);
+        var g = bg.addComponent(cc.Graphics);
+        g.fillColor = new cc.Color(30, 140, 60, 255);
+        g.roundRect(-160, -44, 320, 88, 16);
+        g.fill();
+        g.strokeColor = new cc.Color(255, 220, 90, 255);
+        g.lineWidth = 3;
+        g.roundRect(-160, -44, 320, 88, 16);
+        g.stroke();
+        var lb = new cc.Node("label");
+        lb.parent = bg;
+        var l = lb.addComponent(cc.Label);
+        l.string = "免摆出牌";
+        l.fontSize = 42;
+        l.lineHeight = 46;
+        l.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+        var btn = bg.addComponent(cc.Button);
+        btn.transition = cc.Button.Transition.SCALE;
+        btn.duration = 0.08;
+        var self = this;
+        bg.on(cc.Node.EventType.TOUCH_END, function () {
+            self._playVoice(self._mySex(), "lipai");   // 原包免摆确认播 lipai
+            (handler || self.onConfirmArrange).call(self);
+        });
+        this._mianOutBtn = wrap;
+    },
+    _hideMianOutBtn: function () {
+        if (this._mianOutBtn) {
+            if (cc.isValid(this._mianOutBtn)) this._mianOutBtn.destroy();
+            this._mianOutBtn = null;
+        }
     },
 
     onAutoArrange: function () {
@@ -3251,7 +3201,10 @@ cc.Class({
             if (!r) continue;
             var name = (r.name || "") + (nm.bbBankerMode && nm.bbSeats && nm.bbSeats[bankerGs] && nm.bbSeats[bankerGs].userid == r.userid ? "(庄)" : "");
             var desc = "";
-            if (r.daos) {
+            if (r.mianFree && r.typeName) {
+                // 免摆玩家(逆向 Pk_Lb_OneResult): 显示「牌型名免摆」, 不再列三道
+                desc = r.typeName + "免摆";
+            } else if (r.daos) {
                 //结算弹窗不显示倍率, 倍率已在分数加减里体现
                 desc = (r.daos || []).map(function (d) { return d.desc; }).join(" ");
                 if (r.wulong) desc = "乌龙 " + desc;
@@ -3283,6 +3236,7 @@ cc.Class({
         if (this._n.bbMidCd) this._setMidCd(false);
 
         if (this._n.resultPanel) this._n.resultPanel.active = true;
+        this._clearMianTypeLabels();   // 结算弹窗盖住牌桌, 亮牌时的免摆牌型名标签清掉
         // 按钮贴图再确认一次(父节点刚激活时重新赋值可避免首帧只剩文字)
         this._ensureSettleBtnFrames();
         // 按钮激活放在明牌渲染之前: 渲染任何异常都不能影响按钮显示
@@ -3565,8 +3519,10 @@ cc.Class({
                 // 免摆(含手摆房里自动免摆的非散牌): 六张按牌型排列(同点成组在前), 显示整手牌型
                 ids = self._mianOrder(r.holds || [], r.typeKey);
                 var tn = r.typeName || "";
+                // 逆向 Pk_Lb_OneResult: 免摆行显示 牌型名 .. "免摆"(手摆房的免摆玩家 / 免摆玩法的非散牌)
+                if (r.mianFree || (self._gameType == "baobao_mian" && r.typeKey > 0)) tn += "免摆";
                 // 散牌额外列出构成(一对/单张), 如 散牌(一对Q 单A 单K 单7)
-                var parts = (r.typeKey == 1 || tn == "散牌") ? self._mianParts(r.holds) : "";
+                var parts = (r.typeKey == 0 || tn == "散牌") ? self._mianParts(r.holds) : "";
                 desc = tn + (parts ? "(" + parts + ")" : "");
             }
             // 其他玩家的分数一律是「我与他」之间的结算(各人视角不同), 不是他自己的本局结果

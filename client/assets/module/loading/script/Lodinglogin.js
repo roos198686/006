@@ -30,6 +30,11 @@ cc.Class({
     // use this for initialization
     onLoad: function () {
         console.log("[Lodinglogin] onLoad enter");
+        //热更搜索路径恢复:上次热更下载的新资源存放在可写目录, 必须先把该目录加进搜索路径再重启一次,
+        //否则冷启动时仍按包内旧资源启动(热更对"杀掉APP后重开"不生效)
+        if(this.applyHotUpdateSearchPaths()){
+            return; //已发起重启, 本场景生命周期到此为止
+        }
         //判断是否原生，是否为手机
         if(!cc.sys.isNative ){   //&& cc.sys.isMobile
             //获取canvas节点
@@ -63,8 +68,164 @@ cc.Class({
     //引导图显示加载
     start:function(){
         console.log("[Lodinglogin] start enter");
-        //去掉白底引导图，直接检查版本更新
-        this.checkVersion();
+        //原生环境先做APP热更新检查(服务器未发布热更清单时自动跳过), 完成后走 checkVersion
+        if(cc.sys.isNative && typeof jsb !== "undefined" && jsb.AssetsManager){
+            this.checkHotUpdate();
+        } else {
+            this.checkVersion();
+        }
+    },
+
+    //==================== APP热更新 ====================
+    //恢复上次热更写入的资源搜索路径:与当前不一致时应用并重启一次引擎, 返回true表示已发起重启
+    applyHotUpdateSearchPaths:function(){
+        if(!cc.sys.isNative || typeof jsb === "undefined" || !jsb.fileUtils){
+            return false;
+        }
+        var saved = cc.sys.localStorage.getItem("HotUpdateSearchPaths");
+        if(!saved){
+            return false;
+        }
+        var obj = null;
+        try { obj = JSON.parse(saved); } catch(e){ obj = null; }
+        var paths = Array.isArray(obj) ? obj : (obj && obj.paths); //兼容旧格式(纯数组)与新格式{paths}
+        if(!paths || !paths.length){
+            cc.sys.localStorage.removeItem("HotUpdateSearchPaths");
+            return false;
+        }
+        //扁平化比较(忽略嵌套结构差异), 相同说明本会话已应用过, 不再重启防止死循环
+        var cur = null;
+        try { cur = jsb.fileUtils.getSearchPaths(); } catch(e){ cur = null; }
+        if(cur && this._flattenPaths(cur) === this._flattenPaths(paths)){
+            return false;
+        }
+        jsb.fileUtils.setSearchPaths(paths);
+        console.log("[HotUpdate] 已恢复热更搜索路径, 重启生效");
+        cc.game.restart();
+        return true;
+    },
+
+    _flattenPaths:function(arr){
+        var out = [];
+        (function walk(x){
+            for(var i = 0; i < x.length; ++i){
+                if(Array.isArray(x[i])) walk(x[i]);
+                else out.push(String(x[i]));
+            }
+        })(arr);
+        return out.join("|");
+    },
+
+    //热更检查:拉取远端清单, 有新版本自动下载, 完成后重启; 失败/无清单跳过热更继续原流程
+    checkHotUpdate:function(){
+        var self = this;
+        var base = (cc.vv && cc.vv.http && cc.vv.http.master_url) ? cc.vv.http.master_url : "";
+        if(!base){
+            this.checkVersion();
+            return;
+        }
+        var manifestUrl = base + "/hotupdate/project.manifest";
+        var storagePath = (jsb.fileUtils ? jsb.fileUtils.getWritablePath() : "/") + "baobao_hotupdate";
+        console.log("[HotUpdate] 检查热更:", manifestUrl);
+        console.log("[HotUpdate] 存储目录:", storagePath);
+        this._stateStr = "正在检查更新";
+        var am = new jsb.AssetsManager(manifestUrl, storagePath);
+        am.retain();
+        this._hotAm = am;
+        this._hotFailCount = 0;
+        am.setVerifyCallback(function(path, asset){
+            return true; //资源校验放行(清单md5校验由引擎下载完整性保障, 这里不做二次md5)
+        });
+        am.setEventCallback(function(event){
+            var code = event.getEventCode();
+            console.log("[HotUpdate] event:", code);
+            var EV = jsb.EventAssetsManager;
+            switch(code){
+                case EV.ERROR_NO_LOCAL_MANIFEST:
+                case EV.ERROR_DOWNLOAD_MANIFEST:
+                case EV.ERROR_PARSE_MANIFEST:
+                    //服务器未发布热更/清单异常:跳过热更, 直接走版本检查
+                    self.showHotTip("无需热更, 继续启动");
+                    self._finishHot();
+                    self.checkVersion();
+                    break;
+                case EV.ALREADY_UP_TO_DATE:
+                    self.showHotTip("已是最新版本");
+                    self._finishHot();
+                    self.checkVersion();
+                    break;
+                case EV.NEW_VERSION_FOUND:
+                    self.showHotTip("发现新版本, 正在更新");
+                    self.scheduleOnce(function(){
+                        if(self._hotAm === am) am.update();
+                    }, 0);
+                    break;
+                case EV.UPDATE_PROGRESSION:
+                    self._stateStr = "正在更新资源";
+                    self._isLoading = true;
+                    var pct = event.getPercent();
+                    if(pct > 100) pct = 100;
+                    if(pct / 100 > self._targetProgress){
+                        self._targetProgress = pct / 100; //只增不减, 复用 update() 的进度显示
+                    }
+                    break;
+                case EV.UPDATE_FINISHED:
+                    //保存搜索路径并重启; 重启后 onLoad -> applyHotUpdateSearchPaths 会应用新路径
+                    try {
+                        var searchPaths = jsb.fileUtils.getSearchPaths();
+                        var newPaths = am.getLocalManifest().getSearchPaths();
+                        if(newPaths && newPaths.length){
+                            Array.prototype.unshift.apply(searchPaths, newPaths);
+                        }
+                        cc.sys.localStorage.setItem("HotUpdateSearchPaths", JSON.stringify({paths: searchPaths}));
+                    } catch(e) {
+                        console.log("[HotUpdate] 保存搜索路径失败:", e);
+                    }
+                    self._stateStr = "更新完成, 正在重启";
+                    self._finishHot();
+                    cc.game.restart();
+                    break;
+                case EV.UPDATE_FAILED:
+                    self._hotFailCount++;
+                    if(self._hotFailCount <= 3){
+                        console.log("[HotUpdate] 下载失败, 第" + self._hotFailCount + "次重试");
+                        am.downloadFailedAssets();
+                    } else {
+                        self.showHotTip("更新失败, 跳过热更");
+                        self._finishHot();
+                        self.checkVersion();
+                    }
+                    break;
+                case EV.ERROR_UPDATING:
+                case EV.ERROR_DECOMPRESS:
+                    console.log("[HotUpdate] 资源异常:", event.getAssetId(), event.getMessage());
+                    break;
+                default:
+                    break;
+            }
+        });
+        am.checkUpdate();
+    },
+
+    //热更结束(成功重启前/跳过热更)清理事件回调; 管理器引用留到 onDestroy 统一释放
+    _finishHot:function(){
+        if(this._hotAm){
+            try { this._hotAm.setEventCallback(null); } catch(e){}
+            this._hotAm = null;
+        }
+    },
+
+    //热更阶段提示(不打断进度条显示)
+    showHotTip:function(msg){
+        console.log("[HotUpdate]", msg);
+    },
+
+    onDestroy:function(){
+        if(this._hotAm){
+            try { this._hotAm.setEventCallback(null); this._hotAm.release(); } catch(e){}
+            this._hotAm = null;
+        }
+        if(cc.loader){ cc.loader.onProgress = null; }
     },
     //初始化组件方法
     initMgr:function(){

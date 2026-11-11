@@ -109,9 +109,22 @@ cc.Class({
         this.node.on('game_end',function(data){
             self._isGameEnd = true;
             //需求4:牌局全部结束(服务端下发endinfo/最终结算)时直接展示"本次游戏总分数"面板
-            if(self._gameresult){ self._gameresult.active = true; }
+            if(self._gameresult){ self._gameresult.active = true; self._popIn(self._gameresult); }
             if(self._gameover){ self._gameover.active = false; }
         });
+    },
+
+    //结算弹窗弹入动画:从60%缩小+透明回弹到正常大小
+    _popIn:function(node){
+        if(!node){ return; }
+        if(this._popBase == null){ this._popBase = {}; }
+        var key = node.uuid;
+        if(this._popBase[key] == null){ this._popBase[key] = node.scaleX; }
+        var base = this._popBase[key];
+        cc.Tween.stopAllByTarget(node);
+        node.setScale(base * 0.6);
+        node.opacity = 0;
+        cc.tween(node).to(0.28, {scaleX: base, scaleY: base, opacity: 255}, {easing: "backOut"}).start();
     },
     
     onGameOver(data){
@@ -132,9 +145,11 @@ cc.Class({
         console.log(data);
         if(!data || data.length == 0){
             this._gameresult.active = true;
+            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
+        this._popIn(this._gameover);
         this._pingju.active = false;
         this._win.active = false;
         this._lose.active = false;
@@ -328,9 +343,11 @@ cc.Class({
         console.log(data);
         if(data.length == 0){
             this._gameresult.active = true;
+            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
+        this._popIn(this._gameover);
         this._pingju.active = false;
         this._win.active = false;
         this._lose.active = false;
@@ -559,9 +576,11 @@ cc.Class({
         console.log(data);
         if(data.length == 0){
             this._gameresult.active = true;
+            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
+        this._popIn(this._gameover);
         this._pingju.active = false;
         this._win.active = false;
         this._lose.active = false;
@@ -880,6 +899,7 @@ cc.Class({
         console.log("onBtnReadyClicked");
         if(this._isGameEnd){
             this._gameresult.active = true;
+            this._popIn(this._gameresult);
         }
         else{
             cc.vv.net.send('ready');   

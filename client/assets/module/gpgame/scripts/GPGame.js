@@ -183,8 +183,17 @@ cc.Class({
         for (var si = 0; si < 16; ++si) {
             var hs = this.findNode(this._n.handArea, "handSlot" + si);
             if (hs) {
+                hs.on(cc.Node.EventType.TOUCH_START, (function (slot) {
+                    return function (e) { self2.onSlotTouchStart(slot, e); };
+                })(hs));
+                hs.on(cc.Node.EventType.TOUCH_MOVE, (function (slot) {
+                    return function (e) { self2.onSlotTouchMove(slot, e); };
+                })(hs));
                 hs.on(cc.Node.EventType.TOUCH_END, (function (slot) {
-                    return function () { self2.onSlotTouched(slot); };
+                    return function (e) { self2.onSlotTouchEnd(slot, e); };
+                })(hs));
+                hs.on(cc.Node.EventType.TOUCH_CANCEL, (function (slot) {
+                    return function (e) { self2.onSlotTouchEnd(slot, e); };
                 })(hs));
                 // 隐藏选中钩标记，选中态仅靠牌面上移表示
                 var mk = hs.getChildByName("selMark");
@@ -225,6 +234,8 @@ cc.Class({
             this.bindButton(this._n.btnSettingsClose, this.onBtnSettingsClose, this);
             this.bindButton(this._n.btnSettingsDissolve, this.onBtnSettingsDissolve, this);
             this.bindButton(this._n.btnSettingsExit, this.onExit, this);
+            // 出牌手势设置: 手势多选开关
+            this._buildGestureToggle();
         }
         // 聊天面板内的按钮（发送/快捷语/表情）
         if (this._n.chatPanel) {
@@ -1098,6 +1109,9 @@ cc.Class({
         this._historyRound = 0;
         this._showHistoryIfEnabled();
         this._renderHistory();
+        // 重置炸弹倍数显示
+        this._bombCount = 0;
+        this._updateBombMul();
         var nm = cc.vv.gameNetMgr;
         var turn = (d.startSeat != null) ? d.startSeat : ((d.turn != null) ? d.turn : nm.gpTurn);
         this.applyGame(d.myCards, (d.mySeat != null ? d.mySeat : nm.gpMySeat), turn,
@@ -1114,6 +1128,9 @@ cc.Class({
         this._freePlay = false;
         this._selected = {};
         this._cards = (cc.vv.gameNetMgr.gpMyCards || []).slice();
+        // 炸弹计数与倍数显示(倍数=2^N,与服务端结算一致)
+        if (d.type === 'bomb') { this._bombCount = (this._bombCount || 0) + 1; }
+        this._updateBombMul();
         // 记牌: 推入一条
         if (this._isHistoryEnabled()) {
             this._addHistory({
@@ -1126,6 +1143,65 @@ cc.Class({
         this.renderSeats();
         this.renderHand();
         this.renderLastPlay();
+        this._flyPlayCards(d);
+        this._playTypeEfx(d);
+        // 出牌语音(报点数/牌型) + 剩1/2张报警
+        this._playPlayVoice(d);
+    },
+
+    // 牌型特效: 炸弹/顺子/连对/三带/飞机(gamepdk spine,资源未导入时静默跳过)
+    _playTypeEfx: function (d) {
+        if (!d || !d.type) return;
+        var key = null;
+        if (d.type === 'bomb') key = (d.bombLevel >= 2) ? "dazhadan" : "xiaozhadan";
+        else if (d.type === 'straight') key = "shunzi";
+        else if (d.type === 'pair_straight') key = "liandui";
+        else if (d.type === 'triple_one' || d.type === 'triple_pair') key = "sandaier";
+        else if (d.type === 'triple_straight') key = "DDZ_feiji";
+        if (!key || !cc.vv.mahjongmgr) return;
+        cc.vv.mahjongmgr.playSpineEfx(this._n.playArea || this.node, key);
+    },
+
+    // 出牌飞行: 从出牌人位置飞临时牌到出牌槽位(真实牌槽由 renderLastPlay 渲染)
+    _flyPlayCards: function (d) {
+        var container = this._n.cardsContainer;
+        if (!container || !d || !d.pais || d.pais.length === 0) return;
+        if (this._playSlots.length === 0) return;
+        var nm = cc.vv.gameNetMgr;
+        var startWorld = null;
+        if (d.seatIndex === nm.gpMySeat) {
+            if (this._n.handArea) startWorld = this._n.handArea.convertToWorldSpaceAR(cc.v2(0, 0));
+        } else if (this._seatMap) {
+            for (var di = 0; di < this._seatViews.length; ++di) {
+                if (this._seatMap[di] === d.seatIndex && this._seatViews[di]) {
+                    startWorld = this._seatViews[di].root.convertToWorldSpaceAR(cc.v2(0, 0));
+                    break;
+                }
+            }
+        }
+        if (!startWorld) return;
+        var start = container.convertToNodeSpaceAR(startWorld);
+        var n = Math.min(d.pais.length, this._playSlots.length);
+        for (var i = 0; i < n; ++i) {
+            (function (self, idx) {
+                var slot = self._playSlots[idx];
+                var fly = new cc.Node("play_fly");
+                container.addChild(fly);
+                fly.zIndex = 999;
+                fly.setPosition(start);
+                fly.setContentSize(slot.getContentSize());
+                fly.scaleX = slot.scaleX;
+                fly.scaleY = slot.scaleY;
+                var sp = fly.addComponent(cc.Sprite);
+                sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+                sp.spriteFrame = self.frameOf(d.pais[idx]);
+                cc.tween(fly)
+                    .delay(idx * 0.04)
+                    .to(0.16, { position: slot.position }, { easing: "quadOut" })
+                    .call(function () { if (cc.isValid(fly)) fly.destroy(); })
+                    .start();
+            })(this, i);
+        }
     },
 
     onGpTurn: function (d) {
@@ -1148,6 +1224,8 @@ cc.Class({
         if (!d) return;
         this.resetHintState();
         this.renderSeats();
+        // "要不起/不要"语音(随机四种, 男女按玩家性别)
+        this._playPassVoice(d.seatIndex);
     },
 
     onGpNewRound: function (d) {
@@ -1216,6 +1294,155 @@ cc.Class({
         this.renderHand();
     },
 
+    // ===== 出牌/报牌语音(sounds/pdk/{nan,nv}/, 语音包取自逆向原包) =====
+    _playVoice: function (sex, name, delay) {
+        var self = this;
+        var play = function () {
+            if (!cc.isValid(self.node)) return;
+            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("pdk/" + (sex == 2 ? "nv" : "nan") + "/" + name + ".mp3");
+        };
+        if (delay > 0) setTimeout(play, delay);
+        else play();
+    },
+    _sexOfSeat: function (seatIndex) {
+        var nm = cc.vv && cc.vv.gameNetMgr;
+        var s = (nm && nm.gpSeats && nm.gpSeats[seatIndex]) || null;
+        if (s && s.sex) return s.sex;
+        if (seatIndex == this._mySeat && cc.vv && cc.vv.userMgr) return cc.vv.userMgr.sex || 1;
+        return 1;
+    },
+    // 牌型→语音名: 单张报点数(3~15), 对/三报 duiN/tupleN, 其余报牌型名
+    _voiceOfPlay: function (type, key, pais) {
+        key = Number(key) || 0;
+        switch (type) {
+            case 'single': return String(key);
+            case 'pair': return "dui" + key;
+            case 'triple': return "tuple" + key;
+            case 'triple_one': return "sandaiyi";
+            case 'triple_pair': return "sandaier";
+            case 'straight': return "shunzi";
+            case 'pair_straight': return "liandui";
+            case 'triple_straight': return "feiji";
+            case 'bomb': return "zhadan";
+            case 'four_two': {
+                // 两张挂牌是对子 → 四带两对, 否则四带二
+                var ranks = (pais || []).map(function (c) { return this.rankOf(c); }.bind(this));
+                var cnt = {};
+                for (var i = 0; i < ranks.length; ++i) cnt[ranks[i]] = (cnt[ranks[i]] || 0) + 1;
+                for (var r in cnt) if (r != key && cnt[r] == 2) return "sidailiangdui";
+                return "sidaier";
+            }
+            case 'four_three': return "sidaisan";
+            default: return null;
+        }
+    },
+    // 出牌后: 先牌型语音(等甩牌声过去), 该玩家剩1/2张时再补报警语音
+    _playPlayVoice: function (d) {
+        if (!d || !d.type) return;
+        var name = this._voiceOfPlay(d.type, d.key, d.pais);
+        if (name) this._playVoice(this._sexOfSeat(d.seatIndex), name, 250);
+        var nm = cc.vv && cc.vv.gameNetMgr;
+        var s = (nm && nm.gpSeats && nm.gpSeats[d.seatIndex]) || null;
+        var cnt = s ? (s.count || 0) : -1;
+        if (cnt == 1) this._playVoice(this._sexOfSeat(d.seatIndex), "baojing1", 1000);
+        else if (cnt == 2) this._playVoice(this._sexOfSeat(d.seatIndex), "baojing2", 1000);
+    },
+    _playPassVoice: function (seatIndex) {
+        if (seatIndex == null) return;
+        this._playVoice(this._sexOfSeat(seatIndex), "buyao" + (1 + Math.floor(Math.random() * 4)), 150);
+    },
+
+    // ===== 手势多选(客户端房间设置 gesture_multi_select) =====
+    _isGestureMultiSelect: function () {
+        try {
+            return !!JSON.parse(cc.sys.localStorage.getItem("gesture_multi_select") || "false");
+        } catch (e) {
+            return false;
+        }
+    },
+
+    // 绑定设置面板里的"手势多选"开关(控件已固化在场景 settings/gesture_multi_toggle, check子节点为勾选态, 位置在场景里调)
+    _buildGestureToggle: function () {
+        var panel = this._n.settingsPanel;
+        if (!panel) return;
+        var node = panel.getChildByName("gesture_multi_toggle");
+        if (!node) {
+            console.warn("[GP] 场景缺少 settings/gesture_multi_toggle, 手势多选开关不可用(请在场景中补节点)");
+            return;
+        }
+        var self = this;
+        var check = node.getChildByName("check");
+        if (check) check.active = this._isGestureMultiSelect();
+        node.on(cc.Node.EventType.TOUCH_END, function () {
+            var nv = !self._isGestureMultiSelect();
+            try { cc.sys.localStorage.setItem("gesture_multi_select", JSON.stringify(nv)); } catch (e) { }
+            if (check) check.active = nv;
+        });
+    },
+
+    // 根据世界坐标查找命中的手牌槽
+    _findSlotAtPos: function (worldPos) {
+        for (var i = 0; i < this._handSlots.length; ++i) {
+            var slot = this._handSlots[i];
+            if (!slot || !slot.active) continue;
+            var box = slot.getBoundingBoxToWorld();
+            if (box.contains(worldPos)) return slot;
+        }
+        return null;
+    },
+
+    onSlotTouchStart: function (slot, e) {
+        // 开局发牌动画播放中,屏蔽手牌触摸,防止误点
+        if (this._dealAnimating) {
+            if (Date.now() < (this._dealAnimUntil || 0)) { return; }
+            this._dealAnimating = false;
+        }
+        if (!this.isMyTurn() || this._over) return;
+        var p = e.getLocation();
+        this._gpGestureStart = { x: p.x, y: p.y, slot: slot };
+        this._gpGestureMoved = false;
+    },
+
+    onSlotTouchMove: function (slot, e) {
+        if (!this._gpGestureStart) return;
+        if (!this._isGestureMultiSelect()) return;
+        var p = e.getLocation();
+        var dx = p.x - this._gpGestureStart.x;
+        if (Math.abs(dx) > 8) {
+            if (!this._gpGestureMoved) {
+                // 首次检测到滑动: 先选中起始牌
+                this._gpGestureMoved = true;
+                var ss = this._gpGestureStart.slot;
+                if (ss && ss._cardId != null && !this._selected[ss._cardId]) {
+                    this._selected[ss._cardId] = true;
+                    this._setSlotY(ss, this._selectUpOffset);
+                }
+            }
+            var hit = this._findSlotAtPos(p);
+            if (hit && hit._cardId != null && !this._selected[hit._cardId]) {
+                this._selected[hit._cardId] = true;
+                this._setSlotY(hit, this._selectUpOffset);
+            }
+        }
+    },
+
+    onSlotTouchEnd: function (slot, e) {
+        if (!this._gpGestureStart) {
+            // 兜底: 没有 START 记录时走原单点逻辑
+            this.onSlotTouched(slot);
+            return;
+        }
+        var start = this._gpGestureStart;
+        this._gpGestureStart = null;
+        if (this._gpGestureMoved) {
+            // 滑动多选: 保持选中状态, 刷新出牌按钮
+            this.updateTurnUI();
+            return;
+        }
+        // 单击: 切换选中
+        this.onSlotTouched(start.slot);
+    },
+
     onSlotTouched: function (slot) {
         // 开局发牌动画播放中,屏蔽手牌触摸,防止误点
         if (this._dealAnimating) {
@@ -1227,9 +1454,79 @@ cc.Class({
         if (id == null) return;
         this._selected[id] = !this._selected[id];
         // 选中的牌上移，未选中归位；出牌按钮出已选中的牌（不显示钩标记）
-        slot.y = this._selected[id] ? this._selectUpOffset : 0;
+        this._setSlotY(slot, this._selected[id] ? this._selectUpOffset : 0);
         if (cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.mp3"); //选牌音效
         this.updateTurnUI(); //选牌/取消选牌后刷新出牌按钮显隐
+    },
+
+    //手牌选中弹起/落下动画(仅交互时调用,renderHand 布局重排不经过这里)
+    _setSlotY: function (slot, y) {
+        if (!slot || !cc.isValid(slot)) return;
+        cc.Tween.stopAllByTarget(slot);
+        cc.tween(slot).to(0.07, { y: y }, { easing: "quadOut" }).start();
+    },
+
+    // 炸弹倍数显示: 有炸弹时出牌区上方显示 炸弹×2^N
+    _updateBombMul: function () {
+        var parent = this._n.playArea || this.node;
+        var lab = this._bombMulLabel;
+        var cnt = this._bombCount || 0;
+        if (cnt <= 0) {
+            if (lab && cc.isValid(lab.node)) lab.node.active = false;
+            return;
+        }
+        if (!lab || !cc.isValid(lab.node)) {
+            var n = new cc.Node("bombMulLabel");
+            parent.addChild(n);
+            n.setPosition(0, 110);
+            n.zIndex = 60;
+            lab = n.addComponent(cc.Label);
+            lab.fontSize = 34;
+            n.color = cc.color(255, 200, 60);
+            var ol = n.addComponent(cc.LabelOutline);
+            ol.color = cc.color(120, 30, 10);
+            ol.width = 3;
+            this._bombMulLabel = lab;
+        }
+        lab.string = "炸弹×" + Math.pow(2, cnt);
+        lab.node.active = true;
+    },
+
+    // 报单标识: 某座位剩1张牌时在其上方显示脉冲红标
+    _updateWarnBadge: function (root, remainCount) {
+        if (!root) return;
+        var badge = root.getChildByName("warnBadge");
+        if (remainCount === 1) {
+            if (!badge) {
+                badge = new cc.Node("warnBadge");
+                root.addChild(badge);
+                badge.setPosition(0, 58);
+                badge.zIndex = 50;
+                var lab = badge.addComponent(cc.Label);
+                lab.string = "报单";
+                lab.fontSize = 32;
+                badge.color = cc.color(255, 60, 60);
+                var ol = badge.addComponent(cc.LabelOutline);
+                ol.color = cc.color(255, 235, 120);
+                ol.width = 3;
+            }
+            if (!badge.active) {
+                badge.active = true;
+                badge.scale = 1;
+                cc.tween(badge)
+                    .repeatForever(
+                        cc.tween()
+                            .to(0.45, { scale: 1.18 }, { easing: "sineInOut" })
+                            .to(0.45, { scale: 1.0 }, { easing: "sineInOut" })
+                    )
+                    .start();
+                // 报单瞬间播放报警动画(资源未导入时静默跳过)
+                if (cc.vv.mahjongmgr) cc.vv.mahjongmgr.playSpineEfx(root, "baojing");
+            }
+        } else if (badge) {
+            cc.Tween.stopAllByTarget(badge);
+            badge.active = false;
+        }
     },
 
     // ===== 渲染 =====
@@ -1433,6 +1730,8 @@ cc.Class({
                 this.setStr(v.state, state);
                 v.state.color = (seatIdx == this._turn && playing && !this._over) ? cc.color(255, 230, 90) : cc.color(200, 200, 200);
             }
+            // 报单标识: 剩1张时座位上方脉冲红标
+            this._updateWarnBadge(v.root, (playing && gs) ? (gs.count || 0) : -1);
         }
         this.renderOppHands(gpSeats, playing);
         this.updateTurnUI();
@@ -1625,6 +1924,15 @@ cc.Class({
         }
         var remain = Math.ceil((this._deadline - Date.now()) / 1000);
         if (remain < 0) remain = 0;
+        //倒计时铃声: 轮到我出牌且剩5秒内每秒响一次(切到他人/新回合自动复位)
+        if (remain >= 1 && remain <= 5 && this._turn === cc.vv.gameNetMgr.gpMySeat) {
+            if (remain !== this._lastRingSec) {
+                this._lastRingSec = remain;
+                if (cc.vv.audioMgr) cc.vv.audioMgr.playSFX("timeup_alarm.wav"); //与BBGame/TimePointer倒计时同一音效,资源已收录即插即用
+            }
+        } else if (this._lastRingSec !== -1) {
+            this._lastRingSec = -1;
+        }
         var s = String(remain);
         if (s.length < 2) s = "0" + s;
         this.setArrowTime(s);
@@ -1745,6 +2053,14 @@ cc.Class({
         if (this._n.arrow) this._n.arrow.active = false;
         this.setStr(this._n.tipLabel, "");
         this.setStr(this._n.countdownLabel, "");
+        // 春天特效: 有玩家被全关时屏幕中央播放(资源未导入时静默跳过)
+        var hasChuntian = false;
+        for (var ci = 0; ci < results.length; ++ci) {
+            if (results[ci].allClosed) { hasChuntian = true; break; }
+        }
+        if (hasChuntian && cc.vv.mahjongmgr) {
+            cc.vv.mahjongmgr.playSpineEfx(this.node, "chuntian");
+        }
         //结算输赢音效(按本人本局分数)
         var myDelta = 0;
         for (var wi = 0; wi < results.length; ++wi) {
@@ -1796,8 +2112,22 @@ cc.Class({
         if (this._n.settleExitBtn) this._n.settleExitBtn.active = false;
         if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
         this._n.settlePanel.active = true;
+        this._popIn(this._n.settlePanel);
         if (this._n.settleNewBtn) this._n.settleNewBtn.active = true; //关闭按钮必须可见
         this.setStr(this._n.tipLabel, "本局结束");
+    },
+
+    //结算弹窗弹入动画:从60%缩小+透明回弹到正常大小
+    _popIn: function (node) {
+        if (!node) return;
+        if (this._popBase == null) this._popBase = {};
+        var key = node.uuid;
+        if (this._popBase[key] == null) this._popBase[key] = node.scaleX;
+        var base = this._popBase[key];
+        cc.Tween.stopAllByTarget(node);
+        node.setScale(base * 0.6);
+        node.opacity = 0;
+        cc.tween(node).to(0.28, { scaleX: base, scaleY: base, opacity: 255 }, { easing: "backOut" }).start();
     },
 
     // 整场结束:关闭单局弹窗,弹出独立的整场结算弹窗(仅"退出房间",不含"准备下一局")
@@ -1845,6 +2175,7 @@ cc.Class({
             this._fitSettleFont(this._n.settleContent, lines);
             this.setBlackStr(this._n.settleContent, content);
             this._n.settlePanel.active = true;
+            this._popIn(this._n.settlePanel);
             this.setStr(this._n.tipLabel, "整场结束");
             return;
         }
@@ -1853,6 +2184,7 @@ cc.Class({
         this._fitSettleFont(this._n.finalSettleContent, lines);
         this.setBlackStr(this._n.finalSettleContent, content);
         this._n.finalSettlePanel.active = true;
+        this._popIn(this._n.finalSettlePanel);
         this.setStr(this._n.tipLabel, "整场结束");
     },
 
@@ -1887,6 +2219,7 @@ cc.Class({
         node.setPosition(0, 20);
         root.addChild(node);
         root.active = true;
+        this._popIn(root);
         return true;
     },
 

@@ -287,6 +287,21 @@ cc.Class({
         if (lbl) lbl.string = text;
     },
 
+    // 比例列: 抽水/暗水/费用 三个比例, 如 10/10/10
+    _ratioText: function (p) {
+        function n(v) { return Number(v) || 0; }
+        return n(p.profit_ratio) + "/" + n(p.hidden_profit_ratio) + "/" + n(p.fee_profit_ratio);
+    },
+    // 比例列文字比单个数字长, 场景里节点宽度只有 100, 用 SHRINK 自动缩放避免被截成只剩一个数
+    _setRatioLabel: function (row, text) {
+        var n = row.getChildByName("ratio");
+        if (!n) return;
+        var lbl = n.getComponent(cc.Label);
+        if (!lbl) return;
+        lbl.overflow = cc.Label.Overflow.SHRINK;
+        lbl.string = text;
+    },
+
     // 给行内的头像节点换图: 内置头像 avatar_01~18 走本地资源, 其它按远程地址加载
     _setAvatar: function (row, nodeName, headimg) {
         var n = row.getChildByName(nodeName);
@@ -359,16 +374,47 @@ cc.Class({
         }
 
         var scroll = page.getChildByName("partnerScroll");
-        if (scroll) this._partnerContent = scroll.getChildByName("content");
-        // 与显示正常的成员列表对齐: Layout 用 CONTAINER 模式(容器高度随行数撑开), 避免行重叠
+        if (scroll) {
+            this._partnerScroll = scroll;
+            this._partnerContent = scroll.getChildByName("content");
+            this._partnerSv = scroll.getComponent(cc.ScrollView);
+        }
         if (this._partnerContent) {
-            var lay1 = this._partnerContent.getComponent(cc.Layout);
-            if (lay1) { lay1.resizeMode = cc.Layout.ResizeMode.CONTAINER; }
+            var widget = this._partnerContent.getComponent(cc.Widget);
+            if (widget) { widget.enabled = false; }
+            this._partnerLayout = this._partnerContent.getComponent(cc.Layout);
+            this._partnerContent.anchorX = 0.5;
+            this._partnerContent.anchorY = 1;
+        }
+    },
+
+    // 切到 partner 页时 Layout 可能在 inactive 状态没重算, 激活后再同步一次
+    _refreshPartnerScroll: function () {
+        if (!this._partnerContent || !this._partnerScroll) return;
+        if (this._partnerLayout) { this._partnerLayout.updateLayout(); }
+        // content anchorY=1 顶对齐 ScrollView 顶部
+        this._partnerContent.setPosition(0, this._partnerScroll.height / 2);
+        if (this._partnerSv && this._partnerSv.node.activeInHierarchy) {
+            this._partnerSv.scrollToTop(0.01);
+        }
+        // partnerStatsPage 同理
+        var pc = this._partnerStatsContent;
+        var ps = this._partnerStatsScroll || (this._pages.partnerStats && this._pages.partnerStats.getChildByName("statsScroll"));
+        if (pc && ps) {
+            if (!this._partnerStatsLayout) this._partnerStatsLayout = pc.getComponent(cc.Layout);
+            if (!this._partnerStatsSv) this._partnerStatsSv = ps.getComponent(cc.ScrollView);
+            this._partnerStatsScroll = ps;
+            if (this._partnerStatsLayout) this._partnerStatsLayout.updateLayout();
+            pc.setPosition(0, ps.height / 2);
+            if (this._partnerStatsSv && this._partnerStatsSv.node.activeInHierarchy) {
+                this._partnerStatsSv.scrollToTop(0.01);
+            }
         }
     },
 
     _renderPartners: function () {
         var content = this._partnerContent;
+        console.log('[partnerPage render] content=', !!content, '_partners.length=', this._partners.length, 'this._partnerContent=', !!this._partnerContent);
         if (!content) return;
         // 模板行 rowTpl 固化在场景 content 下,JS 只克隆填数据
         var tpl = content.getChildByName("rowTpl");
@@ -376,27 +422,37 @@ cc.Class({
         if (!tpl) return;
         tpl.active = false;
 
-        for (var i = 0; i < this._partners.length; i++) {
-            var p = this._partners[i];
+        // 只渲染直接下级(level=1, 归属当前顶级俱乐部的)
+        var direct = this._partners.filter(function(p){ return (p.level || 1) === 1; });
+        console.log('[partnerPage render] direct children count=', direct.length, 'of total=', this._partners.length);
+        for (var i = 0; i < direct.length; i++) {
+            var p = direct[i];
             var row = this._createPartnerRow(tpl, p);
             if (row) { row.parent = content; row.active = true; }
         }
         // 强制重排一次,避免行添加时机导致的布局未刷新
         var lay = content.getComponent(cc.Layout);
         if (lay) { lay.updateLayout(); }
+        // 位置设对 + 滚到顶
+        this._partnerContent.setPosition(0, this._partnerScroll.height / 2);
+        if (this._partnerSv) { this._partnerSv.scrollToTop(0.01); }
+        var contentPos = content.getPosition();
+        console.log('[partnerPage render] done, content.children=' + content.children.length + ' contentSize=' + content.width + 'x' + content.height);
     },
 
-    _createPartnerRow: function (tpl, partner) {
+    _createPartnerRow: function (tpl, partner, showLevelTag) {
         if (!tpl) return null;
         var row = cc.instantiate(tpl);
         row.name = "partner_" + partner.id;
 
+        var ownerTxt = partner.owner_name ? (partner.owner_name + '(' + partner.owner_userid + ')') : '';
+
         this._setAvatar(row, "avatar", partner.headimg);
         this._setLabel(row, "name", partner.name || "未命名");
-        this._setLabel(row, "uid", "ID:" + partner.id);
+        this._setLabel(row, "uid", ownerTxt || ("ID:" + partner.id));
         this._setLabel(row, "members", String(partner.member_count || 0));
-        this._setLabel(row, "gems", String(partner.total_gems || 0));
-        this._setLabel(row, "ratio", "比例:" + (partner.profit_ratio || 0) + "%");
+        this._setLabel(row, "gems", String(Number(partner.total_gems) || 0));
+        this._setRatioLabel(row, this._ratioText(partner));
 
         var self = this;
         var btns = { btn_gems: "gems", btn_ratio: "ratio", btn_profit: "profit", btn_del: "delete" };
@@ -404,10 +460,20 @@ cc.Class({
             (function (action) {
                 var btn = row.getChildByName(key);
                 if (!btn) return;
-                btn.on(cc.Node.EventType.TOUCH_END, function () {
+                btn.on(cc.Node.EventType.TOUCH_END, function (evt) {
+                    evt.stopPropagation && evt.stopPropagation();
                     self._onPartnerAction(action, partner);
                 });
             })(btns[key]);
+        }
+
+        // 下级按钮 btn_sub: 场景里手动加好, 这里只绑事件
+        var btnSub = row.getChildByName("btn_sub");
+        if (btnSub) {
+            btnSub.on(cc.Node.EventType.TOUCH_END, function (evt) {
+                evt.stopPropagation && evt.stopPropagation();
+                self._showPartnerChildrenDialog(partner);
+            });
         }
 
         return row;
@@ -436,72 +502,71 @@ cc.Class({
     },
 
     // ============ 合伙人统计页 ============
-    _bindPartnerStatsPage: function () {
-        var page = this._pages.partnerStats;
-        if (!page) return;
-        var scroll = page.getChildByName("statsScroll");
-        if (!scroll) return;
-        var content = scroll.getChildByName("content");
-        if (!content) return;
-        this._partnerStatsContent = content;
-        // 同上: 统计页列表也强制 CONTAINER 模式
-        var lay2 = content.getComponent(cc.Layout);
-        if (lay2) { lay2.resizeMode = cc.Layout.ResizeMode.CONTAINER; }
-        // 模板行 rowTpl 固化在场景 content 下, JS 只克隆填数据
-        var tpl = content.getChildByName("rowTpl");
-        if (tpl) { tpl.active = false; }
-    },
+_bindPartnerStatsPage: function () {
+    var page = this._pages.partnerStats;
+    if (!page) return;
+    var scroll = page.getChildByName('statsScroll');
+    if (!scroll) return;
+    var content = scroll.getChildByName('content');
+    if (!content) return;
+    this._partnerStatsContent = content;
+    // 场景 content 挂了 cc.Widget(alignFlags=40=BOTTOM+VCENTER), 每次强制拉回底部导致行叠一起
+    var widget = content.getComponent(cc.Widget);
+    if (widget) { widget.enabled = false; }
+    content.anchorX = 0.5; content.anchorY = 1;
+    content.setPosition(0, scroll.height / 2);
+    var sv = scroll.getComponent(cc.ScrollView);
+    if (sv) { sv.content = content; }
+},
 
-    _renderPartnerStats: function () {
-        var content = this._partnerStatsContent;
-        if (!content) return;
-        var tpl = content.getChildByName("rowTpl");
-        this._clearList(content, tpl);
-        if (!tpl) return;
-        tpl.active = false;
-
-        var self = this;
-        for (var i = 0; i < this._partners.length; i++) {
-            var p = this._partners[i];
-            var row = cc.instantiate(tpl);
-            row.name = "stats_" + p.id;
-            row.active = true;
-            this._setAvatar(row, "avatar", p.headimg);
-            this._setLabel(row, "name", p.name || "未命名");
-            this._setLabel(row, "uid", "ID:" + p.id);
-            this._setLabel(row, "members", p.member_count || 0);
-            this._setLabel(row, "gems", p.total_gems || 0);
-            this._setLabel(row, "ratio", (p.profit_ratio || 0) + "%");
-            this._setLabel(row, "rake", p.today_rake || 0);
-            this._setLabel(row, "profit", p.today_partner_profit || 0);
-            this._setLabel(row, "total", p.total_partner_profit || 0);
-            // 详情按钮: 查看该俱乐部全部豆豆流水
+_renderPartnerStats: function () {
+    var content = this._partnerStatsContent;
+    if (!content) return;
+    var tpl = content.getChildByName('rowTpl');
+    this._clearList(content, tpl);
+    if (!tpl) return;
+    tpl.active = false;
+    var self = this;
+    // 只显示直接下级(level=1)
+    var direct = this._partners.filter(function(p){ return (p.level || 1) === 1; });
+    for (var i = 0; i < direct.length; i++) {
+        var p = direct[i];
+        var row = cc.instantiate(tpl);
+        row.name = 'stats_' + p.id; row.active = true; row.parent = content;
+        this._setAvatar(row, 'avatar', p.headimg);
+        var ownerN = p.owner_name || '未命名';
+        // partnerStatsPage 自己的 rowTpl 已带 label: name/uid/members/gems/ratio/rake/profit/total/btn_detail/avatar
+        this._setLabel(row, 'name', p.name || '-');
+        this._setLabel(row, 'uid', ownerN + '(' + p.owner_userid + ')');
+        this._setLabel(row, 'members', String(p.member_count || 0));
+        this._setLabel(row, 'gems', String(Number(p.total_gems) || 0));
+        this._setRatioLabel(row, this._ratioText(p));
+        this._setLabel(row, 'rake', String(Number(p.today_rake) || 0));
+        this._setLabel(row, 'profit', String(Number(p.today_partner_profit) || 0));
+        this._setLabel(row, 'total', String(Number(p.total_partner_profit) || 0));
+        var btn = row.getChildByName('btn_detail');
+        if (btn) {
             (function (partner) {
-                var detailBtn = row.getChildByName("btn_detail");
-                if (detailBtn) {
-                    detailBtn.on(cc.Node.EventType.TOUCH_END, function () {
-                        self._showPartnerBeanLogs(partner);
-                    });
-                }
+                btn.on(cc.Node.EventType.TOUCH_END, function () {
+                    self._showPartnerBeanLogs(partner);
+                });
             })(p);
-            row.parent = content;
         }
-        if (this._partners.length === 0) {
-            var empty = cc.instantiate(tpl);
-            empty.name = "stats_empty";
-            empty.active = true;
-            this._setLabel(empty, "name", "暂无合伙人");
-            var emptyBtn = empty.getChildByName("btn_detail");
-            if (emptyBtn) { emptyBtn.active = false; }
-            empty.parent = content;
+        // 下级按钮 btn_sub: 场景里手动加好, 这里只绑事件
+        var btnSub = row.getChildByName('btn_sub');
+        if (btnSub) {
+            (function (partner) {
+                btnSub.on(cc.Node.EventType.TOUCH_END, function () {
+                    self._showPartnerChildrenDialog(partner);
+                });
+            })(p);
         }
-        // 强制重排一次
-        var lay2 = content.getComponent(cc.Layout);
-        if (lay2) { lay2.updateLayout(); }
-    },
+    }
+    var lay = content.getComponent(cc.Layout);
+    if (lay) { lay.updateLayout(); }
+},
 
-    // ============ 奖励明细页 ============
-    _bindRewardPage: function () {
+_bindRewardPage: function () {
         var page = this._pages.reward;
         if (!page) return;
         var scroll = page.getChildByName("rewardScroll");
@@ -564,7 +629,7 @@ cc.Class({
         row.name = "reward_" + reward.id;
 
         this._setLabel(row, "type", this._rewardTypeName(reward.reward_type));
-        this._setLabel(row, "amount", String(reward.amount || 0));
+        this._setLabel(row, "amount", String(Number(reward.amount) || 0));
         this._setLabel(row, "game", this._rewardGameName(reward));
         this._setLabel(row, "room", String(reward.roomid || 0));
         this._setLabel(row, "date", new Date(reward.create_time * 1000).toLocaleString());
@@ -826,6 +891,7 @@ cc.Class({
         if (noLoad) return;
         // 奖励明细页激活后再同步一次滚动区域(切页复用时 Layout 可能在未激活状态下没重算)
         if (key === "reward") { this._refreshRewardScroll(); }
+        if (key === "partner" || key === "partnerStats") { this._refreshPartnerScroll(key); }
         // 没有俱乐部ID时不发 club_id=null 的请求
         if (!(this._clubId > 0)) return;
         if (key === "overview") this._loadOverview();
@@ -901,6 +967,7 @@ cc.Class({
         var self = this;
         clubReq("/partners", { club_id: this._clubId }, function (ret) {
             self._partners = (ret && ret.errcode === 0 && ret.data) ? ret.data : [];
+            console.log('[loadPartners] _partners.length=', self._partners.length, 'raw=', JSON.stringify(self._partners).substring(0, 200));
             self._renderPartners();
             self._renderPartnerStats();
         });
@@ -1003,7 +1070,7 @@ cc.Class({
         this._gemsMode = 1; // 1=加豆豆 -1=减豆豆(减豆豆时仍输入正数)
         var root = this.node.getChildByName("popups");
         if (!root) { return; }
-        var names = ["memberRecordsWin", "memberBeanLogsWin", "partnerBeanLogsWin", "partnerGemsWin", "partnerRatioWin", "partnerProfitWin", "gameConfigWin", "confirmWin", "addMemberWin", "addPartnerWin"];
+        var names = ["memberRecordsWin", "memberBeanLogsWin", "partnerBeanLogsWin", "partnerChildrenWin", "partnerGemsWin", "partnerRatioWin", "partnerProfitWin", "gameConfigWin", "confirmWin", "addMemberWin", "addPartnerWin"];
         for (var i = 0; i < names.length; i++) {
             // IIFE 固定每个弹窗自己的 win, 否则回调里全部指向最后一个弹窗
             (function (nm) {
@@ -1053,6 +1120,25 @@ cc.Class({
         if (!win) { return null; }
         this._popupCtx = ctx || {};
         win.active = true;
+        // 提到最前面, 不被其他弹窗遮
+        win.setSiblingIndex(9999);
+        // 修正 confirmWin 的错误消息 Label 自动换行
+        if (name === "confirmWin") {
+            var panel = win.getChildByName("panel");
+            if (panel) {
+                var content = panel.getChildByName("content");
+                if (content) {
+                    var msgLbl = content.getChildByName("msgLabel") || content.getChildByName("tipLabel") || content.children[0];
+                    if (msgLbl) {
+                        var lbl = msgLbl.getComponent(cc.Label);
+                        if (lbl) {
+                            lbl.enableWrapText = true;
+                            lbl.overflow = cc.Label.Overflow.RESIZE_HEIGHT;
+                        }
+                    }
+                }
+            }
+        }
         return win;
     },
 
@@ -1176,6 +1262,44 @@ cc.Class({
         var eb = n ? n.getComponent(cc.EditBox) : null;
         if (eb) { eb.string = value === undefined || value === null ? "" : String(value); }
     },
+    // 比例弹窗的节点(不依赖节点名): 场景里三行说明文字都叫 tipLabel, 暗水输入框还叫 hiddenTipLabel,
+    // 这里按"从上到下"的顺序取 3 个 Label 和 3 个 EditBox, 名字怎么起都不会错位
+    _ratioDialogNodes: function (content) {
+        var labels = [], inputs = [];
+        if (!content) { return {}; }
+        (function walk(n) {
+            var ch = n.children;
+            for (var i = 0; i < ch.length; ++i) {
+                var c = ch[i];
+                if (c.getComponent(cc.Label)) { labels.push(c); }
+                if (c.getComponent(cc.EditBox)) { inputs.push(c); }
+                walk(c);
+            }
+        })(content);
+        // 去掉 EditBox 内部自带的文字节点, 以及按钮上的文字
+        labels = labels.filter(function (n) {
+            if (n.parent && n.parent.getComponent(cc.EditBox)) { return false; }
+            if (n.parent && /(okBtn|cancelBtn|closeBtn)$/.test(n.parent.name)) { return false; }
+            return true;
+        });
+        labels.sort(function (a, b) { return b.y - a.y; });
+        inputs.sort(function (a, b) { return b.y - a.y; });
+        var r = {
+            tipRake: labels[0], tipHidden: labels[1], tipFee: labels[2],
+            inputRake: inputs[0], inputHidden: inputs[1], inputFee: inputs[2]
+        };
+        console.log('[partnerRatio] labels=' + labels.length + ' inputs=' + inputs.length +
+            ' tips=[' + labels.map(function (n) { return n.getComponent(cc.Label).string; }).join(' | ') + ']');
+        return r;
+    },
+    _setInputNode: function (node, value) {
+        var eb = node ? node.getComponent(cc.EditBox) : null;
+        if (eb) { eb.string = value === undefined || value === null ? "" : String(value); }
+    },
+    _getInputNode: function (node) {
+        var eb = node ? node.getComponent(cc.EditBox) : null;
+        return eb ? (eb.string || "") : "";
+    },
 
     _showMemberRecords: function (member) {
         var self = this;
@@ -1274,6 +1398,41 @@ cc.Class({
         });
     },
 
+    // 弹窗显示 partner 的直接下级列表
+    _showPartnerChildrenDialog: function (partner) {
+        var self = this;
+        var win = this._openPopup("partnerChildrenWin", { partner: partner });
+        if (!win) {
+            // 场景未放 partnerChildrenWin 节点时, 复用乐豆记录弹窗兜底, 保证按钮可点
+            win = this._openPopup("partnerBeanLogsWin", { partner: partner });
+        }
+        if (!win) { return; }
+        var panel = this._popupPanel(win);
+        var content = panel.getChildByName("content");
+        var title = panel.getChildByName("titleLabel") || panel.getChildByName("title") || panel.getChildByName("titleLbl");
+        if (title) { this._setNodeLabel(title, "下级俱乐部 - " + (partner.name || "")); }
+        // 只填列表数据, 标题/头像等由场景静态内容决定
+        var children = this._partners.filter(function (p) {
+            return Number(p.parent_clubid) === Number(partner.id);
+        });
+        var rows = [];
+        for (var i = 0; i < children.length; i++) {
+            var c = children[i];
+            var lvl = c.level || 2;
+            rows.push([
+                (lvl === 2 ? '二级' : '三级'),
+                c.name || '-',
+                c.owner_name ? (c.owner_name + '(' + c.owner_userid + ')') : ('ID:' + c.id),
+                String(c.member_count || 0),
+                String(Number(c.total_gems) || 0),
+                self._ratioText(c)
+            ]);
+        }
+        if (!rows.length) { rows.push(["暂无下级", "", "", "", "", ""]); }
+        console.log('[partnerChildren] parent=' + partner.id + ' children=' + children.length);
+        self._fillPopupList(content, rows);
+    },
+
     _showPartnerProfitDialog: function (partner) {
         var self = this;
         var win = this._openPopup("partnerProfitWin", { partner: partner });
@@ -1291,7 +1450,7 @@ cc.Class({
                 var list = ret.data || [];
                 for (var i = 0; i < list.length; i++) {
                     var r = list[i];
-                    rows.push([r.day || "", r.total || 0, r.cnt || 0]);
+                    rows.push([r.day || "", Number(r.total) || 0, r.cnt || 0]);
                 }
             }
             if (rows.length === 0) { rows.push(["暂无收益记录", "", ""]); }
@@ -1350,8 +1509,13 @@ cc.Class({
         var win = this._openPopup("partnerRatioWin", { partner: partner });
         if (!win) { return; }
         var content = this._popupPanel(win).getChildByName("content");
-        this._setNodeLabel(content.getChildByName("tipLabel"), "当前比例: " + (partner.profit_ratio || 0) + "%");
-        this._setInput(content, "ratioInput", "");
+        var rn = this._ratioDialogNodes(content);
+        this._setNodeLabel(rn.tipRake, "当前抽水比例：" + (partner.profit_ratio || 0) + "%");
+        this._setNodeLabel(rn.tipHidden, "当前暗水比例：" + (partner.hidden_profit_ratio || 0) + "%");
+        this._setNodeLabel(rn.tipFee, "当前房费/洗牌/表情比例：" + (partner.fee_profit_ratio || 0) + "%");
+        this._setInputNode(rn.inputRake, "");
+        this._setInputNode(rn.inputHidden, "");
+        this._setInputNode(rn.inputFee, "");
     },
 
     _showAddMemberDialog: function () {
@@ -1452,12 +1616,20 @@ cc.Class({
             "shuffle_scoreLabel", "shuffle_scoreInput",
             "min_beanLabel", "min_beanInput", "kick_beanLabel", "kick_beanInput",
             "rake_percentLabel", "rake_percentInput", "hidden_rake_percentLabel", "hidden_rake_percentInput",
+            "__feeRateHidden__",
             "room_feeLabel", "room_feeInput", "rakeSwitchLabel", "rakeSwitchBtn", "payerLabel", "payerBtn",
             "min_playersLabel", "min_playersInput", "max_playersLabel", "max_playersInput"
         ];
         for (var i = 0; i < baobaoOnly.length; i++) {
             var fn = content.getChildByName(baobaoOnly[i]);
             if (fn) fn.active = isBaobao;
+        }
+        // 费用类(房费/表情/洗牌)抽取比例不在此配置, 统一走合伙人设置
+        // 隐藏费用抽取比例的标签与输入框
+        var hideFeeRate = ["fee_rake_percentLabel", "fee_rake_percentInput"];
+        for (var hi = 0; hi < hideFeeRate.length; hi++) {
+            var hNode = content.getChildByName(hideFeeRate[hi]);
+            if (hNode) hNode.active = false;
         }
         // 表情分这一行在其它玩法下复用为"房卡"(房卡按局扣, 进场扣), 只改文字不改布局
         this._setNodeLabel(content.getChildByName("face_scoreLabel"), isBaobao ? "表情分:" : "房卡:");
@@ -1492,6 +1664,7 @@ cc.Class({
         this._setInput(content, "kick_beanInput", base ? (base.kick_bean || 0) : 0);
         this._setInput(content, "rake_percentInput", base ? base.rake_percent : 0);
         this._setInput(content, "hidden_rake_percentInput", base ? base.hidden_rake_percent : 0);
+        // fee_rake_percent 已不再配置: 费用类收入全额进链, 上下级比例走合伙人设置
         this._setInput(content, "room_feeInput", base ? base.room_fee : 0);
 
         this._rakePerRound = (base && base.rake_per_round != null) ? Number(base.rake_per_round) : 1;
@@ -1643,13 +1816,24 @@ cc.Class({
         }
 
         if (name === "partnerRatioWin") {
-            var ratio = parseFloat(this._getInput(content, "ratioInput"));
+            var rn = this._ratioDialogNodes(content);
+            var ratio = parseFloat(this._getInputNode(rn.inputRake));
             if (isNaN(ratio) || ratio < 0 || ratio > 100) { self._tip("请输入0-100之间的数字"); return; }
-            clubReq("/partner/ratio", {
+            var feeRaw = this._getInputNode(rn.inputFee);
+            var feeRatio = parseFloat(feeRaw);
+            if (feeRaw !== "" && (isNaN(feeRatio) || feeRatio < 0 || feeRatio > 100)) { self._tip("费用比例请输入0-100之间的数字"); return; }
+            var hiddenRaw = this._getInputNode(rn.inputHidden);
+            var hiddenRatio = parseFloat(hiddenRaw);
+            if (hiddenRaw !== "" && (isNaN(hiddenRatio) || hiddenRatio < 0 || hiddenRatio > 100)) { self._tip("暗水比例请输入0-100之间的数字"); return; }
+            var params = {
                 club_id: this._clubId,
                 partner_club_id: ctx.partner.id,
                 ratio: ratio
-            }, function (ret) {
+            };
+            if (!isNaN(feeRatio)) { params.fee_ratio = feeRatio; }
+            if (!isNaN(hiddenRatio)) { params.hidden_ratio = hiddenRatio; }
+            console.log('[partnerRatio] save ' + JSON.stringify(params));
+            clubReq("/partner/ratio", params, function (ret) {
                 if (ret && ret.errcode === 0) {
                     win.active = false;
                     self._loadPartners();
@@ -1682,6 +1866,7 @@ cc.Class({
                 kick_bean: isBaobao ? (parseInt(this._getInput(content, "kick_beanInput")) || 0) : 0,
                 rake_percent: isBaobao ? (parseFloat(this._getInput(content, "rake_percentInput")) || 0) : 0,
                 hidden_rake_percent: isBaobao ? (parseFloat(this._getInput(content, "hidden_rake_percentInput")) || 0) : 0,
+                // fee_rake_percent 不再提交
                 room_fee: isBaobao ? (parseInt(this._getInput(content, "room_feeInput")) || 0) : 0,
                 rake_per_round: isBaobao ? this._rakePerRound : 1,
                 room_fee_payer: isBaobao ? this._roomFeePayer : 1

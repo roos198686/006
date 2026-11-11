@@ -34,9 +34,10 @@ cc.Class({
         this._noticeLabel = this._dissolveNotice.getChildByName("info").getComponent(cc.Label);
         
         this.closeAll();
-        
+
         this.addBtnHandler("settings/btn_close");
         this.addBtnHandler("settings/btn_sqjsfj");
+        this.addBtnHandler("settings/btn_desk_bg");
         this.addBtnHandler("dissolve_notice/btn_agree");
         this.addBtnHandler("dissolve_notice/btn_reject");
         this.addBtnHandler("dissolve_notice/btn_ok");
@@ -81,6 +82,11 @@ cc.Class({
         }
         else if(btnName == "btn_reject"){
             cc.vv.net.send("dissolve_reject");
+        }
+        else if(btnName == "btn_desk_bg"){
+            //"桌面背景"按钮:先重开设置面板完成适配,再叠背景选择窗
+            this.showSettings();
+            if(cc.vv.deskStyle){ cc.vv.deskStyle.openBgChoose(); }
         }
         else if(btnName == "btn_sqjsfj"){
             //"申请解散房间"按钮:未开局时点击即整房解散(服务端踢出所有人+销毁房间+牌桌清零);

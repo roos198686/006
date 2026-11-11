@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>牌局观战 - 管理后台</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Microsoft YaHei", Arial, sans-serif;
+    background: #0f1c17; color: #e8eee9; min-height: 100vh;
+  }
+  .hidden { display: none !important; }
+
+  /* 登录 */
+  #loginView { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .login-card {
+    width: 340px; background: #17281f; border: 1px solid #26483a; border-radius: 10px;
+    padding: 28px 26px; box-shadow: 0 10px 40px rgba(0,0,0,.45);
+  }
+  .login-card h1 { font-size: 19px; margin: 0 0 20px; text-align: center; color: #ffe282; font-weight: 600; }
+  .login-card input {
+    width: 100%; padding: 10px 12px; margin-bottom: 12px; border-radius: 6px;
+    border: 1px solid #2d5443; background: #0f1c17; color: #e8eee9; font-size: 14px; outline: none;
+  }
+  .login-card input:focus { border-color: #35a06d; }
+  .btn {
+    padding: 9px 16px; border-radius: 6px; border: 1px solid #2d5443; background: #1d3328;
+    color: #d8e6dd; font-size: 14px; cursor: pointer;
+  }
+  .btn:hover { background: #26483a; }
+  .btn-primary { background: #2f8f60; border-color: #2f8f60; color: #fff; }
+  .btn-primary:hover { background: #37a56f; }
+  .btn-block { width: 100%; padding: 11px; font-size: 15px; }
+  .btn:disabled { opacity: .55; cursor: not-allowed; }
+
+  /* 主界面 */
+  #mainView { max-width: 1400px; margin: 0 auto; padding: 16px 18px 40px; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 4px 14px; border-bottom: 1px solid #24402f; margin-bottom: 14px;
+  }
+  .topbar .title { font-size: 18px; color: #ffe282; font-weight: 600; }
+  .topbar .user { font-size: 13px; color: #8fa89a; margin-right: 12px; }
+  .topbar .right { display: flex; align-items: center; }
+
+  .querybar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .querybar input {
+    width: 180px; padding: 9px 12px; border-radius: 6px; border: 1px solid #2d5443;
+    background: #0f1c17; color: #e8eee9; font-size: 15px; outline: none; letter-spacing: 1px;
+  }
+  .querybar input:focus { border-color: #35a06d; }
+  .status-line { font-size: 13px; color: #8fa89a; }
+  .status-line b { color: #7ee2a8; }
+  .status-line .err { color: #ff8a7a; }
+
+  .hud {
+    display: flex; flex-wrap: wrap; gap: 22px; align-items: center;
+    background: #17281f; border: 1px solid #26483a; border-radius: 10px;
+    padding: 12px 18px; margin-bottom: 14px; font-size: 14px;
+  }
+  .hud .item span { color: #8fa89a; margin-right: 6px; }
+  .hud .item b { color: #ffe282; font-weight: 600; }
+  .turn-tag { padding: 2px 9px; border-radius: 10px; background: #2f8f60; color: #fff; font-size: 12px; }
+
+  /* 下五张 */
+  .wall-box {
+    background: #17281f; border: 1px solid #26483a; border-radius: 10px;
+    padding: 12px 18px 16px; margin-bottom: 16px;
+  }
+  .wall-box h3 { margin: 0 0 10px; font-size: 14px; color: #9fc7b1; font-weight: 500; }
+  .wall-box h3 em { font-style: normal; color: #ffb86b; font-size: 12px; margin-left: 8px; }
+
+  /* 牌 */
+  .tile {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center;
+    width: 40px; height: 54px; border-radius: 5px; background: #f7f4ea; color: #223;
+    font-size: 15px; line-height: 1.05; font-weight: 700; margin-right: 4px; margin-bottom: 4px;
+    border: 1px solid #cfc8b5; box-shadow: 0 1px 2px rgba(0,0,0,.35); vertical-align: top;
+    user-select: none; flex: none;
+  }
+  .tile small { font-size: 9px; font-weight: 400; color: #7a7364; margin-top: 1px; }
+  .tile.suit-w { color: #a8262b; }
+  .tile.suit-t { color: #1c6b3a; }
+  .tile.suit-b { color: #1c4f8a; }
+  .tile.suit-z { color: #6b3fa0; }
+  .tile.next { outline: 2px solid #ffb86b; outline-offset: 1px; }
+  .tile.small { width: 32px; height: 44px; font-size: 12px; }
+  .tile.small small { display: none; }
+
+  /* 座位 */
+  .seats { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 14px; }
+  .seat {
+    background: #17281f; border: 1px solid #26483a; border-radius: 10px; padding: 12px 14px;
+  }
+  .seat.active { border-color: #35a06d; box-shadow: 0 0 0 1px #35a06d inset; }
+  .seat-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .seat-head .name { font-size: 15px; font-weight: 600; color: #e8eee9; }
+  .seat-head .meta { font-size: 12px; color: #8fa89a; }
+  .seat-head .meta b { color: #ffe282; }
+  .row { margin-top: 8px; }
+  .row-label { font-size: 12px; color: #7f9a8b; margin-bottom: 4px; }
+  .meld-group { display: inline-flex; margin-right: 10px; padding: 3px; border-radius: 4px; background: #1d3328; }
+  .empty-hint { color: #5d7768; font-size: 12px; }
+
+  /* 弹窗 */
+  .modal {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6);
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal.show { display: flex; }
+  .modal-box {
+    width: 360px; background: #17281f; border: 1px solid #2d5443;
+    border-radius: 10px; padding: 22px 22px 18px; box-shadow: 0 12px 48px rgba(0,0,0,.5);
+  }
+  .modal-box h3 { margin: 0 0 16px; font-size: 16px; color: #ffe282; font-weight: 600; }
+  .modal-box input {
+    width: 100%; padding: 9px 12px; margin-bottom: 12px; border-radius: 6px;
+    border: 1px solid #2d5443; background: #0f1c17; color: #e8eee9; font-size: 14px; outline: none;
+  }
+  .modal-box input:focus { border-color: #35a06d; }
+  .modal-box .err { color: #ff8a7a; font-size: 12px; min-height: 16px; margin-bottom: 8px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div id="loginView">
+  <div class="login-card">
+    <h1>牌局观战</h1>
+    <input id="loginUser" type="text" placeholder="管理员账号" autocomplete="username">
+    <input id="loginPass" type="password" placeholder="密码" autocomplete="current-password">
+    <button class="btn btn-primary btn-block" id="loginBtn" onclick="doLogin()">登录</button>
+    <div id="loginErr" style="color:#ff8a7a;font-size:12px;margin-top:10px;text-align:center;min-height:16px"></div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="mainView" class="hidden">
+  <div class="topbar">
+    <div class="title">牌局观战 · 全明牌</div>
+    <div class="right">
+      <span class="user" id="curUser"></span>
+      <button class="btn" onclick="openPwdModal()">修改密码</button>
+      <button class="btn" onclick="logout()" style="margin-left:8px">退出登录</button>
+    </div>
+  </div>
+
+  <div class="querybar">
+    <input id="roomInput" type="text" placeholder="输入房间号" onkeydown="if(event.key==='Enter')startWatch()">
+    <button class="btn btn-primary" id="watchBtn" onclick="startWatch()">开始观战</button>
+    <button class="btn" id="stopBtn" onclick="stopWatch()" disabled>停止</button>
+    <span class="status-line" id="statusLine">输入房间号开始观战，每秒自动刷新</span>
+  </div>
+
+  <div id="viewArea" class="hidden">
+    <div class="hud" id="hud"></div>
+    <div class="wall-box">
+      <h3>牌墙 · 下五张 <em id="wallHint"></em></h3>
+      <div id="nextFive"></div>
+    </div>
+    <div class="seats" id="seats"></div>
+  </div>
+</div>
+
+<!-- 修改密码 -->
+<div class="modal" id="pwdModal">
+  <div class="modal-box">
+    <h3>修改密码</h3>
+    <input type="password" id="pwdOld" placeholder="旧密码">
+    <input type="password" id="pwdNew" placeholder="新密码（至少4位）">
+    <input type="password" id="pwdNew2" placeholder="确认新密码">
+    <div class="err" id="pwdErr"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closePwdModal()">取消</button>
+      <button class="btn btn-primary" id="pwdBtn" onclick="submitPwd()">确定</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var TOKEN_KEY = 'spectate_token';
+var USER_KEY = 'spectate_user';
+var timer = null;
+var watching = false;
+var lastRoomId = '';
+var busy = false;
+var failCount = 0;
+
+var NUM_NAMES = ['一','二','三','四','五','六','七','八','九'];
+var SUIT_CHAR = ['筒','条','万'];
+var ZI_NAMES = ['中','发','白','东','西','南','北'];
+
+function $(id){ return document.getElementById(id); }
+
+function api(path, opts){
+  opts = opts || {};
+  var headers = opts.headers || {};
+  var token = localStorage.getItem(TOKEN_KEY);
+  if(token) headers['Authorization'] = token;
+  opts.headers = headers;
+  return fetch(path, opts).then(function(r){ return r.json(); });
+}
+
+// ===== 登录 =====
+function initLogin(){
+  var token = localStorage.getItem(TOKEN_KEY);
+  var user = localStorage.getItem(USER_KEY);
+  if(token && user){
+    // 校验token是否仍有效
+    api('/admin/spectate/me').then(function(ret){
+      if(ret.code === 0){ enterMain(ret.data.username || user); }
+      else { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); }
+    }).catch(function(){
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+    });
+  }
+}
+
+function doLogin(){
+  var u = $('loginUser').value.trim();
+  var p = $('loginPass').value;
+  if(!u || !p){ $('loginErr').textContent = '请输入账号和密码'; return; }
+  $('loginBtn').disabled = true;
+  $('loginErr').textContent = '';
+  fetch('/admin/spectate/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({username: u, password: p})
+  }).then(function(r){ return r.json(); }).then(function(ret){
+    $('loginBtn').disabled = false;
+    if(ret.code !== 0){ $('loginErr').textContent = ret.msg || '登录失败'; return; }
+    localStorage.setItem(TOKEN_KEY, ret.data.token);
+    localStorage.setItem(USER_KEY, ret.data.username);
+    enterMain(ret.data.username);
+  }).catch(function(e){
+    $('loginBtn').disabled = false;
+    $('loginErr').textContent = '网络错误：' + e.message;
+  });
+}
+
+function enterMain(user){
+  $('curUser').textContent = user || '';
+  $('loginView').classList.add('hidden');
+  $('mainView').classList.remove('hidden');
+  $('roomInput').focus();
+}
+
+function logout(){
+  stopWatch();
+  var token = localStorage.getItem(TOKEN_KEY);
+  if(token){
+    api('/admin/spectate/logout', {method:'POST'}).catch(function(){});
+  }
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  $('mainView').classList.add('hidden');
+  $('loginView').classList.remove('hidden');
+  $('loginPass').value = '';
+  $('loginErr').textContent = '';
+}
+
+// ===== 观战 =====
+function startWatch(){
+  var roomId = $('roomInput').value.trim();
+  if(!roomId){ setStatus('请输入房间号', true); return; }
+  stopWatch();
+  watching = true;
+  lastRoomId = roomId;
+  failCount = 0;
+  $('watchBtn').disabled = true;
+  $('stopBtn').disabled = false;
+  $('viewArea').classList.remove('hidden');
+  setStatus('正在连接房间 ' + roomId + ' ...');
+  refresh();
+  timer = setInterval(refresh, 1000);
+}
+
+function stopWatch(){
+  watching = false;
+  if(timer){ clearInterval(timer); timer = null; }
+  $('watchBtn').disabled = false;
+  $('stopBtn').disabled = true;
+}
+
+function setStatus(text, isErr){
+  var el = $('statusLine');
+  el.innerHTML = isErr ? '<span class="err">' + text + '</span>' : '<b>●</b> ' + text;
+}
+
+function refresh(){
+  if(!watching || busy) return;
+  busy = true;
+  api('/admin/spectate/room?roomid=' + encodeURIComponent(lastRoomId)).then(function(ret){
+    busy = false;
+    if(!watching) return;
+    if(ret.code !== 0){
+      failCount++;
+      // 令牌失效
+      if(/未登录|登录已过期/.test(ret.msg || '')){
+        stopWatch();
+        localStorage.removeItem(TOKEN_KEY);
+        $('mainView').classList.add('hidden');
+        $('loginView').classList.remove('hidden');
+        $('loginErr').textContent = '登录已过期，请重新登录';
+        return;
+      }
+      setStatus(ret.msg || '查询失败', true);
+      return;
+    }
+    failCount = 0;
+    setStatus('房间 ' + lastRoomId + ' · 实时刷新中');
+    render(ret.data);
+  }).catch(function(e){
+    busy = false;
+    failCount++;
+    setStatus('网络错误：' + e.message, true);
+  });
+}
+
+// ===== 渲染 =====
+function tileHtml(v, opts){
+  opts = opts || {};
+  v = Number(v) || 0;
+  var gang = v < 0;
+  var abs = Math.abs(v);
+  var cls = 'tile';
+  var main = '?', sub = '';
+  if(abs >= 0 && abs < 27){
+    var suit = Math.floor(abs / 9);
+    var num = abs % 9;
+    main = NUM_NAMES[num];
+    sub = SUIT_CHAR[suit];
+    cls += suit === 2 ? ' suit-w' : (suit === 1 ? ' suit-t' : ' suit-b');
+  } else if(abs >= 27 && abs < 34){
+    main = ZI_NAMES[abs - 27];
+    cls += ' suit-z';
+  }
+  if(opts.small) cls += ' small';
+  if(opts.next) cls += ' next';
+  return '<span class="' + cls + '" title="' + main + sub + (gang ? '(杠)' : '') + '">'
+    + main + (sub && !opts.small ? '<small>' + sub + '</small>' : '')
+    + '</span>';
+}
+
+function tilesHtml(list, opts){
+  list = list || [];
+  if(!list.length) return '<span class="empty-hint">无</span>';
+  var out = '';
+  for(var i = 0; i < list.length; ++i) out += tileHtml(list[i], opts);
+  return out;
+}
+
+// 副露: 碰/杠是单个牌值(重复3或4张), 吃是一组3张
+function meldsHtml(seat){
+  var groups = [];
+  var i, j;
+  for(i = 0; i < (seat.pengs || []).length; ++i){
+    var p = seat.pengs[i];
+    var g = '';
+    for(j = 0; j < 3; ++j) g += tileHtml(p, {small:true});
+    groups.push(g);
+  }
+  (seat.chis || []).forEach(function(c){
+    var g = '';
+    for(var k = 0; k < c.length; ++k) g += tileHtml(c[k], {small:true});
+    groups.push(g);
+  });
+  ['angangs','diangangs','wangangs'].forEach(function(key){
+    (seat[key] || []).forEach(function(p){
+      var g = '';
+      for(var k = 0; k < 4; ++k) g += tileHtml(p, {small:true});
+      groups.push(g);
+    });
+  });
+  if(!groups.length) return '<span class="empty-hint">无</span>';
+  return groups.map(function(g){ return '<span class="meld-group">' + g + '</span>'; }).join('');
+}
+
+function render(data){
+  if(!data) return;
+  var room = data.room || {};
+  var game = data.game || {};
+  var wall = data.wall || {};
+
+  var statusText = room.status === 'playing' ? '进行中' : (room.status === 'over' ? '本局已结束' : '等待开始');
+  var hud = '';
+  hud += '<div class="item"><span>房间号</span><b>' + (room.id || lastRoomId) + '</b></div>';
+  hud += '<div class="item"><span>玩法</span><b>' + (room.name || room.type || '-') + '</b></div>';
+  hud += '<div class="item"><span>局数</span><b>' + (room.numOfGames || 0) + (room.maxGames ? '/' + room.maxGames : '') + '</b></div>';
+  hud += '<div class="item"><span>状态</span><b>' + statusText + '</b></div>';
+  hud += '<div class="item"><span>剩余牌</span><b>' + (wall.remaining != null ? wall.remaining : '-') + '</b> 张</div>';
+  if(game.playing && game.turn != null && game.turn >= 0){
+    hud += '<div class="item"><span class="turn-tag">当前出牌</span></div>';
+  }
+  if(game.caishen != null && game.caishen >= 0){
+    hud += '<div class="item"><span>财神</span>' + tileHtml(game.caishen, {small:true}) + '</div>';
+  }
+  if(game.fanPai != null && game.fanPai >= 0){
+    hud += '<div class="item"><span>翻牌</span>' + tileHtml(game.fanPai, {small:true}) + '</div>';
+  }
+  $('hud').innerHTML = hud;
+
+  var nextFive = wall.nextFive || [];
+  $('nextFive').innerHTML = nextFive.length
+    ? tilesHtml(nextFive, {next:true})
+    : '<span class="empty-hint">牌墙已空或未开局</span>';
+  $('wallHint').textContent = wall.tailDraw ? '（该玩法杠后从牌尾补牌）' : '';
+
+  var seats = data.seats || [];
+  var html = '';
+  for(var i = 0; i < seats.length; ++i){
+    var s = seats[i];
+    var isTurn = game.playing && game.turn === s.seatIndex;
+    html += '<div class="seat' + (isTurn ? ' active' : '') + '">';
+    html += '<div class="seat-head">';
+    html += '<div class="name">' + escapeHtml(s.name || ('座位' + (i + 1)))
+      + (s.hued ? ' <span class="turn-tag">已胡</span>' : '')
+      + (isTurn ? ' <span class="turn-tag">出牌中</span>' : '') + '</div>';
+    html += '<div class="meta">' + (game.button === s.seatIndex ? '庄' : '座位' + (s.seatIndex + 1))
+      + ' · 分数 <b>' + (s.score || 0) + '</b> · 手牌 ' + (s.holds || []).length + '</div>';
+    html += '</div>';
+    html += '<div class="row"><div class="row-label">手牌（明牌）</div>' + tilesHtml(s.holds) + '</div>';
+    html += '<div class="row"><div class="row-label">副露</div>' + meldsHtml(s) + '</div>';
+    html += '<div class="row"><div class="row-label">弃牌</div>' + tilesHtml(s.folds, {small:true}) + '</div>';
+    html += '</div>';
+  }
+  $('seats').innerHTML = html || '<div class="empty-hint">房间内暂无玩家</div>';
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+// ===== 修改密码 =====
+function openPwdModal(){
+  $('pwdOld').value = ''; $('pwdNew').value = ''; $('pwdNew2').value = '';
+  $('pwdErr').textContent = '';
+  $('pwdBtn').disabled = false;
+  $('pwdModal').classList.add('show');
+}
+function closePwdModal(){
+  $('pwdModal').classList.remove('show');
+}
+function submitPwd(){
+  var o = $('pwdOld').value, n = $('pwdNew').value, n2 = $('pwdNew2').value;
+  if(!o){ $('pwdErr').textContent = '请输入旧密码'; return; }
+  if(n.length < 4){ $('pwdErr').textContent = '新密码至少4位'; return; }
+  if(n !== n2){ $('pwdErr').textContent = '两次输入的新密码不一致'; return; }
+  $('pwdBtn').disabled = true;
+  api('/admin/spectate/change_password', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({old_password: o, new_password: n})
+  }).then(function(ret){
+    $('pwdBtn').disabled = false;
+    if(ret.code !== 0){ $('pwdErr').textContent = ret.msg || '修改失败'; return; }
+    closePwdModal();
+    // 服务端已让旧token失效, 回到登录页
+    stopWatch();
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    $('mainView').classList.add('hidden');
+    $('loginView').classList.remove('hidden');
+    $('loginPass').value = '';
+    $('loginErr').textContent = '密码已修改，请用新密码登录';
+  }).catch(function(e){
+    $('pwdBtn').disabled = false;
+    $('pwdErr').textContent = '网络错误：' + e.message;
+  });
+}
+
+initLogin();
+</script>
+</body>
+</html>

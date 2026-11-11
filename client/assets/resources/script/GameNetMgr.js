@@ -107,6 +107,15 @@ cc.Class({
         this.bbWatching = false;
         this.bbReveal = null;
         this.bbOverDetails = null;
+        //清十三水状态
+        this.sssStart = null;
+        this.sssMyCards = null;
+        this.sssMySeat = -1;
+        this.sssSeats = null;
+        this.sssArrange = null;
+        this.sssArrangeDeadline = 0;
+        this.sssConfirmed = null;
+        this.sssResult = null;
         this._pendingEvents = [];    //清事件队列:防止上一房间残留事件重放进新房间场景
     },
 
@@ -187,6 +196,7 @@ cc.Class({
         if(t == "wujin") return "mjgame_wujin";
         if(t == "guanpai2") return "mjgame_gp2";
         if(t == "guanpai3") return "mjgame_gp3";
+        if(t == "sss2" || t == "sss4") return "mjgame_sss";
         if(t == "zj" || t == "zj4" || t == "zj4_bt") return "mjgame_ldh";
         return "mjgame_bb_mian";
     },
@@ -309,6 +319,8 @@ cc.Class({
                 self.maxNumOfGames = data.conf.maxGames;
                 self.numOfGames = data.numofgames;
                 self.seats = data.seats;
+                //房间seats只有seatIndex(大写),麻将逻辑全用seatindex(小写),统一补齐否则getLocalIndex算出NaN
+                for(var si = 0; si < self.seats.length; ++si){ self.seats[si].seatindex = si; }
                 self.seatIndex = self.getSeatIndexByID(cc.vv.userMgr.userId);
                 self.isOver = false;
                 // 新进房间先清掉上一房间残留的宝宝对局/结算缓存:
@@ -325,12 +337,24 @@ cc.Class({
                 if(data.conf && data.conf.type){ cc.vv.lastGameType = data.conf.type; }
             }
             else{
+                //进房失败:必须清掉上一房间残留(seats/conf/gamestate),否则服务端重启/房间不存在时,
+                //客户端会拿旧数据误判牌局进行中,带着残留座位名+默认牌面直接亮出牌桌
+                var hadRoom = (self.roomId != null);
+                self.clearRoomState();
                 //进房失败:宝宝豆不足用弹窗提示(需点击确定关闭),其他原因用3秒文字提示
                 var failMsg = data.errmsg || "进入房间失败";
                 if(failMsg.indexOf("宝宝豆") >= 0){
                     cc.vv.wc.showAlert(failMsg);
                 }else{
                     cc.vv.wc.showError(failMsg);
+                }
+                //重连旧房失败(房间已失效):人还停在旧牌桌场景,必须切回来源页,否则面对一桌假牌无法操作
+                if(hadRoom){
+                    var back = (self.roomBackScene === "club" || cc.vv.fromClub || cc.vv.fromClubId) ? "club" : "hall";
+                    setTimeout(function(){
+                        if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load(back); }
+                        else{ cc.director.loadScene(back); }
+                    }, 1200); //略作停留让错误提示可见
                 }
             }
         });
@@ -498,6 +522,10 @@ cc.Class({
             self.conf.caishen2 = data.caishen2;
             self.conf.fanPai = data.fanPai;
             self.conf.playStyle = data.playStyle;
+            //后台开关:可胡点过是否弹二次确认(缺省开)
+            if(data.hu_guo_confirm != null){ self.conf.hu_guo_confirm = data.hu_guo_confirm; }
+            //后台:每杠流局加张,牌墙据此把可摸牌尾部对应张数置灰转死墙
+            self.conf.gang_liuju = data.gang_liuju || 0;
             self.conf.baoDone = false; //新一局重置:叫台+选财神完成后才置true
             //包麻将:每局(含重连补发)都以服务端下发的叫台状态为准, 否则上一局的baoMode会残留
             self.conf.baoMode = (data.baoMode != null) ? data.baoMode : -1;
@@ -508,6 +536,7 @@ cc.Class({
             for(var i = 0; i < data.seats.length; ++i){
                 var sd = data.seats[i];
                 var seat = self.seats[i];
+                seat.seatindex = i; //座位对象被复用/替换后seatindex会丢,开局强制回填
                 seat.userid = sd.userid;
                 seat.name = sd.name;
                 seat.score = sd.score;
@@ -864,6 +893,52 @@ cc.Class({
         cc.vv.net.addHandler("bb_kicked_push",function(data){
             console.log('bb_kicked_push', data && data.msg);
             self.dispatchEvent('bb_kicked', data);
+        });
+
+        // ============ 十三水 事件桥接 ============
+        function onSssStartData(data){
+            self.gamestate = "begin";
+            self.sssStart = data;
+            self.sssMyCards = (data && data.myCards ? data.myCards : []).slice();
+            self.sssMySeat = (data && data.mySeat != null) ? data.mySeat : self.seatIndex;
+            self.sssSeats = (data && data.seats) ? data.seats : null;
+            self.sssArrangeDeadline = data ? (data.arrangeDeadline || 0) : 0;
+            self.sssConfirmed = {};
+            if(data && data.seats){
+                for(var i = 0; i < data.seats.length; ++i){
+                    if(data.seats[i] && data.seats[i].confirmed){ self.sssConfirmed[data.seats[i].userid] = true; }
+                }
+            }
+            self.dispatchEvent('sss_start', data);
+        }
+        cc.vv.net.addHandler("sss_start_push",function(data){
+            console.log('sss_start_push', data ? JSON.stringify(data.myCards) : '');
+            onSssStartData(data);
+        });
+        // 自己摆牌成功(含自动摆牌)
+        cc.vv.net.addHandler("sss_arrange_ok_push",function(data){
+            console.log('sss_arrange_ok_push');
+            self.sssArrange = data;
+            self.dispatchEvent('sss_arrange_ok', data);
+        });
+        // 某家已确定摆牌
+        cc.vv.net.addHandler("sss_ready_push",function(data){
+            if(data && data.userid != null){
+                if(self.sssConfirmed == null) self.sssConfirmed = {};
+                self.sssConfirmed[data.userid] = true;
+            }
+            self.dispatchEvent('sss_ready', data);
+        });
+        // 摆牌非法
+        cc.vv.net.addHandler("sss_error_push",function(data){
+            console.log('sss_error_push', data && data.msg);
+            self.dispatchEvent('sss_error', data);
+        });
+        // 比牌结果明细(结算弹窗以 game_over_push 为准,这里只做亮牌/道型展示)
+        cc.vv.net.addHandler("sss_result_push",function(data){
+            console.log('sss_result_push');
+            self.sssResult = data;
+            self.dispatchEvent('sss_result', data);
         });
 
         cc.vv.net.addHandler("game_begin_push",function(data){

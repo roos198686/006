@@ -57,9 +57,12 @@ cc.Class({
         //按钮缩放:返回/退出保持场景原始大小0.9
         var btnBack = prepare.getChildByName("btnBack");
         if(btnBack){ btnBack.scaleX = 0.9; btnBack.scaleY = 0.9; }
+        //场景已统一为一套座位(只在game下),prepare/seats 删除后不再存在
         var seats = prepare.getChildByName("seats");
-        for(var i = 0; i < seats.children.length; ++i){
-            this._seats.push(seats.children[i].getComponent("Seat"));
+        if(seats){
+            for(var i = 0; i < seats.children.length; ++i){
+                this._seats.push(seats.children[i].getComponent("Seat"));
+            }
         }
         
         this.refreshBtns();
@@ -78,6 +81,10 @@ cc.Class({
             var seat = sideNode.getChildByName("seat");
             if(seat == null){ continue; }
             this._seats2.push(seat.getComponent("Seat"));
+        }
+        //只有一套座位时:准备阶段也直接用game下的座位,所有用到 _seats 的逻辑自然落到同一对象
+        if(this._seats.length == 0){
+            this._seats = this._seats2;
         }
         
         var btnWechat = cc.find("Canvas/prepare/btnWeichat");
@@ -294,9 +301,10 @@ cc.Class({
         ln.setPosition(0,0);
     },
 
-    // ===== 牌墙:节点全部在场景 mjgame_ldh.fire 的 game/brickWall 内摆好 =====
-    //L00~L29 左墙金背、R00~R29 右墙金背(每边30张=15墩上下两张),运行时代码只切显隐
-    //位置/尺寸/图片都在编辑器里调,代码绝不改动
+    // ===== 牌墙:节点全部在场景 game/brickWall 内摆好 =====
+    //U00~U35 对家36张, RT00~RT05 右侧6张, LT00~LT30 左侧31张
+    //其中 LT05~LT30 共26张为不可摸的死墙(场景里已置灰),摸到剩26张即荒庄
+    //位置/尺寸/颜色都在编辑器里调,代码只切显隐
     initBrickWall:function(){
         var game = this.node.getChildByName("game");
         if(game == null){ return; }
@@ -306,44 +314,69 @@ cc.Class({
         this._brickBuilt = true;
         wall.zIndex = -1; //压到座位层之下,防止墙牌盖住吃/碰/杠/过提示字
 
-        this._brickCap = 72; //左右共72张
-        this._brickLeft = [];
-        this._brickRight = [];
-        for(var i = 0; i < 36; ++i){
-            var nm = (i < 10 ? "0" : "") + i;
-            this._brickLeft.push(wall.getChildByName("L" + nm));
-            this._brickRight.push(wall.getChildByName("R" + nm));
+        this._brickDrawable = []; //可摸的47张:左侧31 → 对家前16
+        //左侧按 y 坐标升序入列:无论场景里 LT 编号如何编排,摸牌消耗都从最下面一张开始(左侧从下到上少牌)
+        var lts = [];
+        for(var i = 0; i < 31; ++i){
+            var lt = wall.getChildByName("LT" + (i < 10 ? "0" : "") + i);
+            if(lt){ lts.push(lt); }
         }
-        //端帽
-        this._brickCaps = {
-            farL: wall.getChildByName("capFarL"),
-            farR: wall.getChildByName("capFarR"),
-            nearL: wall.getChildByName("capNearL"),
-            nearR: wall.getChildByName("capNearR")
-        };
+        lts.sort(function(a, b){ return a.y - b.y; });
+        for(var i = 0; i < lts.length; ++i){
+            this._brickDrawable.push(lts[i]);
+        }
+        for(var i = 0; i < 16; ++i){
+            this._brickDrawable.push(wall.getChildByName("U" + (i < 10 ? "0" : "") + i));
+        }
+        //死墙26张(对家前 U16-U35 + 右侧 RT00-RT05)永远摸不到;
+        //进房间未开局时隐藏,开局后与墙牌一样常显(只是不可摸,剩26张即荒庄)
+        this._brickDead = [];
+        for(var i = 16; i < 36; ++i){
+            var du = wall.getChildByName("U" + i);
+            if(du){ this._brickDead.push(du); }
+        }
+        for(var i = 0; i < 6; ++i){
+            var drt = wall.getChildByName("RT0" + i);
+            if(drt){ this._brickDead.push(drt); }
+        }
         this.refreshBrickWall();
     },
 
     refreshBrickWall:function(){
         if(!this._brickBuilt){ return; }
-        var n = cc.vv.gameNetMgr.numOfMJ;
+        var nm = cc.vv.gameNetMgr;
+        var n = nm.numOfMJ;
         if(n == null || n < 0){ n = 0; }
-        //荒庄剩余26张不上墙
-        n = Math.max(0, n - 26);
-        if(n > this._brickCap){ n = this._brickCap; }
-        //每边36张,先少左侧,左侧摸完再少右侧(只切显隐)
-        var left = Math.max(0, n - 36);
-        var right = Math.min(n, 36);
-        for(var i = 0; i < 36; ++i){
-            if(this._brickLeft[i]){ this._brickLeft[i].active = (i < left); }
-            if(this._brickRight[i]){ this._brickRight[i].active = (i < right); }
+        //场上总杠数(暗杠+点杠+弯杠):杠后补牌从死墙尾摸,可摸尾部 gang_liuju*杠数 张转死墙置灰
+        var gangs = 0;
+        var seats = nm.seats || [];
+        for(var si = 0; si < seats.length; ++si){
+            var st = seats[si];
+            if(!st) continue;
+            gangs += (st.angangs ? st.angangs.length : 0) + (st.diangangs ? st.diangangs.length : 0) + (st.wangangs ? st.wangangs.length : 0);
         }
-        //端帽只切显隐(位置/样式都在场景里编辑)
-        var caps = this._brickCaps;
-        if(caps.farL){ caps.farL.active = left > 0; }
-        if(caps.farR){ caps.farR.active = right > 0; }
-        if(caps.nearL){ caps.nearL.active = left > 0; }
-        if(caps.nearR){ caps.nearR.active = right > 0; }
+        var extra = (nm.conf && nm.conf.gang_liuju) ? nm.conf.gang_liuju * gangs : 0;
+        //死墙26张:进房间(未开局,numOfMJ=0)隐藏;开局后剩余牌数>=26 时与墙牌一样显示
+        var showDead = (n >= 26);
+        if(this._brickDead){
+            for(var i = 0; i < this._brickDead.length; ++i){
+                var dn = this._brickDead[i];
+                if(dn){ dn.active = showDead; }
+            }
+        }
+        //可摸 = 剩余 - 死墙26 - 杠加张(流局线26+extra),从前往后隐藏
+        var drawable = this._brickDrawable;
+        var d = Math.max(0, Math.min(n - 26 - extra, drawable.length));
+        var hide = drawable.length - d;
+        //可摸区尾部 extra 张(紧挨死墙的)仍显示但置灰:已转死墙不可摸
+        var grayStart = drawable.length - extra;
+        for(var i = 0; i < drawable.length; ++i){
+            var node = drawable[i];
+            if(!node) continue;
+            node.active = (i >= hide);
+            if(extra > 0 && i >= grayStart){ node.color = new cc.Color(140, 140, 140, 255); }
+            else { node.color = cc.Color.WHITE; }
+        }
     },
 
     // ===== 需求1:notify入口打印服务端载荷,便于实机核对 =====
@@ -471,24 +504,6 @@ cc.Class({
         this.node.on('game_num',function(data){
             self.refreshBtns();
         });
-
-        this.node.on('game_huanpai',function(data){
-            for(var i in self._seats2){
-                self._seats2[i].refreshXuanPaiState();    
-            }
-        });
-                
-        this.node.on('huanpai_notify',function(data){
-            var idx = data.detail.seatindex;
-            var localIdx = cc.vv.gameNetMgr.getLocalIndex(idx);
-            self._seats2[localIdx].refreshXuanPaiState();
-        });
-        
-        this.node.on('game_huanpai_over',function(data){
-            for(var i in self._seats2){
-                self._seats2[i].refreshXuanPaiState();    
-            }
-        });
         
         this.node.on('voice_msg',function(data){
             var data = data.detail;
@@ -502,8 +517,7 @@ cc.Class({
             var localIdx = cc.vv.gameNetMgr.getLocalIndex(idx);
             var s = self._inGame ? self._seats2[localIdx] : self._seats[localIdx];
             if(s){ s.chat(data.content); }
-        });
-        
+        });        
         this.node.on('quick_chat_push',function(data){
             var data = data.detail;
             var idx = cc.vv.gameNetMgr.getSeatIndexByID(data.sender);
@@ -516,12 +530,11 @@ cc.Class({
             
             cc.vv.audioMgr.playSFX(info.sound);
         });
-        
+
         this.node.on('emoji_push',function(data){
             var data = data.detail;
             var idx = cc.vv.gameNetMgr.getSeatIndexByID(data.sender);
             var localIdx = cc.vv.gameNetMgr.getLocalIndex(idx);
-            console.log(data);
             var s = self._inGame ? self._seats2[localIdx] : self._seats[localIdx];
             if(s){ s.emoji(data.content); }
         });
@@ -530,6 +543,8 @@ cc.Class({
         this.node.on('game_start',function(data){ self.refreshBrickWall(); });
         this.node.on('mj_count',function(data){ self.refreshBrickWall(); });
         this.node.on('game_mopai',function(data){ self.refreshBrickWall(); });
+        //杠后:流局线+gang_liuju张,可摸牌尾部对应张数置灰转死墙(GameNetMgr杠事件名gang_notify)
+        this.node.on('gang_notify',function(data){ self.refreshBrickWall(); });
 
         //需求1:在 notify 入口打印服务端下发的完整载荷(holds/pengs/chis/gangs),便于实机核对
         this.node.on('game_start',function(data){
@@ -589,7 +604,6 @@ cc.Class({
         this._seats2[index].setOffline(isOffline);
         this._seats2[index].setID(seat.userid);
         this._seats2[index].voiceMsg(false);
-        this._seats2[index].refreshXuanPaiState();
     },
     
     onBtnSettingsClicked:function(){

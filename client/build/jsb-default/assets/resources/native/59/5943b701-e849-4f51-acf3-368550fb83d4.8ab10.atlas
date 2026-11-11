@@ -1,0 +1,83 @@
+
+liandui.png
+size: 512,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+aixin
+  rotate: false
+  xy: 259, 1
+  size: 153, 129
+  orig: 153, 129
+  offset: 0, 0
+  index: -1
+lianduimohu
+  rotate: false
+  xy: 259, 132
+  size: 239, 60
+  orig: 239, 60
+  offset: 0, 0
+  index: -1
+duizi
+  rotate: false
+  xy: 259, 194
+  size: 69, 68
+  orig: 69, 68
+  offset: 0, 0
+  index: -1
+lianzi
+  rotate: false
+  xy: 330, 194
+  size: 70, 67
+  orig: 70, 67
+  offset: 0, 0
+  index: -1
+fangkuaig
+  rotate: false
+  xy: 402, 256
+  size: 58, 59
+  orig: 58, 59
+  offset: 0, 0
+  index: -1
+heitaog
+  rotate: false
+  xy: 402, 194
+  size: 59, 60
+  orig: 59, 60
+  offset: 0, 0
+  index: -1
+hongtaog
+  rotate: false
+  xy: 330, 263
+  size: 62, 54
+  orig: 62, 54
+  offset: 0, 0
+  index: -1
+meihuag
+  rotate: false
+  xy: 414, 65
+  size: 60, 60
+  orig: 60, 60
+  offset: 0, 0
+  index: -1
+glow_d_bao01
+  rotate: false
+  xy: 1, 1
+  size: 256, 256
+  orig: 256, 256
+  offset: 0, 0
+  index: -1
+fauang-2
+  rotate: false
+  xy: 414, 1
+  size: 81, 62
+  orig: 81, 62
+  offset: 0, 0
+  index: -1
+faguang-1
+  rotate: false
+  xy: 1, 259
+  size: 245, 18
+  orig: 245, 18
+  offset: 0, 0
+  index: -1

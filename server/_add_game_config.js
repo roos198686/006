@@ -18,6 +18,8 @@ var rows = [
     {type:'zj4_zx', name:'自选财神(4人)', max_players:4, sort:13, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
     {type:'zp', name:'漳浦麻将(2人)', max_players:2, sort:14, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
     {type:'wujin', name:'漳浦无金(2人)', max_players:2, sort:15, difen:'[100,200,500]', jushu:'[10,20,50]', cost:'[1,2,4]'},
+    {type:'sss2', name:'十三水(2人)', max_players:2, sort:16, difen:'[100,200,500]', jushu:'[4,8,16]', cost:'[4,7,12]'},
+    {type:'sss4', name:'十三水(4人)', max_players:4, sort:17, difen:'[100,200,500]', jushu:'[4,8,16]', cost:'[4,7,12]'},
 ];
 
 function insert(row, done){

@@ -83,6 +83,23 @@ cc.Class({
         this.hideSide("up");
         this.hideSide("left");
     },
+
+    //诸暨赖倒胡专用判定:PengGangs为各玩法共用,贴紧/对齐改动只作用zjlao场景,不影响其他6个玩法
+    _isZjlao:function(){
+        return this.node.getComponent("MJGameZJLAO") != null;
+    },
+
+    //副露牌贴紧重排:图集帧55x84但可见牌体约47宽,按55排会有缝;收紧到47(仅zjlao调用)
+    _tightenMeld:function(pgroot){
+        var xs = 47;
+        var ci = 0;
+        for(var i = 0; i < pgroot.childrenCount; ++i){
+            var n = pgroot.children[i];
+            if(n.name == "gang"){ n.x = xs; continue; } //杠的第4张叠在中间那张上
+            n.x = ci * xs;
+            ci++;
+        }
+    },
     
     hideSide:function(side){
         var gameChild = this.node.getChildByName("game");
@@ -180,6 +197,9 @@ cc.Class({
             }
 
             pengangroot.addChild(pgroot);
+            if(this._isZjlao() && (side == "myself" || side == "up")){
+                this._tightenMeld(pgroot);
+            }
         }
         else{
             pgroot = pengangroot.children[index];
@@ -194,10 +214,10 @@ cc.Class({
             pgroot.zIndex = -index;
         }
         else if(side == "myself"){
-            pgroot.x = index * 55 * 3 + index * 10;
+            pgroot.x = this._isZjlao() ? (index * 47 * 3 + index * 12) : (index * 55 * 3 + index * 10);
         }
         else{
-            pgroot.x = -(index * 55*3);
+            pgroot.x = this._isZjlao() ? -(index * 47 * 3) : -(index * 55*3);
         }
 
         var sprites = pgroot.getComponentsInChildren(cc.Sprite);
@@ -225,25 +245,28 @@ cc.Class({
                 pgroot = cc.instantiate(cc.vv.mahjongmgr.pengPrefabSelf);
             }
             
-            pengangroot.addChild(pgroot);    
+            pengangroot.addChild(pgroot);
+            if(this._isZjlao() && (side == "myself" || side == "up")){
+                this._tightenMeld(pgroot);
+            }
         }
         else{
             pgroot = pengangroot.children[index];
             pgroot.active = true;
         }
-        
+
         if(side == "left"){
-            pgroot.y = -(index * 25 * 3);                    
+            pgroot.y = -(index * 25 * 3);
         }
         else if(side == "right"){
             pgroot.y = (index * 25 * 3);
             pgroot.zIndex = -index;
         }
         else if(side == "myself"){
-            pgroot.x = index * 55 * 3 + index * 10;                    
+            pgroot.x = this._isZjlao() ? (index * 47 * 3 + index * 12) : (index * 55 * 3 + index * 10);
         }
         else{
-            pgroot.x = -(index * 55*3);
+            pgroot.x = this._isZjlao() ? -(index * 47 * 3) : -(index * 55*3);
         }
 
         var sprites = pgroot.getComponentsInChildren(cc.Sprite);
