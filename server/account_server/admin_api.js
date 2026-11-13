@@ -162,6 +162,7 @@ app.get('/admin/game_configs', auth, function(req, res){
                 gp_straight_a2: r.gp_straight_a2 != null ? r.gp_straight_a2 : 1,
                 gp_card_history: r.gp_card_history != null ? r.gp_card_history : 0,
                 auto_dissolve_seconds: r.auto_dissolve_seconds != null ? r.auto_dissolve_seconds : 300,
+                unified_charge: r.unified_charge != null ? Number(r.unified_charge) : 0,
                 enabled: r.enabled,
                 sort: r.sort
             };
@@ -195,6 +196,8 @@ app.post('/admin/game_config', auth, function(req, res){
     var caiDiao = c.cai_diao != null ? c.cai_diao : 1;
     var baoTaiScore = c.bao_tai_score != null ? (parseInt(c.bao_tai_score) || 0) : 1;
     var autoDissolve = parseInt(c.auto_dissolve_seconds) || 300;
+    //收费模式:1=抽水扣豆 0=仅房卡
+    var unifiedCharge = c.unified_charge != null ? (parseInt(c.unified_charge) ? 1 : 0) : 0;
     // 关牌开关(仅 guanpai2/guanpai3 使用)
     function gpVal(k, def){ return c[k] != null ? (c[k] ? 1 : 0) : def; }
     var gpBomb = gpVal('gp_bomb', 1);
@@ -206,10 +209,10 @@ app.post('/admin/game_config', auth, function(req, res){
     var gpLastFourTwoThree = gpVal('gp_last_four_two_three', 0);
     var gpStraightA2 = gpVal('gp_straight_a2', 1);
     var gpCardHistory = gpVal('gp_card_history', 0);
-    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,auto_dissolve_seconds,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
+    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,auto_dissolve_seconds,unified_charge,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
         + c.type + '","' + c.name + '","' + difen + '","' + jushu + '","' + cost + '","' + chips + '",'
         + (c.max_players || 2) + ',' + (c.max_tai || 10) + ',' + (c.caishen_cpg != null ? c.caishen_cpg : 1) + ','
-        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + caiPure + ',' + huGuoConfirm + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + autoDissolve + ','
+        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + caiPure + ',' + huGuoConfirm + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + autoDissolve + ',' + unifiedCharge + ','
         + (taiRules ? "'" + taiRules + "'" : 'NULL') + ','
         + gpBomb + ',' + gpBombFour + ',' + gpFourTwo + ',' + gpFourThree + ',' + gpThreeOne + ',' + gpLastThreeOne + ',' + gpLastFourTwoThree + ',' + gpStraightA2 + ',' + gpCardHistory + ','
         + (c.enabled ? 1 : 0) + ',' + (c.sort || 0) + ')';
@@ -250,6 +253,7 @@ app.put('/admin/game_config/:id', auth, function(req, res){
         if(c[k] != null) sets.push(k + '=' + (c[k] ? 1 : 0));
     });
     if(c.auto_dissolve_seconds != null) sets.push('auto_dissolve_seconds=' + (parseInt(c.auto_dissolve_seconds) || 300));
+    if(c.unified_charge != null) sets.push('unified_charge=' + (parseInt(c.unified_charge) ? 1 : 0));
     if(c.enabled != null) sets.push('enabled=' + (c.enabled ? 1 : 0));
     if(c.sort != null) sets.push('sort=' + c.sort);
     if(sets.length == 0){ send(res, 1, "无更新内容"); return; }
@@ -1366,22 +1370,34 @@ app.post('/admin/hotupdate/upload', auth, requireSuper, function(req, res){
                 send(res, 1, "热更包缺少 project.manifest / version.manifest, 请确认打包的是 Cocos 构建产物目录");
                 return;
             }
-            // 5. 改写清单 packageUrl 指向本机热更托管(构建时远程地址填错也能用)
+            // 5. 清单里的下载地址: 只修正"本机回环地址"的情况
+            //    构建清单里写的是公网地址(http://47.239.100.68:9100/hotupdate), 直接用即可;
+            //    之前按请求 Host 强制改写, 经过 nginx 反代后 Host 变成 127.0.0.1:9100,
+            //    结果手机上拿到 127.0.0.1 下载自己本机, 热更全部失败
             try {
-                var hostIp = (req.headers.host || '').split(':')[0] || '';
-                if(hostIp){
-                    var pkgUrl = 'http://' + hostIp + ':' + ((config && config.CLIENT_PORT) || 9100) + '/hotupdate';
-                    ['project.manifest', 'version.manifest'].forEach(function(mf){
-                        var mp = path.join(root, mf);
-                        var m = JSON.parse(fs.readFileSync(mp, 'utf8'));
-                        m.packageUrl = pkgUrl;
-                        m.remoteManifestUrl = pkgUrl + '/project.manifest';
-                        m.remoteVersionUrl = pkgUrl + '/version.manifest';
-                        fs.writeFileSync(mp, JSON.stringify(m));
-                    });
-                }
+                ['project.manifest', 'version.manifest'].forEach(function(mf){
+                    var mp = path.join(root, mf);
+                    var m = JSON.parse(fs.readFileSync(mp, 'utf8'));
+                    var cur = String(m.packageUrl || '');
+                    if(cur && !/127\.0\.0\.1|localhost|0\.0\.0\.0|::1/.test(cur)){ return; }
+                    var xfHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+                    var xfProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || 'http';
+                    var hostIp = (req.headers.host || '').split(':')[0] || '';
+                    var pkgUrl = '';
+                    if(xfHost && !/127\.0\.0\.1|localhost/.test(xfHost)){
+                        pkgUrl = xfProto + '://' + xfHost + '/hotupdate';
+                    } else if(hostIp && !/^(127\.|localhost|0\.0\.0\.0|::1)/.test(hostIp)){
+                        pkgUrl = 'http://' + hostIp + ':' + ((config && config.CLIENT_PORT) || 9100) + '/hotupdate';
+                    }
+                    if(!pkgUrl){ console.log('[hotupdate] 无法推断公网地址, 保留清单原地址:', cur); return; }
+                    m.packageUrl = pkgUrl;
+                    m.remoteManifestUrl = pkgUrl + '/project.manifest';
+                    m.remoteVersionUrl = pkgUrl + '/version.manifest';
+                    fs.writeFileSync(mp, JSON.stringify(m));
+                    console.log('[hotupdate] 清单下载地址已修正为:', pkgUrl);
+                });
             } catch(e) {
-                console.log('[hotupdate] 清单改写失败(按原样发布):', e.message);
+                console.log('[hotupdate] 清单地址修正失败(按原样发布):', e.message);
             }
             // 6. 原子替换: 旧目录挪到 bak, 新目录挪进来, 再删 bak
             var bakDir = HOTUPDATE_DIR + '_bak';

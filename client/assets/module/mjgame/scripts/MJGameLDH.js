@@ -98,6 +98,7 @@ cc.Class({
 
     //初始化
     initView:function(){
+        this._captureHoldBackFrames(); //先记录场景默认牌背,后面胡牌明牌会改槽位贴图
         //game节点
         var gameChild = this.node.getChildByName("game");
         //mj剩余数和剩余局数
@@ -185,6 +186,26 @@ cc.Class({
         }
     },
 
+    //小局结束:按后台hu_delay(缺省2秒)延后切到等待界面,结算弹窗同样延时打开,期间保留牌桌展示胡牌明牌
+    _delayShowPrepare:function(){
+        //胡牌后牌桌(含对家明牌)一直保留到小局结算弹窗关闭,期间不隐藏;
+        //弹窗关闭时由 GameOver.onBtnReadyClicked 发出 game_over_popup_closed,这里再切回等待界面。
+        //(以前固定hu_delay秒后就隐藏牌桌,弹窗还开着牌面就全没了)
+        var self = this;
+        this._pendingShowPrepare = true;
+        if(!this._overClosedHooked){
+            this._overClosedHooked = true;
+            this.node.on('game_over_popup_closed', function(){
+                //2人房:必须两名玩家都点关闭(服务端开新局)才隐藏牌桌,自己点关闭时桌面牌保持显示
+                if(cc.vv.mahjongmgr && cc.vv.mahjongmgr.is2Player()){ return; }
+                if(!self._pendingShowPrepare){ return; }
+                self._pendingShowPrepare = false;
+                if(self.gameRoot){ self.gameRoot.active = false; }
+                if(self.prepareRoot){ self.prepareRoot.active = true; }
+            });
+        }
+    },
+
     //事件监听
     initEventHandlers:function(){
         cc.vv.gameNetMgr.dataEventHandler = this.node;
@@ -266,16 +287,15 @@ cc.Class({
             var data = data.detail;
             var seatIndex = data.si != null ? data.si : data.seatindex;
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
+            //座位旁的"胡/自摸"大字图片去掉(只保留spine特效那一套)
             var hupai = self._hupaiTips[localIndex];
-            hupai.active = true;
+            if(hupai){ hupai.active = false; }
 
             if(localIndex == 0){
                 self.hideOptions();
             }
             var seatData = cc.vv.gameNetMgr.seats[seatIndex];
             seatData.hued = true;
-            hupai.getChildByName("sprHu").active = !data.zimo;
-            hupai.getChildByName("sprZimo").active = !!data.zimo;
 
             self.initMopai(seatIndex,data.pai);
             //对家胡牌亮明牌:把上下翻转的牌背(scaleY=-1)翻回正向并显示真实牌面
@@ -300,9 +320,13 @@ cc.Class({
         });
 
         this.node.on('game_over',function(data){
-            self.gameRoot.active = false;
-            self.prepareRoot.active = true;
             self.hideChiPanel();
+            //亮牌:无论谁胡牌,对家的手牌都要翻开成明牌(自己胡牌时同样要亮对家)
+            self.revealAllOtherHolds(data.detail);
+            //结算弹窗按后台hu_delay延迟打开,期间保留牌桌让明牌可见,延时后再切到等待界面
+            //胡牌后到结算弹窗弹出前,牌桌(含胡牌明牌)必须保持显示,不能被任何等待界面逻辑隐藏
+            if(self.gameRoot){ self.gameRoot.active = true; }
+            self._delayShowPrepare();
         });
 
 
@@ -713,6 +737,9 @@ cc.Class({
     },
     //游戏开始
     onGameBeign:function(fromGameStart, startData){
+        //新一局开始,取消上一局结算遗留的"延时切等待界面"
+        if(this._overHideCb){ this.unschedule(this._overHideCb); this._overHideCb = null; }
+        this._pendingShowPrepare = false; //新一局开始,清掉上局"弹窗关闭才切等待界面"的标记
 
         for(var i = 0; i < this._playEfxs.length; ++i){
             this._playEfxs[i].node.active = false;
@@ -729,11 +756,8 @@ cc.Class({
             var seatData = cc.vv.gameNetMgr.seats[i];
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
             var hupai = this._hupaiTips[localIndex];
-            hupai.active = seatData.hued;
-            if(seatData.hued){
-                hupai.getChildByName("sprHu").active = !seatData.iszimo;
-                hupai.getChildByName("sprZimo").active = seatData.iszimo;
-            }
+            //胡牌座位不再显示"胡/自摸"大字图片(只保留spine特效)
+            if(hupai){ hupai.active = false; }
         }
         }
 
@@ -1258,6 +1282,22 @@ cc.Class({
         }
     },
 
+    //记录场景里各方位手牌槽的默认牌背贴图:胡牌亮明牌会覆盖槽位贴图,新一局必须还原成牌背
+    _captureHoldBackFrames:function(){
+        if(this._holdBackFrames){ return; }
+        this._holdBackFrames = {};
+        var game = this.node.getChildByName("game");
+        if(game == null){ return; }
+        var sides = ["myself","up","right","left"];
+        for(var si = 0; si < sides.length; ++si){
+            var sideNode = game.getChildByName(sides[si]);
+            var holds = sideNode ? sideNode.getChildByName("holds") : null;
+            if(holds == null || holds.childrenCount === 0){ continue; }
+            var sp = holds.children[0].getComponent(cc.Sprite);
+            if(sp && sp.spriteFrame){ this._holdBackFrames[sides[si]] = sp.spriteFrame; }
+        }
+    },
+
     initOtherMahjongs:function(seatData){
         this._cancelDealAnim(); //手牌相关重绘到来即终止发牌动画并归位
         if(seatData == null){ return; }
@@ -1265,6 +1305,8 @@ cc.Class({
         if(localIndex == 0){
             return;
         }
+        //已胡牌的座位是明牌,对家(up)的牌槽必须保持正立(scaleY=1),否则牌面上下颠倒
+        var upright = !!seatData.hued;
         var side = cc.vv.mahjongmgr.getSide(localIndex);
         var game = this.node.getChildByName("game");
         var sideRoot = game ? game.getChildByName(side) : null;
@@ -1288,8 +1330,12 @@ cc.Class({
                 var idx = this.getMJIndex(side,i);
                 var slotNode = sideHolds.children[idx];
                 if(slotNode == null){ continue; }
-                slotNode.active = true; //贴图/缩放完全用场景固化的,JS只切显隐
-                if(side == "up"){ slotNode.scaleX = 1.0; slotNode.scaleY = -1; } //新一局恢复对家牌背的翻转
+                slotNode.active = true;
+                //还原场景默认牌背:上局胡牌亮明牌把槽位贴图改成了真实牌面,不还原新一局对家会一直是明牌
+                var backSf = this._holdBackFrames ? this._holdBackFrames[side] : null;
+                var slotSp = slotNode.getComponent(cc.Sprite);
+                if(backSf && slotSp){ slotSp.spriteFrame = backSf; }
+                if(side == "up"){ slotNode.scaleX = 1.0; slotNode.scaleY = upright ? 1.0 : -1; } //未胡牌保持对家牌背翻转,已胡牌明牌正立
             }
             this._hideUnusedHolds(side,sideHolds,num + n2);
             return;
@@ -1301,6 +1347,8 @@ cc.Class({
             if(sprite == null){ continue; }
             sprite.node.active = true;
             sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,holds[i]);
+            //数组手牌即真实牌面(明牌/回放),对家牌槽必须正立,否则上下颠倒
+            if(side == "up"){ sprite.node.scaleX = 1.0; sprite.node.scaleY = 1.0; }
         }
         //真实手牌之后的固化槽位全部隐藏:场景固化14槽且全部active,不隐藏会残留多余的牌背
         this._hideUnusedHolds(side,sideHolds,num + holds.length);
@@ -1335,10 +1383,22 @@ cc.Class({
         seatData.holds = arr;
         this.initOtherMahjongs(seatData);
         seatData.holds = oldHolds;
-        //再翻回正向:scaleY -1 => 1,明牌可正常阅读
-        for(var i = 0; i < 14; ++i){
-            var nc = sideHolds.children[this.getMJIndex(side,i)];
-            if(nc && nc.active){ nc.scaleX = 1.0; nc.scaleY = 1.0; }
+        //再翻回正向:全部牌槽(不再限于前14槽)scaleY -1 => 1,明牌可正常阅读
+        for(var i = 0; i < sideHolds.childrenCount; ++i){
+            var nc = sideHolds.children[i];
+            if(nc){ nc.scaleX = 1.0; nc.scaleY = 1.0; }
+        }
+    },
+
+    //结算亮牌:把其余座位的手牌也翻成明牌(自己胡牌、荒庄都亮)
+    revealAllOtherHolds:function(results){
+        if(!results || typeof(results) != "object" || results.length == null){ return; }
+        for(var i = 0; i < results.length; ++i){
+            var rs = results[i];
+            if(!rs || rs.seatindex == null){ continue; }
+            if(cc.vv.gameNetMgr.getLocalIndex(rs.seatindex) == 0){ continue; } //自己的手牌本来就在自己面前
+            if(!rs.holds || typeof(rs.holds) != "object" || rs.holds.length == null || rs.holds.length === 0){ continue; }
+            this.revealOtherHolds(rs.seatindex,rs.holds,null);
         }
     },
 

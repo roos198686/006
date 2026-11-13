@@ -28,8 +28,28 @@ cc.Class({
         var self = this;
         this.node.on('game_end',function(data){
             var d = data.detail || {};
-            self.onGameEnd(d.endinfo, d.roundHistory);
+            self._pendingEnd = {endinfo:d.endinfo, roundHistory:d.roundHistory};
+            //最后一小局:小局结算弹窗还没弹出或仍在显示时,总局结算必须等它关闭后再显示
+            var pending = false;
+            var g1 = self.getComponent("GameOver");
+            if(g1 && g1._isRoundSettlePending && g1._isRoundSettlePending()){ pending = true; }
+            var g2 = self.getComponent("GameOverZP");
+            if(!pending && g2 && g2._isRoundSettlePending && g2._isRoundSettlePending()){ pending = true; }
+            if(pending){ return; }
+            self._flushGameEnd();
         });
+        //小局结算弹窗关闭后再展示整场总结算(正常局没有缓存的game_end,这里直接跳过)
+        this.node.on('game_over_popup_closed',function(){
+            self._flushGameEnd();
+        });
+    },
+
+    //渲染缓存的整场结算数据(没有缓存时什么都不做)
+    _flushGameEnd:function(){
+        var p = this._pendingEnd;
+        if(!p){ return; }
+        this._pendingEnd = null;
+        this.onGameEnd(p.endinfo, p.roundHistory);
     },
 
     //数值转带符号文本:正数加"+",0显示"0"

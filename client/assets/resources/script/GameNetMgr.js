@@ -515,8 +515,13 @@ cc.Class({
             self.turn = (data.turn != null) ? data.turn : data.button;
             self.numOfMJ = data.numofmj;
             self.gamestate = "begin";
-            self.dispatchEvent('mj_count'); //刷新"剩余X张"显示
             if(self.conf == null) self.conf = {};
+            //后台:流局留牌数(剩N张荒庄),牌墙的死墙/置灰张数按它来;
+            //非无金玩法服务端不下发,这里显式置空,避免沿用上一局的配置
+            self.conf.liuju_left = (data.liuju_left != null) ? Math.max(0, Number(data.liuju_left) || 0) : null;
+            //后台:胡牌后延时打开小局结算弹窗的秒数(缺省2秒)
+            self.conf.hu_delay = (data.hu_delay != null) ? Math.max(0, Number(data.hu_delay) || 0) : null;
+            self.dispatchEvent('mj_count'); //刷新"剩余X张"显示
             self.conf.caishen = data.caishen;
             self.conf.caishen2 = data.caishen2;
             self.conf.fanPai = data.fanPai;

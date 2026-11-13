@@ -170,6 +170,11 @@ exports.onSend = function(roomId, userId, event, data){
         }
         return;
     }
+    //统一收费模式: 非宝宝玩法结算时按牌桌配置统一抽水/暗水/房费(宝宝玩法在gamemgr内结算)
+    if(event == 'game_over_push' && data != null && data.results != null){
+        try{ require('./charge').settleGameOver(roomId, data); }
+        catch(e){ console.log('[charge] settle failed: ' + e.message); }
+    }
     var rec = rooms[roomId];
     if(rec == null){
         return;

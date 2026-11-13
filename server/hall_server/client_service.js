@@ -1159,8 +1159,12 @@ app.get('/club_add_table',function(req,res){
 				if(!(jushuVal > 0) && g){
 					try{ var jsOpt = JSON.parse(g.jushu_options || '[]'); jushuVal = Number(jsOpt[0]) || 0; }catch(e3){}
 				}
+				//房卡单价: 关闭统一收费时按房卡扣, 取玩法配置 cost_options 第1项
+				var clubCost = 0;
+				try{ clubCost = Number((JSON.parse(g ? (g.cost_options || '[]') : '[]') || [])[0]) || 0; }catch(e4){ clubCost = 0; }
 				var conf = {
 					type: gameType,
+					cost: clubCost,
 					difen: Math.max(0,difens.indexOf(difenVal)),
 					difen_value: difenVal,
 					jushuxuanze: parseInt(req.query.jushuxuanze) || 0,
@@ -1174,7 +1178,10 @@ app.get('/club_add_table',function(req,res){
 					kick_bean: parseInt(req.query.kick_bean) || (g ? (g.kick_bean || 0) : 0),
 					rake_percent: g ? (g.rake_percent || 0) : 0,
 					hidden_rake_percent: g ? (g.hidden_rake_percent || 0) : 0,
+					rake_per_round: g && g.rake_per_round != null ? g.rake_per_round : 1,
 					room_fee: g ? (g.room_fee || 0) : 0,
+					room_fee_payer: g && g.room_fee_payer != null ? g.room_fee_payer : 1,
+					game_config_id: g ? (g.id || 0) : 0,
 					tai_rules: clubTaiRules
 				};
 				db.club_tables(clubId,gameType,function(tables){
@@ -1570,6 +1577,48 @@ app.get('/club_admin/overview',function(req,res){
 	});
 });
 
+//收入统计(按日): 顶部总收入 + 每日收入列表, 支持日期区间/下级俱乐部过滤
+app.get('/club_admin/income_stats',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var from = parseInt(req.query.from) || 0;
+		var to = parseInt(req.query.to) || 0;
+		var pid = parseInt(req.query.partner_club_id) || 0;
+		var now = Math.ceil(Date.now()/1000);
+		if(to <= 0){ to = now; }
+		if(from <= 0){ from = to - 30 * 86400; }
+		var doQuery = function(){
+			db.club_income_stats(clubId,from,to,pid,function(r){
+				http.send(res,0,"ok",r || {total:0,list:[]});
+			});
+		};
+		if(pid > 0){
+			//只能查自己的直属下级俱乐部
+			db.club_get(pid,function(pclub){
+				if(pclub == null || Number(pclub.parent_clubid) !== Number(clubId)){ http.send(res,4,"partner club not found."); return; }
+				doQuery();
+			});
+			return;
+		}
+		doQuery();
+	});
+});
+
+//下级俱乐部成员列表(下级窗口用: 校验该俱乐部在当前管理员的链路上, 不受"只有社长能管"限制)
+app.get('/club_admin/partner_members',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var pid = parseInt(req.query.partner_club_id) || 0;
+		if(!(pid > 0)){ http.send(res,-1,"partner_club_id required"); return; }
+		db.partner_list(clubId,function(list){
+			var ok = false;
+			(list || []).forEach(function(r){ if(Number(r.id) === pid){ ok = true; } });
+			if(!ok){ http.send(res,4,"partner club not found."); return; }
+			db.club_members_detail(pid,function(members){
+				http.send(res,0,"ok",{data: members || []});
+			});
+		});
+	});
+});
+
 //成员列表
 app.get('/club_admin/members',function(req,res){
 	clubAdminAccess(req,res,function(clubId){
@@ -1755,8 +1804,28 @@ app.get('/club_admin/rewards',function(req,res){
 //玩法配置列表
 app.get('/club_admin/game_configs',function(req,res){
 	clubAdminAccess(req,res,function(clubId){
-		db.club_game_get_configs(clubId,function(rows){
-			http.send(res,0,"ok",{data:rows || []});
+		//每个玩法各自的收费模式开关随玩法配置一起下发: 客户端据此决定哪些规则可编辑(关闭时置灰)
+		db.query('SELECT type, unified_charge FROM t_game_config', function(err, rows){
+			var unified = {};
+			(rows || []).forEach(function(r){
+				unified[r.type] = Number(r.unified_charge) === 1 ? 1 : 0;
+			});
+			db.club_game_get_configs(clubId,function(list){
+				http.send(res,0,"ok",{data:list || [], unified: unified});
+			});
+		});
+	});
+});
+
+//各玩法收费模式开关(轻量接口: 客户端每次打开添加/修改玩法弹窗时刷新, 后台改完立即生效)
+app.get('/club_admin/game_unified',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		db.query('SELECT type, unified_charge FROM t_game_config', function(err, rows){
+			var unified = {};
+			(rows || []).forEach(function(r){
+				unified[r.type] = Number(r.unified_charge) === 1 ? 1 : 0;
+			});
+			http.send(res,0,"ok",{unified: unified});
 		});
 	});
 });

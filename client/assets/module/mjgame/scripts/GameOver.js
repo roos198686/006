@@ -25,15 +25,10 @@ cc.Class({
         if(cc.vv == null){
             return;
         }
-        if(cc.vv.gameNetMgr.conf == null){
-            return;
-        }
-        if(cc.vv.gameNetMgr.conf.type == "xzdd"){
-            this._gameover = this.node.getChildByName("game_over");
-        }
-        else{
-            this._gameover = this.node.getChildByName("game_over_xlch");
-        }
+        //conf 可能晚于场景到达(进房/重连),不能直接 return,否则监听不注册、结算弹窗永远不出现
+        var conf0 = cc.vv.gameNetMgr.conf || {};
+        var wantName = (conf0.type == "xzdd") ? "game_over" : "game_over_xlch";
+        this._gameover = this.node.getChildByName(wantName) || this.node.getChildByName("game_over_xlch") || this.node.getChildByName("game_over");
         if(this._gameover == null){
             console.error('[GameOver] 场景里没有结算弹窗节点,跳过初始化');
             return;
@@ -49,37 +44,42 @@ cc.Class({
 
         this._gameresult = this.node.getChildByName("game_result");
         
-        var wanfaNode = this.findDeep(this._gameover, "wanfa");
-        var wanfa = wanfaNode ? wanfaNode.getComponent(cc.Label) : null;
-        if(wanfa){ wanfa.string = cc.vv.gameNetMgr.getWanfa(); }
-        
-        var listRoot = this.findDeep(this._gameover, "result_list");
-        if(listRoot == null){
-            console.error('[GameOver] 结算弹窗缺少 result_list 列表节点');
-        }
-        for(var i = 1; i <= 4; ++i){
-            if(listRoot == null){ break; }
-            var s = "s" + i;
-            var sn = listRoot.getChildByName(s);
-            if(sn == null){ break; }
-            var viewdata = {};
-            viewdata.username = sn.getChildByName('username').getComponent(cc.Label);
-            viewdata.reason = sn.getChildByName('reason').getComponent(cc.Label);
-            
-            var f = sn.getChildByName('fan');
-            if(f != null){
-                viewdata.fan = f.getComponent(cc.Label);    
+        //结算弹窗内容节点初始化:任何一行结构缺失都不能中断onLoad,否则game_over监听注册不上、弹窗永不出现
+        try{
+            var wanfaNode = this.findDeep(this._gameover, "wanfa");
+            var wanfa = wanfaNode ? wanfaNode.getComponent(cc.Label) : null;
+            if(wanfa && cc.vv.gameNetMgr.getWanfa){ wanfa.string = cc.vv.gameNetMgr.getWanfa(); }
+
+            var listRoot = this.findDeep(this._gameover, "result_list");
+            if(listRoot == null){
+                console.error('[GameOver] 结算弹窗缺少 result_list 列表节点');
             }
-            
-            viewdata.score = sn.getChildByName('score').getComponent(cc.Label);
-            viewdata.hu = sn.getChildByName('hu');
-            viewdata.mahjongs = sn.getChildByName('pai');
-            viewdata.zhuang = sn.getChildByName('zhuang');
-            viewdata.hupai = sn.getChildByName('hupai');
-            //结算行头像:场景里每行可放一个 useravatars 节点(带 cc.Sprite),运行时挂 ImageLoader 拉真实头像
-            viewdata.avatar = sn.getChildByName('useravatars');
-            viewdata._pengandgang = [];
-            this._seats.push(viewdata);
+            var labelOf = function(parent, name){
+                var n = parent ? parent.getChildByName(name) : null;
+                return n ? n.getComponent(cc.Label) : null;
+            };
+            for(var i = 1; i <= 4; ++i){
+                if(listRoot == null){ break; }
+                var sn = listRoot.getChildByName("s" + i);
+                if(sn == null){ break; }
+                var viewdata = {};
+                viewdata.username = labelOf(sn, 'username');
+                viewdata.reason = labelOf(sn, 'reason');
+                viewdata.score = labelOf(sn, 'score');
+                viewdata.fan = labelOf(sn, 'fan');
+                viewdata.hu = sn.getChildByName('hu');
+                viewdata.mahjongs = sn.getChildByName('pai');
+                //副牌容器:场景里可直接调位置/缩放(没有该节点的场景沿用旧逻辑,挂在pai下面)
+                viewdata.meldArea = sn.getChildByName('meldArea');
+                viewdata.zhuang = sn.getChildByName('zhuang');
+                viewdata.hupai = sn.getChildByName('hupai');
+                //结算行头像:场景里每行可放一个 useravatars 节点(带 cc.Sprite),运行时挂 ImageLoader 拉真实头像
+                viewdata.avatar = sn.getChildByName('useravatars');
+                viewdata._pengandgang = [];
+                this._seats.push(viewdata);
+            }
+        }catch(e){
+            console.error('[GameOver] 结算弹窗节点初始化异常:', (e && e.stack) ? e.stack : e);
         }
         
         //初始化网络事件监听器
@@ -94,10 +94,12 @@ cc.Class({
                 self.unschedule(self._autoReadyCb);
                 self._autoReadyCb = null;
             }
-            //需求4:牌局全部结束(服务端下发endinfo/最终结算)时直接展示"本次游戏总分数"面板
-            //game_result 的位置/大小/缩放全部在场景里配置,JS只控制显隐
-            if(self._gameresult){ self._gameresult.active = true; }
-            if(self._gameover){ self._gameover.active = false; }
+            //最后一小局:必须先弹小局结算,总局结算等小局弹窗关闭后再显示
+            if(self._isRoundSettlePending()){
+                self._pendingGameEnd = true;
+                return;
+            }
+            self._showGameResult();
         });
     },
 
@@ -144,16 +146,49 @@ cc.Class({
         cc.tween(node).to(0.28, {scaleX: base, scaleY: base, opacity: 255}, {easing: "backOut"}).start();
     },
     
+    //后台配置:胡牌后延时打开小局结算弹窗的秒数(缺省2秒,0=立即)
+    _getHuDelay:function(){
+        var c = cc.vv.gameNetMgr ? cc.vv.gameNetMgr.conf : null;
+        var v = (c && c.hu_delay != null) ? Number(c.hu_delay) : 2;
+        if(isNaN(v)) v = 2;
+        return Math.max(0, v);
+    },
+
     onGameOver(data){
-        var type = cc.vv.gameNetMgr.conf.type;
-        if(type == "zj" || type == "zj_bt" || type == "zj4" || type == "zj4_bt" || type == "zj_lao" || type == "zj_zx" || type == "zj4_zx"){
-            this.onGameOver_ZJ(data);
+        var delay = this._getHuDelay();
+        if(delay > 0){
+            var self = this;
+            if(this._overDelayCb){ this.unschedule(this._overDelayCb); }
+            this._overDelayCb = function(){
+                self._overDelayCb = null;
+                self._showGameOver(data);
+            };
+            this.scheduleOnce(this._overDelayCb, delay);
+            return;
         }
-        else if(type == "xzdd"){
-            this.onGameOver_XZDD(data);
-        }
-        else{
-            this.onGameOver_XLCH(data);
+        this._showGameOver(data);
+    },
+
+    //真正展示单局结算弹窗(按玩法分派)
+    _showGameOver:function(data){
+        //胡牌后牌桌保留展示,结算弹窗必须盖在牌桌之上
+        if(this._gameover){ this._gameover.setSiblingIndex(this.node.childrenCount - 1); }
+        var conf = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.conf) ? cc.vv.gameNetMgr.conf : {};
+        var type = conf.type || "";
+        try{
+            if(type == "zj" || type == "zj_bt" || type == "zj4" || type == "zj4_bt" || type == "zj_lao" || type == "zj_zx" || type == "zj4_zx"){
+                this.onGameOver_ZJ(data);
+            }
+            else if(type == "xzdd"){
+                this.onGameOver_XZDD(data);
+            }
+            else{
+                this.onGameOver_XLCH(data);
+            }
+        }catch(e){
+            //填充结算内容出错也要把弹窗显示出来,不能出现"胡牌后没有任何结算界面"
+            console.error('[GameOver] 结算弹窗填充异常:', (e && e.stack) ? e.stack : e);
+            if(this._gameover){ this._gameover.active = true; }
         }
     },
 
@@ -390,6 +425,18 @@ cc.Class({
                 tn.active = false;
             }
         }
+    },
+
+    //小局结算是否还没展示(hu_delay延时中)或仍在显示
+    _isRoundSettlePending:function(){
+        return (this._overDelayCb != null) || (this._gameover != null && this._gameover.active);
+    },
+
+    //显示整场总结算面板:game_result 的位置/大小/缩放全部在场景里配置,这里只控制显隐
+    _showGameResult:function(){
+        this._pendingGameEnd = false;
+        if(this._gameresult){ this._gameresult.active = true; }
+        if(this._gameover){ this._gameover.active = false; }
     },
 
     //单局结算30秒未操作:自动关闭弹窗并发送ready进入下一局(与点击"准备"按钮等价)
@@ -653,13 +700,19 @@ cc.Class({
         }
         this._gameover.active = true;
         this._popIn(this._gameover);
-        var myscore = data[cc.vv.gameNetMgr.seatIndex].score;
+        var myscore = data[cc.vv.gameNetMgr.seatIndex] ? data[cc.vv.gameNetMgr.seatIndex].score : 0;
         this.showTitle(myscore > 0 ? "win" : (myscore < 0 ? "lose" : "pingju"));
             
-        //显示玩家信息
+        //显示玩家信息:按实际座位/结算人数渲染(2人房只有2行),多余的隐藏;
+        //缺少对应数据时跳过该行,不能让整段渲染中断导致弹窗内容空白
+        var rowCount = Math.min(4, this._seats.length, data.length);
         for(var i = 0; i < 4; ++i){
             var seatView = this._seats[i];
             var userData = data[i];
+            if(seatView && seatView.username && seatView.username.node && seatView.username.node.parent){
+                seatView.username.node.parent.active = (i < rowCount);
+            }
+            if(i >= rowCount || !seatView || !seatView.hupai || !userData || !userData.huinfo){ continue; }
             var hued = false;
             var actionArr = [];
             var is7pairs = false;
@@ -701,8 +754,10 @@ cc.Class({
                         str = "被查大叫";
                     }
                     
-                    dataseat = data[info.target]; 
-                    info = dataseat.huinfo[info.index];
+                    dataseat = data[info.target];
+                    var tinfo = (dataseat && dataseat.huinfo) ? dataseat.huinfo[info.index] : null;
+                    if(tinfo == null){ continue; }
+                    info = tinfo;
                 }
                 else{
                     if(info.action == "hu"){
@@ -889,10 +944,12 @@ cc.Class({
     
     initPengAndGangs:function(seatView,index,mjid,flag,tiles){
         var pgroot = null;
+        //副牌容器:场景里挂了meldArea就用它(位置/缩放由场景控制),否则退回挂在pai下
+        var meldParent = seatView.meldArea || seatView.mahjongs;
         if(seatView._pengandgang.length <= index){
             pgroot = cc.instantiate(cc.vv.mahjongmgr.pengPrefabSelf);
             seatView._pengandgang.push(pgroot);
-            seatView.mahjongs.addChild(pgroot);
+            meldParent.addChild(pgroot);
         }
         else{
             pgroot = seatView._pengandgang[index];
@@ -929,10 +986,11 @@ cc.Class({
     //吃牌组：3张不同的牌平铺显示（复用碰预制体，隐藏gang背后逐张赋值）
     initChisGroup:function(seatView,index,chiArr){
         var pgroot = null;
+        var meldParent = seatView.meldArea || seatView.mahjongs;
         if(seatView._pengandgang.length <= index){
             pgroot = cc.instantiate(cc.vv.mahjongmgr.pengPrefabSelf);
             seatView._pengandgang.push(pgroot);
-            seatView.mahjongs.addChild(pgroot);
+            meldParent.addChild(pgroot);
         }
         else{
             pgroot = seatView._pengandgang[index];
@@ -963,12 +1021,14 @@ cc.Class({
             this._autoReadyCb = null;
         }
         if(this._isGameEnd){
-            this._gameresult.active = true;
+            this._showGameResult();
         }
         else{
             cc.vv.net.send('ready');   
         }
         this._gameover.active = false;
+        //通知牌桌脚本:小局结算弹窗已关闭,此时才隐藏牌桌(含胡牌明牌)切回等待界面
+        this.node.emit('game_over_popup_closed');
     },
     
     onBtnShareClicked:function(){

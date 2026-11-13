@@ -13,6 +13,7 @@
  * 9. 流局荒庄庄家连庄；庄胡连庄；分饼为可选开关(仅4人版生效)
  */
 var roomMgr = require("./roommgr");
+var mjwall = require("./mjwall");
 var userMgr = require("./usermgr");
 var db = require("../utils/db");
 
@@ -59,6 +60,8 @@ function taiRule(game, key, def){
 function getChupaiTimeout(game){
     return taiRule(game, 'chupai_timeout', 15);
 }
+//胡牌后延时打开小局结算弹窗的秒数(后台 taiRules.hu_delay,默认2秒)
+function getHuDelay(game){ return Math.max(0, taiRule(game, 'hu_delay', 2)); }
 
 // ===== 洗牌：144张 =====
 function shuffle(game){
@@ -94,6 +97,8 @@ function drawTail(game){
 
 // 摸牌（自动补花，花从牌墙尾部补）；fromTail=true 时整次摸牌取自尾部(杠补)
 function mopai(game, seatIndex, fromTail){
+    //普通摸牌剩余<=不可摸张数(后台liuju_left+每杠gang_liuju*杠数)就荒庄;杠后补牌仍从墙尾取
+    if(!fromTail && numOfMJ(game) <= mjwall.deadLimit(game)) return -1;
     var data = game.gameSeats[seatIndex];
     var pai = fromTail ? drawTail(game) : drawHead(game);
     if(pai == -1) return -1;
@@ -1488,6 +1493,9 @@ exports.start = function(roomInfo){
         fanPai: game.fanPai,
         playStyle: 'zhangpu',
         chupaiTimeout: getChupaiTimeout(game),
+        liuju_left: mjwall.liujuLeft(game),
+        gang_liuju: mjwall.gangLiuju(game),
+        hu_delay: getHuDelay(game),
         numofmj: numOfMJ(game),
         seats: []
     };
@@ -1567,6 +1575,9 @@ exports.resendGameState = function(roomId, userId){
         fanPai: game.fanPai,
         playStyle: 'zhangpu',
         chupaiTimeout: getChupaiTimeout(game),
+        liuju_left: mjwall.liujuLeft(game),
+        gang_liuju: mjwall.gangLiuju(game),
+        hu_delay: getHuDelay(game),
         numofmj: numOfMJ(game),
         seats: []
     };

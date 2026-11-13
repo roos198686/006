@@ -277,25 +277,9 @@ app.get('/wechat_auth',function(req,res){
 						send_result(account,bound,isGuestPrimary);
 					});
 				};
-				//带本机游客账号时自动绑定(游客账号需已创建角色),绑定后主账号为游客账号
-				var bindAccount = req.query.bind_account;
-				if(bindAccount && bindAccount.indexOf("guest_") === 0 && bindAccount != wxAccount){
-					db.is_user_exist(bindAccount,function(hasRole){
-						if(!hasRole){
-							fnLogin(wxAccount,false,false);
-							return;
-						}
-						db.bind_accounts(bindAccount,wxAccount,function(primary){
-							if(!primary){
-								fnLogin(wxAccount,false,false);
-								return;
-							}
-							fnLogin(primary,true,primary == bindAccount);
-						});
-					});
-					return;
-				}
-				//未带绑定参数时:已绑定账号依旧按主账号登录
+				//不再按本机残留账号自动绑定:微信登录只认微信自己的账号;
+				//要与已有账号合并,由玩家登录后在个人信息里手动绑定账号(密码校验通过后合并到原主账号)
+				//已绑定过的微信账号依旧按主账号登录
 				db.get_bind_primary(wxAccount,function(primary){
 					if(primary){
 						fnLogin(primary,true,primary.indexOf("guest_") === 0);
@@ -421,7 +405,7 @@ app.get('/bind_account',function(req,res){
 		var viviAccount = "vivi_" + name;
 		db.get_account_row(name,function(row){
 			if(row){
-				//用户名已存在:仅当该账号已绑定在当前用户名下时,允许修改密码
+				//用户名已存在:绑定在自己名下=改密码;绑定在别的账号下=密码校验通过后合并回原账号(原ID)
 				db.get_bind_primary(viviAccount,function(p2){
 					if(p2 && p2 === primary){
 						db.update_account_password(name,password,function(ok){
@@ -429,8 +413,29 @@ app.get('/bind_account',function(req,res){
 							else{ send(res,{errcode:3,errmsg:"修改密码失败"}); }
 						});
 					}
+					else if(!p2){
+						//账号存在但还没绑定过任何主账号,直接绑到当前账号
+						db.bind_to_primary(primary,viviAccount,function(ok){
+							if(ok){ send(res,{errcode:0,errmsg:"ok"}); }
+							else{ send(res,{errcode:3,errmsg:"绑定失败"}); }
+						});
+					}
 					else{
-						send(res,{errcode:4,errmsg:"该账号已被使用"});
+						//已绑定在另一个主账号下:密码必须正确才允许合并,防止冒用别人的账号
+						db.get_account_info(name,password,function(info){
+							if(!info){ send(res,{errcode:6,errmsg:"该账号已存在，密码不正确"}); return; }
+							db.is_user_exist(p2,function(hasRole){
+								if(!hasRole){
+									send(res,{errcode:4,errmsg:"该账号已被使用"});
+									return;
+								}
+								//把当前登录账号绑到原主账号下:以后微信登录和账号密码登录都回原存档(原ID)
+								db.bind_to_primary(p2,account,function(ok){
+									if(ok){ send(res,{errcode:0,errmsg:"ok",switched:1,login_account:viviAccount}); }
+									else{ send(res,{errcode:3,errmsg:"绑定失败"}); }
+								});
+							});
+						});
 					}
 				});
 				return;

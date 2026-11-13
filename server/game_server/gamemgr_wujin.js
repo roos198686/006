@@ -1,9 +1,10 @@
 /**
  * 漳浦无金16张麻将（二人/四人共用）
- * 108张万筒条，无字花金、无七对；5组面子+1将。
+ * 万筒条108张 + 字牌东南西北中发白28张（后台可配置去掉字牌），无金、无七对；5组面子+1将。
  * 分数=底分×台数，杠钱独立结算；二人/四人只改变座位数与去花色规则。
  */
 var roomMgr = require("./roommgr");
+var mjwall = require("./mjwall");
 var userMgr = require("./usermgr");
 var db = require("../utils/db");
 
@@ -29,6 +30,10 @@ function taiRule(game, key, def){
 }
 function ruleOn(game, key, def){ return taiRule(game, key, def) == 1; }
 function getChupaiTimeout(game){ return taiRule(game, 'chupai_timeout', 15); }
+//流局留牌数:剩这么多张就不能再普通摸牌,直接荒庄(后台 taiRules.liuju_left,0=打完为止)
+function getLiujuLeft(game){ return Math.max(0, taiRule(game, 'liuju_left', 0)); }
+//胡牌后延时打开小局结算弹窗的秒数(后台 taiRules.hu_delay,默认2秒)
+function getHuDelay(game){ return Math.max(0, taiRule(game, 'hu_delay', 2)); }
 function numOfMJ(game){ return game.tailIndex - game.currentIndex + 1; }
 function drawHead(game){
     if(game.currentIndex > game.tailIndex) return -1;
@@ -39,6 +44,8 @@ function drawTail(game){
     return game.mahjongs[game.tailIndex--];
 }
 function mopai(game, seatIndex, fromTail){
+    //普通摸牌剩余<=不可摸张数(置灰数量+每杠加张*杠数)就流局;杠后补牌仍从墙尾取剩余牌
+    if(!fromTail && numOfMJ(game) <= mjwall.deadLimit(game, 0)) return -1;
     var pai = fromTail ? drawTail(game) : drawHead(game);
     if(pai < 0) return -1;
     var sd = game.gameSeats[seatIndex];
@@ -60,6 +67,12 @@ function shuffle(game){
     for(var p = 0; p < 27; ++p){
         if(removed[getMJType(p)]) continue;
         for(var c = 0; c < 4; ++c) mahjongs.push(p);
+    }
+    //字牌:东南西北中发白,后台 taiRules.remove_zi=1 时去掉
+    if(!ruleOn(game, 'remove_zi', 0)){
+        for(var h = 27; h < 34; ++h){
+            for(var c = 0; c < 4; ++c) mahjongs.push(h);
+        }
     }
     for(var i = 0; i < mahjongs.length; ++i){
         var last = mahjongs.length - 1 - i;
@@ -166,7 +179,7 @@ function canHuNow(game, sd){
     return checkHuStructure(splitHolds(game, sd).cm);
 }
 function canDianPao(game, sd, pai){
-    if(sd.guoShui || sd.holds.length % 3 != 1 || pai < 0 || pai > 26) return false;
+    if(sd.guoShui || sd.holds.length % 3 != 1 || pai < 0 || pai > 33) return false;
     var cm = splitHolds(game, sd).cm;
     cm[pai] = (cm[pai] || 0) + 1;
     return checkHuStructure(cm);
@@ -288,7 +301,7 @@ function doUserMoPai(game){
     game.gangBuPai = false;
     if(pai < 0){ doGameOver(game); return; }
     turnSeat.lastMoPai = pai;
-    turnSeat.lastHaiDi = numOfMJ(game) <= 0;
+    turnSeat.lastHaiDi = numOfMJ(game) <= mjwall.deadLimit(game, 0);
     rebuildCountMap(turnSeat);
     clearAllOptions(game, turnSeat);
     checkCanAnGang(game, turnSeat);
@@ -351,6 +364,33 @@ function calculateTai(game, sd, opts){
     if(isMenQing(sd)){
         var mq = taiRule(game, 'men_qing', 1);
         if(mq > 0){ tai += mq; tailog.push('门清+' + mq); }
+    }
+    //字牌刻子:碰/杠按副露记一副,手牌里3张及以上算一副
+    var honorKe = {};
+    function addHonorKe(p){ if(p >= 27 && p <= 33) honorKe[p] = (honorKe[p] || 0) + 1; }
+    for(var pi = 0; pi < sd.pengs.length; ++pi) addHonorKe(sd.pengs[pi]);
+    for(var gi = 0; gi < sd.gangs.length; ++gi) addHonorKe(sd.gangs[gi].pai);
+    for(var hk in cm){ if(cm[hk] >= 3) addHonorKe(parseInt(hk)); }
+    //大三元:中发白各一副刻子
+    if(honorKe[27] && honorKe[28] && honorKe[29]){
+        var dsy = taiRule(game, 'da_san_yuan', 8);
+        if(dsy > 0){ tai += dsy; tailog.push('大三元+' + dsy); }
+    }
+    //大四喜:东南西北各一副刻子(牌ID 30东 31西 32南 33北)
+    if(honorKe[30] && honorKe[31] && honorKe[32] && honorKe[33]){
+        var dsx = taiRule(game, 'da_si_xi', 16);
+        if(dsx > 0){ tai += dsx; tailog.push('大四喜+' + dsx); }
+    }
+    //各字牌刻子台数(后台逐个配置,可配0关闭)
+    var honorCfg = [
+        [27,'honor_zhong','中',2],[28,'honor_fa','发',2],[29,'honor_bai','白',2],
+        [30,'honor_dong','东',1],[32,'honor_nan','南',1],[31,'honor_xi','西',1],[33,'honor_bei','北',1]
+    ];
+    for(var hi = 0; hi < honorCfg.length; ++hi){
+        var hcnt = honorKe[honorCfg[hi][0]];
+        if(!hcnt) continue;
+        var hv = taiRule(game, honorCfg[hi][1], honorCfg[hi][3]);
+        if(hv > 0){ tai += hv * hcnt; tailog.push(honorCfg[hi][2] + '刻+' + (hv * hcnt)); }
     }
     if(extra.gangKai){
         var gk = taiRule(game, 'gang_kai', 2);
@@ -929,7 +969,8 @@ exports.start = function(roomInfo){
     if(canHuNow(game, zhuang)) zhuang.canHu = true;
     var baseData = {button:game.button, laozhuang:game.laozhuangCount, turn:game.turn,
         caishen:-1, fanPai:-1, playStyle:roomInfo.conf.type || (n == 4 ? 'wujin4' : 'wujin'),
-        chupaiTimeout:getChupaiTimeout(game), numofmj:numOfMJ(game), seats:[]};
+        chupaiTimeout:getChupaiTimeout(game), numofmj:numOfMJ(game), liuju_left:mjwall.liujuLeft(game, 0), gang_liuju:mjwall.gangLiuju(game),
+        hu_delay:getHuDelay(game), seats:[]};
     for(var b = 0; b < n; ++b){
         var bs = game.gameSeats[b];
         baseData.seats.push({userid:bs.userId, name:bs.name, score:bs.score, holds:0, folds:[],
@@ -969,7 +1010,8 @@ exports.resendGameState = function(roomId, userId){
     var data = {button:game.button, laozhuang:roomInfo ? roomInfo.laozhuangCount || 0 : 0,
         turn:game.turn, caishen:-1, fanPai:-1,
         playStyle:game.conf.type || (seatCount(game) == 4 ? 'wujin4' : 'wujin'),
-        chupaiTimeout:getChupaiTimeout(game), numofmj:numOfMJ(game), seats:[]};
+        chupaiTimeout:getChupaiTimeout(game), numofmj:numOfMJ(game), liuju_left:mjwall.liujuLeft(game, 0), gang_liuju:mjwall.gangLiuju(game),
+        hu_delay:getHuDelay(game), seats:[]};
     for(var i = 0; i < seatCount(game); ++i){
         var s = game.gameSeats[i], angangs = [], diangangs = [], wangangs = [];
         for(var g = 0; g < s.gangs.length; ++g){

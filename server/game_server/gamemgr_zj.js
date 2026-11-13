@@ -11,6 +11,7 @@
  * 8. 打法：赖倒胡（无台数要求）、包财神、翻财神、自选麻将
  */
 var roomMgr = require("./roommgr");
+var mjwall = require("./mjwall");
 var userMgr = require("./usermgr");
 var db = require("../utils/db");
 var crypto = require("../utils/crypto");
@@ -23,6 +24,8 @@ function taiRule(game, key, def){
     var v = (r && r[key] != null) ? Number(r[key]) : NaN;
     return isNaN(v) ? def : v;
 }
+//胡牌后延时打开小局结算弹窗的秒数(后台 taiRules.hu_delay,默认2秒)
+function getHuDelay(game){ return Math.max(0, taiRule(game, 'hu_delay', 2)); }
 
 // 牌型定义
 // 0-8: 筒, 9-17: 条, 18-26: 万, 27-33: 字牌(中发白东南西北)
@@ -529,6 +532,11 @@ function doUserMoPai(game){
     // 摸牌前先计算听牌表（此时 holds=13），摸牌后直接 checkCanHu 判断自摸
     rebuildCountMap(turnSeat);
     checkTingPai(turnSeat, game.caishen, game.caishen2);
+    // 牌墙剩余<=不可摸张数(后台liuju_left+每杠gang_liuju*杠数)时荒庄（流局）
+    if(game.mahjongs.length - game.currentIndex <= mjwall.deadLimit(game)){
+        doGameOver(game);
+        return;
+    }
     var pai = mopai(game, game.turn);
     if(pai == -1){
         doGameOver(game);
@@ -1421,6 +1429,9 @@ exports.start = function(roomInfo){
         caishen2: game.caishen2,
         fanPai: game.fanPai,
         playStyle: game.playStyle,
+        liuju_left: mjwall.liujuLeft(game),
+        gang_liuju: mjwall.gangLiuju(game),
+        hu_delay: getHuDelay(game),
         numofmj: game.mahjongs.length - game.currentIndex,
         seats: []
     };

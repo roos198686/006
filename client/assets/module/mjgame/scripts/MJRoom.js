@@ -55,6 +55,56 @@ cc.Class({
             console.error("[MJRoom] 初始化异常(继续注册退出监听):", (e && e.stack) ? e.stack : e);
         }
         this.initNetExitListeners();
+
+        //座位(头像/昵称/分数)统一挂在game牌桌层下,而各玩法脚本进房时会把整个game层隐藏(开局才显示),
+        //导致"进房间看不到玩家,只有开局才出现"。牌局未开始时把game层重新显示(只隐藏手牌占位/牌墙)。
+        var self = this;
+        this.scheduleOnce(function(){ self.showSeatsInWaiting(); }, 0);
+        //胡牌后桌面牌要保留到结算弹窗关闭,这里不能在game_over时就切等待界面;
+        //弹窗关闭后延迟一拍(等玩法脚本隐藏牌桌)再显示座位/开始按钮
+        this.node.on('game_over_popup_closed', function(){
+            //2人房:必须等两名玩家都点关闭(服务端开新局)才隐藏牌桌,自己点关闭时桌面牌保持显示
+            if(cc.vv.mahjongmgr && cc.vv.mahjongmgr.is2Player()){ return; }
+            self.scheduleOnce(function(){ self.showSeatsInWaiting(true); }, 0);
+        });
+    },
+
+    //未开局(准备界面/结算停留)时保证座位可见
+    //force=true:结算弹窗关闭后强制切回等待界面(此时gamestate可能还是begin、手里还留着结算手牌数据)
+    showSeatsInWaiting:function(force){
+        if(!cc.vv || !cc.vv.gameNetMgr){ return; }
+        var nm = cc.vv.gameNetMgr;
+        var selfSeat = nm.seats ? nm.seats[nm.seatIndex] : null;
+        var hasMyHolds = !!(selfSeat && selfSeat.holds && selfSeat.holds.length > 0);
+        //牌局进行中由各玩法脚本控制牌桌显隐,这里不干预;
+        //但gamestate残留"begin"、自己既没手牌也没有剩余牌时按未开局处理,
+        //否则会卡在"空牌桌+无开始按钮"的死局里(进房不发牌也点不了开始)
+        if(!force && nm.gamestate == "begin" && (hasMyHolds || nm.numOfMJ > 0)){ return; }
+        var gameNode = this.node.getChildByName("game");
+        if(gameNode == null){ return; }
+        if(!gameNode.active){ gameNode.active = true; }
+        //隐藏静态手牌占位(开局时initMahjongs/initOtherMahjongs会重新点亮)
+        var sides = ["myself","up","right","left"];
+        for(var i = 0; i < sides.length; ++i){
+            var side = gameNode.getChildByName(sides[i]);
+            if(side == null){ continue; }
+            var holds = side.getChildByName("holds");
+            if(holds == null){ continue; }
+            for(var j = 0; j < holds.childrenCount; ++j){
+                holds.children[j].active = false;
+            }
+        }
+        //牌墙:未开局剩余0张,refreshBrickWall会把墙牌全部隐藏
+        if(this._brickBuilt){ this.refreshBrickWall(); }
+        //座位数据可能比场景加载晚到,再刷一次头像/昵称
+        this.initSeats();
+        //"开始"按钮兜底:之前初始化异常导致_startBtn为空时补建;未准备就强制可见,
+        //避免"有准备界面却没有任何按钮"无法开局(表现就是进房不发牌)
+        if(this._startBtn == null){ this.initStartButton(); }
+        this.updateStartBtnState();
+        if(this._startBtn && !this._startBtn.active && !(selfSeat && selfSeat.ready)){
+            this._startBtn.active = true;
+        }
     },
     
     initView:function(){
@@ -179,7 +229,7 @@ cc.Class({
             prepare.addChild(btn);
         }
         if(fromScene){
-            //场景已有btnStart:完全用场景配置,只补点击事件(场景已绑定则不重复加)
+            //场景已有btnStart:保留场景配置(位置/大小/贴图与其它麻将房间一致),只补点击事件(场景已绑定则不重复加)
             var c2 = btn.getComponent(cc.Button);
             if(!c2 || !c2.clickEvents || c2.clickEvents.length === 0){
                 cc.vv.utils.addClickEvent(btn, this.node, "MJRoom", "onBtnStartClicked");
@@ -232,9 +282,13 @@ cc.Class({
         if(btn == null){ return; }
         //未在对局中即显示:结算停留期重进时numOfGames>0,旧条件numOfGames==0会让按钮永不出现,
         //与服务端结算后清ready的广播叠加导致"重进只看到空准备界面且无按钮"的死锁
-        var isIdle = cc.vv.gameNetMgr.gamestate != "begin";
-        var seats = cc.vv.gameNetMgr.seats;
-        var selfSeat = seats ? seats[cc.vv.gameNetMgr.seatIndex] : null;
+        var nm = cc.vv.gameNetMgr;
+        var seats = nm.seats;
+        var selfSeat = seats ? seats[nm.seatIndex] : null;
+        var hasMyHolds = !!(selfSeat && selfSeat.holds && selfSeat.holds.length > 0);
+        //gamestate残留"begin"但自己没手牌、牌墙也是0张时按未开局处理:
+        //否则开始按钮会被永久隐藏,进房既看不到牌也点不了开始(表现为"进房不发牌")
+        var isIdle = nm.gamestate != "begin" || (!hasMyHolds && !nm.numOfMJ);
         var isReady = !!(selfSeat && selfSeat.ready);
         //已准备则隐藏"准备"按钮(规则:准备后只显示解散)
         btn.active = isIdle && !isReady;
@@ -338,10 +392,11 @@ cc.Class({
             if(lt){ lts.push(lt); }
         }
         var zjLao = this._brickZJLao;
+        //每墩配对(U/LT 都是相邻两张一墩):场景里偶数编号在下层,奇数编号在上层(y更大=上层),
+        //摸牌必须先从上层抽,再抽下层,否则视觉上就是从下层抽牌
+        var out = this._brickDrawable;
         if(zjLao){
-            //诸暨赖倒胡:左侧从下往上摸,每墩先上层后下层;
-            //再到对面从左到右摸,同样每墩先上层后下层
-            //每墩配对规则:偶数编号是靠近桌心的上层,奇数编号是下层
+            //诸暨赖倒胡:整面墙从下往上摸,每墩先上层后下层;再到对面从左到右摸
             var groups = [];
             for(var i = 0; i < lts.length; i += 2){
                 var group = [lts[i]];
@@ -350,20 +405,45 @@ cc.Class({
             }
             groups.reverse(); //整面墙改为从下往上
             for(var i = 0; i < groups.length; ++i){
+                groups[i].sort(function(a, b){ return b.y - a.y; }); //每墩上层先摸
                 for(var k = 0; k < groups[i].length; ++k){
-                    this._brickDrawable.push(groups[i][k]);
+                    out.push(groups[i][k]);
                 }
             }
-            for(var i = 0; i < 16; ++i){
-                this._brickDrawable.push(wall.getChildByName("U" + (i < 10 ? "0" : "") + i));
+            for(var i = 0; i < 16; i += 2){
+                var upair = [];
+                var zu0 = wall.getChildByName("U" + (i < 10 ? "0" : "") + i);
+                var zu1 = wall.getChildByName("U" + ((i + 1) < 10 ? "0" : "") + (i + 1));
+                if(zu0){ upair.push(zu0); }
+                if(zu1){ upair.push(zu1); }
+                upair.sort(function(a, b){ return b.y - a.y; }); //对家墙同样先上层
+                for(var k = 0; k < upair.length; ++k){ out.push(upair[k]); }
             }
         } else {
-            lts.sort(function(a, b){ return a.y - b.y; });
-            for(var i = 0; i < lts.length; ++i){
-                this._brickDrawable.push(lts[i]);
+            //其他玩法:每墩按原有方向排列,但墩内一定先上层后下层
+            //注意:非诸暨玩法 refreshBrickWall 是从数组尾部开始隐藏(尾部=先被摸走),
+            //所以每墩必须把上层牌放到尾部:数组顺序为[下层,上层],即按y从小到大
+            var stacks = [];
+            for(var i = 0; i < lts.length; i += 2){
+                var st = [lts[i]];
+                if(lts[i + 1]){ st.push(lts[i + 1]); }
+                st.sort(function(a, b){ return a.y - b.y; });
+                stacks.push(st);
             }
-            for(var i = 0; i < 16; ++i){
-                this._brickDrawable.push(wall.getChildByName("U" + (i < 10 ? "0" : "") + i));
+            stacks.sort(function(p, q){ return p[p.length - 1].y - q[q.length - 1].y; });
+            for(var i = 0; i < stacks.length; ++i){
+                for(var k = 0; k < stacks[i].length; ++k){
+                    out.push(stacks[i][k]);
+                }
+            }
+            for(var i = 0; i < 16; i += 2){
+                var pair = [];
+                var u0 = wall.getChildByName("U" + (i < 10 ? "0" : "") + i);
+                var u1 = wall.getChildByName("U" + ((i + 1) < 10 ? "0" : "") + (i + 1));
+                if(u0){ pair.push(u0); }
+                if(u1){ pair.push(u1); }
+                pair.sort(function(a, b){ return a.y - b.y; }); //同上:上层放尾部,先被摸走
+                for(var k = 0; k < pair.length; ++k){ out.push(pair[k]); }
             }
         }
         //初始置灰区26张(对家前 U16-U35 + 右侧 RT00-RT05),普通摸牌不可进入;
@@ -391,22 +471,36 @@ cc.Class({
         for(var si = 0; si < seats.length; ++si){
             var st = seats[si];
             if(!st) continue;
-            gangs += (st.angangs ? st.angangs.length : 0) + (st.diangangs ? st.diangangs.length : 0) + (st.wangangs ? st.wangangs.length : 0);
+            gangs += (st.gangs instanceof Array && st.gangs.length)
+                ? st.gangs.length
+                : ((st.angangs ? st.angangs.length : 0) + (st.diangangs ? st.diangangs.length : 0) + (st.wangangs ? st.wangangs.length : 0));
         }
         var gangLiuju = (nm.conf && Number(nm.conf.gang_liuju)) || 0;
         var extra = gangLiuju * gangs;
-        //死墙26张:进房间(未开局,numOfMJ=0)隐藏;开局后剩余牌数>=26 时与墙牌一样显示
-        var showDead = (n >= 26);
+        //死墙张数:后台"置灰不可摸数量"(liuju_left);未配置时沿用固定26张
+        var deadCount = 26;
+        if(nm.conf && nm.conf.liuju_left != null){
+            var confDead = Number(nm.conf.liuju_left);
+            if(!isNaN(confDead)){ deadCount = Math.max(0, confDead); }
+        }
+        //进房间(未开局,numOfMJ=0)隐藏;开局后剩余牌数>=死墙张数 时与墙牌一样显示
+        var showDead = (deadCount > 0 && n >= deadCount);
+        //所有玩法统一:不可摸的死墙一律置灰
+        var grayDeadWall = (deadCount > 0);
         if(this._brickDead){
+            var keepDead = Math.min(deadCount, this._brickDead.length);
             for(var i = 0; i < this._brickDead.length; ++i){
                 var dn = this._brickDead[i];
-                if(dn){ dn.active = showDead; }
+                if(!dn) continue;
+                var on = showDead && i < keepDead;
+                dn.active = on;
+                dn.color = (grayDeadWall && on) ? new cc.Color(140, 140, 140, 255) : cc.Color.WHITE;
             }
         }
         var drawable = this._brickDrawable;
         if(!this._brickZJLao){
             //其他玩法保持原逻辑
-            var d = Math.max(0, Math.min(n - 26 - extra, drawable.length));
+            var d = Math.max(0, Math.min(n - deadCount - extra, drawable.length));
             var hide = drawable.length - d;
             var grayStart = drawable.length - extra;
             var remain0 = 0;
@@ -428,7 +522,7 @@ cc.Class({
         var all = drawable.concat(this._brickDead || []);
         var total = all.length;
         var tailStart = total - tailDraws;
-        var grayLimit = 26 + gangLiuju * tailDraws;
+        var grayLimit = deadCount + gangLiuju * tailDraws;
         var headHide = Math.max(0, Math.min(total, total - n - tailDraws));
         var grayStart = tailStart - grayLimit;
         var remain = 0;

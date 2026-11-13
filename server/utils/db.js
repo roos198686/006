@@ -149,6 +149,13 @@ exports.init = function(config){
         });
     }, 2800);
 
+    //玩法收费模式开关: 1=抽水/暗水/房费/表情/洗牌(不扣房卡) 0=仅房卡
+    setTimeout(function(){
+        query('ALTER TABLE `t_game_config` ADD COLUMN `unified_charge` TINYINT(1) NOT NULL DEFAULT 0 COMMENT "收费模式:1=抽水扣豆 0=仅房卡"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_game_config.unified_charge failed:" + err.message); }
+        });
+    }, 2900);
+
     //观战账号表:由超级后台录入账号密码,观战网页用它登录(与管理员账号完全独立)
     setTimeout(function(){
         var sqlSp = 'CREATE TABLE IF NOT EXISTS `t_spectate_users` (' +
@@ -284,6 +291,12 @@ exports.init = function(config){
             if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_bean_logs.partner_club_id failed:" + err.message); }
         });
     }, 6600);
+    //俱乐部维度流水查询(收入统计/下级历史输赢)走索引
+    setTimeout(function(){
+        query('ALTER TABLE `t_bean_logs` ADD INDEX `idx_club_type` (`club_id`,`change_type`)', function(err){
+            if(err && !/Duplicate key name/i.test(err.message)){ console.log("add t_bean_logs.idx_club_type failed:" + err.message); }
+        });
+    }, 6900);
 
     //老库升级: 合伙人收益/奖励明细金额改成2位小数(逐级分成可能出现小数点)
     setTimeout(function(){
@@ -1557,11 +1570,27 @@ exports.clubs_by_owner = function(userid,callback){
 exports.club_members_detail = function(clubId,callback){
     callback = callback == null? nop:callback;
     if(!(clubId > 0)){ callback([]); return; }
-    var sql = 'SELECT m.userid,u.name,u.gems,u.headimg FROM t_club_members m JOIN t_users u ON u.userid = m.userid WHERE m.club_id = ' + parseInt(clubId) + ' ORDER BY m.join_time';
+    var sql = 'SELECT m.userid,m.join_time,u.name,u.gems,u.headimg,'
+        + '(SELECT COUNT(*) FROM t_clubs c WHERE c.owner_userid = m.userid AND c.parent_clubid = ' + parseInt(clubId) + ') AS partner_cnt '
+        + 'FROM t_club_members m JOIN t_users u ON u.userid = m.userid WHERE m.club_id = ' + parseInt(clubId) + ' ORDER BY m.join_time';
     query(sql, function(err, rows){
         if(err){ console.log(err); callback([]); return; }
-        (rows || []).forEach(function(r){ try{ r.name = crypto.fromBase64(r.name); }catch(e){} });
-        callback(rows || []);
+        rows = rows || [];
+        rows.forEach(function(r){
+            try{ r.name = crypto.fromBase64(r.name); }catch(e){}
+            r.is_partner = Number(r.partner_cnt) > 0;
+            delete r.partner_cnt;
+        });
+        if(rows.length === 0){ callback(rows); return; }
+        //每个成员的历史总赢亏(对局结算净额)
+        var ids = rows.map(function(r){ return Number(r.userid) || 0; });
+        var ph = ids.map(function(){ return '?'; }).join(',');
+        queryP('SELECT userid, SUM(amount) AS win_lose FROM t_bean_logs WHERE change_type = "对局结算" AND userid IN (' + ph + ') GROUP BY userid', ids, function(err2, wl){
+            var map = {};
+            (wl || []).forEach(function(x){ map[Number(x.userid)] = round4(Number(x.win_lose) || 0); });
+            rows.forEach(function(r){ r.total_win_lose = map[Number(r.userid)] != null ? map[Number(r.userid)] : 0; });
+            callback(rows);
+        });
     });
 };
 
@@ -2143,7 +2172,7 @@ exports.partner_list = function(clubId,callback){
         if(results.length === 0){ callback([]); return; }
         //最后一轮: 每个结果行查顶级俱乐部视角下的 stats(顶级 owner 对 2 级/3 级可能没直接行, 填零)
         var pending = results.length;
-        results.forEach(function(r){
+        results.forEach(function(r){
             exports.partner_stats_row(clubId, r.id, function(st){
                 if(st){
                     r.profit_ratio = st.profit_ratio != null ? st.profit_ratio : 0;
@@ -2438,6 +2467,43 @@ exports.club_overview = function(clubId,callback){
     }
 };
 function round4(v){ return Math.round(v * 10000) / 10000; }
+
+//收入统计(按日): 本俱乐部社长实际到账金额, 可按时间区间和下级俱乐部过滤
+//from/to: 秒级时间戳, to 为开区间(客户端传次日0点可含当天)
+//partnerClubId: >0 时只统计与该下级俱乐部相关的收入
+exports.club_income_stats = function(clubId, from, to, partnerClubId, callback){
+    callback = callback == null? nop:callback;
+    var cid = Number(clubId) || 0;
+    var REW2 = '("抽水","暗水","房费","洗牌扣豆","表情扣豆","进房首局扣豆","合伙人分成")';
+    queryP('SELECT owner_userid FROM t_clubs WHERE id = ?', [cid], function(err, owners){
+        var oids = (owners || []).map(function(o){ return Number(o.owner_userid) || 0; }).filter(function(v){ return v > 0; });
+        if(!oids.length){ callback({total: 0, list: []}); return; }
+        var ph = oids.map(function(){ return '?'; }).join(',');
+        var params = oids.slice();
+        var sql = 'SELECT FROM_UNIXTIME(create_time, "%Y-%m-%d") AS day, SUM(amount) AS income, COUNT(*) AS cnt '
+            + 'FROM t_bean_logs WHERE userid IN (' + ph + ') AND change_type IN ' + REW2 + ' AND amount > 0 '
+            + 'AND create_time >= ? AND create_time < ?';
+        params.push(parseInt(from) || 0);
+        params.push(parseInt(to) || 0);
+        if(Number(partnerClubId) > 0){
+            //该下级产生的收入(抽水等直接记在下级)或从该下级分成的收入(本俱乐部社长到账)
+            sql += ' AND (club_id = ? OR partner_club_id = ?)';
+            params.push(Number(partnerClubId));
+            params.push(Number(partnerClubId));
+        }
+        sql += ' GROUP BY day ORDER BY day DESC';
+        queryP(sql, params, function(err2, rows){
+            if(err2){ console.log('club_income_stats failed:' + err2.message); callback({total: 0, list: []}); return; }
+            var total = 0;
+            var list = (rows || []).map(function(r){
+                var income = round4(Number(r.income) || 0);
+                total += income;
+                return {day: String(r.day || ''), income: income, count: Number(r.cnt) || 0};
+            });
+            callback({total: round4(total), list: list});
+        });
+    });
+};
 
 // ============ 俱乐部成员扩展操作 ============
 
@@ -2888,6 +2954,8 @@ exports.get_game_config = function(type, callback){
             gp_card_history: r.gp_card_history != null ? r.gp_card_history : 0,
             tai_rules: r.tai_rules ? JSON.parse(r.tai_rules) : null,
             auto_dissolve_seconds: r.auto_dissolve_seconds != null ? r.auto_dissolve_seconds : 300,
+            //收费模式:1=抽水/暗水/房费/表情/洗牌(不扣房卡) 0=仅房卡
+            unified_charge: r.unified_charge != null ? Number(r.unified_charge) : 0,
             enabled: r.enabled
         });
     });

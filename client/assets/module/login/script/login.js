@@ -274,19 +274,22 @@ cc.Class({
             pct0.lineHeight = 26;
         }
         root.active = true;
-        root.setPosition(0,-140); //统一在协议行上方,防旧场景残留重叠
+        //场景里的位置/尺寸以美术配置为准; 只有运行时临时创建的进度条才需要指定位置
+        if(!this._preloadBaked){ root.setPosition(0,-140); }
         //条底:场景已挂Sprite(bg4圆角底)则直接用;没有才用Graphics画深色圆角+金边
         var barBg = root.getChildByName("barBg");
-        barBg.setContentSize(520,30); //用户手绘绿底圆角条458x30
+        //条底宽度/高度跟随场景配置(场景里是780x35), 不要强改成固定值, 否则填充条会跟条底错位
+        var bgW = barBg.width > 10 ? barBg.width : 520;
+        var bgH = barBg.height > 10 ? barBg.height : 30;
         if(barBg.getComponent(cc.Sprite) == null){
             var g = barBg.getComponent(cc.Graphics) || barBg.addComponent(cc.Graphics);
             g.clear();
             g.fillColor = cc.color(0,0,0,160);
-            g.roundRect(-260,-12,520,24,12);
+            g.roundRect(-bgW / 2, -bgH / 2, bgW, bgH, Math.min(bgH / 2, 12));
             g.fill();
             g.strokeColor = cc.color(255,215,120);
             g.lineWidth = 2;
-            g.roundRect(-260,-12,520,24,12);
+            g.roundRect(-bgW / 2, -bgH / 2, bgW, bgH, Math.min(bgH / 2, 12));
             g.stroke();
         }
         //填充条(左对齐,随进度增长):有Sprite则改宽度,否则Graphics绘制
@@ -294,8 +297,9 @@ cc.Class({
         this._loadFillNode = fillN;
         this._loadFillSprite = fillN.getComponent(cc.Sprite);
         this._loadFill = this._loadFillSprite ? null : (fillN.getComponent(cc.Graphics) || fillN.addComponent(cc.Graphics));
-        if(this._loadFillSprite == null){ fillN.setPosition(-250,0); }
-        this._loadFillW = 520; //填充条满宽=条底宽(白条完全覆盖绿底即100%)
+        //填充条左边缘对齐条底左边缘, 宽度按进度增长
+        fillN.setPosition(-bgW / 2, 0);
+        this._loadFillW = bgW; //填充条满宽=条底宽(白条完全覆盖绿底即100%)
         //百分比文字
         this._loadPct = root.getChildByName("pct").getComponent(cc.Label);
         this._drawLoadProgress(0);

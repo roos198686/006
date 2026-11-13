@@ -11,6 +11,7 @@
  * 8. 可抢杠胡；台数与翻财神一致（杠开1台/抢杠1台），全字牌按后台最高台数封顶
  */
 var roomMgr = require("./roommgr");
+var mjwall = require("./mjwall");
 var userMgr = require("./usermgr");
 var db = require("../utils/db");
 var crypto = require("../utils/crypto");
@@ -570,6 +571,8 @@ function hasOperations(seatData){
 function getChupaiTimeout(game){
     return taiRule(game, 'chupai_timeout', 15);
 }
+//胡牌后延时打开小局结算弹窗的秒数(后台 taiRules.hu_delay,默认2秒)
+function getHuDelay(game){ return Math.max(0, taiRule(game, 'hu_delay', 2)); }
 function clearTurnTimeout(game){
     if(game && game.turnTimeoutId){
         clearTimeout(game.turnTimeoutId);
@@ -925,8 +928,8 @@ function doUserMoPai(game){
     // 摸牌前先计算听牌表（此时 holds=13），摸牌后直接 checkCanHu 判断自摸
     rebuildCountMap(turnSeat);
     checkTingPai(turnSeat, game.caishen, game.caishen2);
-    // 4人版：牌墙剩余26张时荒庄（流局）
-    if(game.mahjongs.length - game.currentIndex <= 26){
+    // 牌墙剩余<=不可摸张数(后台liuju_left+每杠gang_liuju*杠数)时荒庄（流局）
+    if(game.mahjongs.length - game.currentIndex <= mjwall.deadLimit(game)){
         doGameOver(game);
         return;
     }
@@ -2393,6 +2396,9 @@ exports.start = function(roomInfo){
         fanPai: game.fanPai,
         playStyle: game.playStyle,
         chupaiTimeout: getChupaiTimeout(game), //出牌倒计时(秒),后台可配,客户端同步显示
+        liuju_left: mjwall.liujuLeft(game),
+        gang_liuju: mjwall.gangLiuju(game),
+        hu_delay: getHuDelay(game),
         numofmj: game.mahjongs.length - game.currentIndex,
         seats: []
     };
@@ -2465,6 +2471,9 @@ exports.resendGameState = function(roomId, userId){
         fanPai: game.fanPai,
         playStyle: game.playStyle,
         chupaiTimeout: getChupaiTimeout(game), //出牌倒计时(秒),后台可配,客户端同步显示
+        liuju_left: mjwall.liujuLeft(game),
+        gang_liuju: mjwall.gangLiuju(game),
+        hu_delay: getHuDelay(game),
         numofmj: game.mahjongs.length - game.currentIndex,
         seats: []
     };

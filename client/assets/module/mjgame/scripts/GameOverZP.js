@@ -88,9 +88,12 @@ cc.Class({
         
         this.node.on('game_end',function(data){
             self._isGameEnd = true;
-            //需求4:牌局全部结束(服务端下发endinfo/最终结算)时直接展示"本次游戏总分数"面板
-            if(self._gameresult){ self._gameresult.active = true; }
-            if(self._gameover){ self._gameover.active = false; }
+            //最后一小局:必须先弹小局结算,总局结算等小局弹窗关闭后再显示
+            if(self._isRoundSettlePending()){
+                self._pendingGameEnd = true;
+                return;
+            }
+            self._showGameResult();
         });
     },
 
@@ -107,7 +110,43 @@ cc.Class({
         cc.tween(node).to(0.28, {scaleX: base, scaleY: base, opacity: 255}, {easing: "backOut"}).start();
     },
     
+    //后台配置:胡牌后延时打开小局结算弹窗的秒数(缺省2秒,0=立即)
+    _getHuDelay:function(){
+        var c = cc.vv.gameNetMgr ? cc.vv.gameNetMgr.conf : null;
+        var v = (c && c.hu_delay != null) ? Number(c.hu_delay) : 2;
+        if(isNaN(v)) v = 2;
+        return Math.max(0, v);
+    },
+
+    //小局结算是否还没展示(hu_delay延时中)或仍在显示
+    _isRoundSettlePending:function(){
+        return (this._overDelayCb != null) || (this._gameover != null && this._gameover.active);
+    },
+
+    //显示整场总结算面板:game_result 的位置/大小/缩放全部在场景里配置,这里只控制显隐
+    _showGameResult:function(){
+        this._pendingGameEnd = false;
+        if(this._gameresult){ this._gameresult.active = true; }
+        if(this._gameover){ this._gameover.active = false; }
+    },
+
     onGameOver(data){
+        var delay = this._getHuDelay();
+        if(delay > 0){
+            var self = this;
+            if(this._overDelayCb){ this.unschedule(this._overDelayCb); }
+            this._overDelayCb = function(){
+                self._overDelayCb = null;
+                self._showGameOver(data);
+            };
+            this.scheduleOnce(this._overDelayCb, delay);
+            return;
+        }
+        this._showGameOver(data);
+    },
+
+    //真正展示单局结算弹窗(按玩法分派)
+    _showGameOver:function(data){
         var type = cc.vv.gameNetMgr.conf.type;
         if(type == "zp" || type == "zp4" || type == "wujin" || type == "wujin4" || type == "zj" || type == "zj_bt" || type == "zj4" || type == "zj4_bt"){
             this.onGameOver_ZJ(data);
@@ -875,12 +914,14 @@ cc.Class({
     onBtnReadyClicked:function(){
         console.log("onBtnReadyClicked");
         if(this._isGameEnd){
-            this._gameresult.active = true;
+            this._showGameResult();
         }
         else{
             cc.vv.net.send('ready');   
         }
         this._gameover.active = false;
+        //通知牌桌脚本:小局结算弹窗已关闭,此时才隐藏牌桌(含亮牌)切回等待界面
+        this.node.emit('game_over_popup_closed');
     },
     
     onBtnShareClicked:function(){

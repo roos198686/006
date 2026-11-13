@@ -16,6 +16,18 @@ var db = require("../utils/db");
 var CACHE_MS = 60 * 1000;
 var cache = {};
 
+//每个玩法各自的收费模式开关(t_game_config.unified_charge):
+//  1=开启: 该玩法按宝宝模式抽水/暗水/房费/表情费/洗牌费(不扣房卡)
+//  0=关闭: 该玩法只保留房卡扣费(进房开局按现有规则扣), 抽水等全部不生效
+//不做缓存: 后台改完开关要立即生效
+function unifiedCharge(type, callback){
+    if(!type){ callback(0); return; }
+    db.get_game_config(String(type), function(cfg){
+        callback((cfg && Number(cfg.unified_charge) === 1) ? 1 : 0);
+    });
+}
+exports.unifiedCharge = unifiedCharge;
+
 function toNum(v){
     var n = Number(v);
     return isFinite(n) && n > 0 ? n : 0;
@@ -230,19 +242,30 @@ function splitPartnerShare(clubId, amount, roomId, gameType, roomUuid, gameIndex
 
 //kind: "enter" 进房首局 / "emoji" 表情 / "shuffle" 洗牌
 exports.charge = function(type, userId, kind, roomId, done){
-    rulesOf(type, function(rules){
-        var amount = rules[kind] || 0;
-        if(amount <= 0){
+    unifiedCharge(type, function(on){
+        if(!on){
             if(done) done();
             return;
         }
-        var label = kind === "enter" ? "进房首局扣豆" : (kind === "emoji" ? "表情扣豆" : "洗牌扣豆");
-        deduct(userId, amount, roomId, type, label, rules.agentRate, done);
+        rulesOf(type, function(rules){
+            var amount = rules[kind] || 0;
+            if(amount <= 0){
+                if(done) done();
+                return;
+            }
+            var label = kind === "enter" ? "进房首局扣豆" : (kind === "emoji" ? "表情扣豆" : "洗牌扣豆");
+            deduct(userId, amount, roomId, type, label, rules.agentRate, done);
+        });
     });
 };
 
 //俱乐部玩法扣费(进房首局/表情/洗牌)
 exports.chargeClub = function(type, clubConfig, userId, kind, roomId, done){
+    unifiedCharge(type, function(on){
+    if(!on){
+        if(done) done();
+        return;
+    }
     rulesOfClub(type, clubConfig, function(rules){
         var amount = rules[kind] || 0;
         if(amount <= 0){
@@ -274,12 +297,18 @@ exports.chargeClub = function(type, clubConfig, userId, kind, roomId, done){
             clubId: clubId
         });
     });
+    });
 };
 
 //房间级扣费: 表情分/洗牌分 优先取该牌桌当前conf, 缺失才回落玩法配置, 0=不扣
 //kind: "emoji" 表情 / "shuffle" 洗牌
 //实时读取DB, 避免馆主改完配置后老房间仍按旧值不扣; 每张牌桌参数独立
 exports.chargeRoom = function(conf, userId, kind, roomId, done){
+    unifiedCharge(conf && conf.type, function(on){
+    if(!on){
+        if(done) done();
+        return;
+    }
     var doCharge = function(faceScore, shuffleScore, sharePercent){
         var amount = kind === "emoji" ? (Number(faceScore) || 0) : (Number(shuffleScore) || 0);
         if(amount <= 0){
@@ -349,6 +378,7 @@ exports.chargeRoom = function(conf, userId, kind, roomId, done){
     } else {
         db.club_game_get_config_by_club_type(clubId, conf.type, apply);
     }
+    });
 };
 
 //单局结算抽水/暗水
@@ -357,6 +387,11 @@ exports.chargeRoom = function(conf, userId, kind, roomId, done){
 //roomInfo: {roomId, clubId, gameType, roomUuid, gameIndex}
 //rules: 俱乐部玩法规则(含rakePercent/hiddenRakePercent/rakePerRound)
 exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
+    unifiedCharge(roomInfo && roomInfo.gameType, function(on){
+    if(!on){
+        if(done) done();
+        return;
+    }
     if(!rules || (rules.rakePercent <= 0 && rules.hiddenRakePercent <= 0)){
         if(done) done();
         return;
@@ -422,11 +457,17 @@ exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
             }, 'hidden_profit_ratio');
         }, 'profit_ratio');
     }
+    });
 };
 
 //整场结束抽水/暗水(按总盈利)
 //totalDeltas: {seatIndex: totalDelta} 整场总盈亏
 exports.chargeRakeTotal = function(totalDeltas, winners, roomInfo, rules, done){
+    unifiedCharge(roomInfo && roomInfo.gameType, function(on){
+    if(!on){
+        if(done) done();
+        return;
+    }
     if(!rules || (rules.rakePercent <= 0 && rules.hiddenRakePercent <= 0)){
         if(done) done();
         return;
@@ -484,12 +525,18 @@ exports.chargeRakeTotal = function(totalDeltas, winners, roomInfo, rules, done){
             }, 'hidden_profit_ratio');
         }, 'profit_ratio');
     }
+    });
 };
 
 //整场结束扣房费
 //payerSeatIndex: 支付方座位(0=比赛场出 1=大赢家出)
 //bigWinnerSeat: 大赢家座位
 exports.chargeRoomFee = function(roomInfo, rules, payerSeatIndex, bigWinnerSeat, done){
+    unifiedCharge(roomInfo && roomInfo.gameType, function(on){
+    if(!on){
+        if(done) done();
+        return;
+    }
     if(!rules || rules.roomFee <= 0){
         if(done) done();
         return;
@@ -515,6 +562,7 @@ exports.chargeRoomFee = function(roomInfo, rules, payerSeatIndex, bigWinnerSeat,
             }, roomInfo.tableName || "");
         });
     }, {clubId: roomInfo.clubId, tableName: roomInfo.tableName || ""});
+    });
 };
 
 //检查人数是否满足开局条件
@@ -527,5 +575,163 @@ exports.checkStartPlayers = function(currentCount, rules){
         min: min,
         max: max
     };
+};
+
+//关闭统一收费时, 宝宝玩法改按房卡扣: 首局结算时给每个在坐玩家扣一次(与其它玩法扣法一致)
+exports.chargeRoomCard = function(roomInfo, done){
+    done = done || function(){};
+    if(!roomInfo || !roomInfo.conf){ done(); return; }
+    var conf = roomInfo.conf;
+    if(String(conf.type || "").indexOf("baobao") !== 0){ done(); return; }
+    if((Number(roomInfo.numOfGames) || 0) !== 1){ done(); return; }
+    var cost = Number(conf.cost) || 0;
+    if(!(cost > 0)){ done(); return; }
+    unifiedCharge(conf.type, function(on){
+        if(on){ done(); return; }
+        var seats = roomInfo.seats || [];
+        for(var i = 0; i < seats.length; ++i){
+            var uid = seats[i] && seats[i].userId;
+            if(uid > 0){
+                db.cost_gems(uid, cost, function(success){
+                    console.log("[宝宝房卡扣除] 玩家", uid, "扣除", cost, "结果:", success);
+                });
+            }
+        }
+        done();
+    });
+};
+
+//读牌桌/玩法收费配置(牌桌conf优先, 缺失字段回落玩法配置), 并回写conf供表情/洗牌扣费使用
+function loadTableChargeRules(roomInfo, callback){
+    var conf = roomInfo.conf || {};
+    var clubId = Number(conf.clubid) || 0;
+    var apply = function(c, tconf){
+        var src = tconf || {};
+        var c2 = c || {};
+        var pick = function(k, def){
+            if(src[k] == null || src[k] === ''){ return def; }
+            var v = Number(src[k]);
+            return isNaN(v) ? def : v;
+        };
+        var rules = {
+            clubId: clubId,
+            rakePercent: pick('rake_percent', Number(c2.rake_percent) || 0),
+            hiddenRakePercent: pick('hidden_rake_percent', Number(c2.hidden_rake_percent) || 0),
+            rakePerRound: pick('rake_per_round', c2.rake_per_round != null ? Number(c2.rake_per_round) : 1),
+            roomFee: pick('room_fee', Number(c2.room_fee) || 0),
+            roomFeePayer: pick('room_fee_payer', c2.room_fee_payer != null ? Number(c2.room_fee_payer) : 0),
+            faceScore: pick('face_score', Number(c2.face_score) || 0),
+            shuffleScore: pick('shuffle_score', Number(c2.shuffle_score) || 0)
+        };
+        conf.clubGameConfig = rules;
+        conf.face_score = rules.faceScore;
+        conf.shuffle_score = rules.shuffleScore;
+        callback(rules);
+    };
+    var loadCfg = function(cb){
+        var cfgId = Number(conf.game_config_id) || 0;
+        if(cfgId > 0){
+            db.club_game_get_config(cfgId, function(c){
+                if(c){ cb(c); }
+                else { db.club_game_get_config_by_club_type(clubId, conf.type, cb); }
+            });
+        } else {
+            db.club_game_get_config_by_club_type(clubId, conf.type, cb);
+        }
+    };
+    var tableId = Number(conf.club_table_id) || 0;
+    if(tableId > 0){
+        loadCfg(function(c){
+            db.club_get_table(tableId, function(t){
+                var tconf = null;
+                try{ tconf = t ? (JSON.parse(t.conf || "{}") || null) : null; }catch(e){ tconf = null; }
+                if(t && t.name){ conf.club_table_name = t.name; }
+                apply(c, tconf);
+            });
+        });
+    } else {
+        loadCfg(function(c){ apply(c, null); });
+    }
+}
+
+//统一收费模式下, 非宝宝玩法(麻将/跑得快/十三水等)结算时统一抽水/暗水/房费
+//由 replay 收到 game_over_push 时调用; 宝宝玩法已在 gamemgr_baobao 内自行结算, 这里跳过
+//幂等: 同一房间同一局只处理一次(断线重进补发结算不会重复扣费)
+var settledCharge = {};
+var settledChargeCount = 0;
+
+exports.settleGameOver = function(roomId, data, done){
+    done = done || function(){};
+    var roomMgr = require('./roommgr');
+    var roomInfo = roomMgr.getRoom(roomId);
+    if(!roomInfo || !roomInfo.conf || !data || !data.results){
+        done();
+        return;
+    }
+    var conf = roomInfo.conf;
+    var type = String(conf.type || "");
+    if(type.indexOf("baobao") === 0){ done(); return; }
+    if(!(Number(conf.clubid) > 0)){ done(); return; }
+
+    unifiedCharge(type, function(on){
+        if(!on){ done(); return; }
+        var key = String(roomInfo.id) + '_' + String(roomInfo.uuid || '') + '_' + String(roomInfo.numOfGames || 0);
+        if(settledCharge[key]){ done(); return; }
+        settledCharge[key] = Date.now();
+        if(++settledChargeCount > 20000){
+            settledCharge = {};
+            settledChargeCount = 0;
+        }
+        loadTableChargeRules(roomInfo, function(rules){
+            var results = data.results || [];
+            var deltas = {};
+            var totalDeltas = {};
+            var userIdOfSeat = [];
+            var roundWinners = [];
+            var totalWinners = [];
+            results.forEach(function(r, i){
+                var uid = Number(r.userid || r.userId || 0);
+                userIdOfSeat[i] = uid;
+                var d = Number(r.delta != null ? r.delta : (r.score != null ? r.score : 0)) || 0;
+                var t = Number(r.totalscore != null ? r.totalscore : d) || 0;
+                deltas[i] = d;
+                totalDeltas[i] = t;
+                if(d > 0){ roundWinners.push(i); }
+                if(t > 0){ totalWinners.push(i); }
+            });
+            if(!userIdOfSeat.length){ done(); return; }
+
+            var cri = {
+                roomId: roomInfo.id,
+                clubId: rules.clubId || Number(conf.clubid) || 0,
+                gameType: type,
+                roomUuid: roomInfo.uuid || "",
+                gameIndex: Number(roomInfo.numOfGames) || 0,
+                tableName: conf.club_table_name || "",
+                userIdOfSeat: userIdOfSeat
+            };
+            var maxGames = Number(conf.maxGames) || 0;
+            var isLast = !!data.final || (maxGames > 0 && (Number(roomInfo.numOfGames) || 0) >= maxGames);
+
+            var afterRake = function(){
+                if(!isLast){ done(); return; }
+                var afterTotal = function(){
+                    //房费: 整场结束由大赢家出(房费谁出=比赛场出不扣)
+                    var bigSeat = -1, big = -1;
+                    for(var i = 0; i < userIdOfSeat.length; i++){
+                        var t = totalDeltas[i] || 0;
+                        if(t > big){ big = t; bigSeat = i; }
+                    }
+                    exports.chargeRoomFee(cri, rules, 0, bigSeat, done);
+                };
+                if(rules.rakePerRound){
+                    afterTotal();
+                } else {
+                    exports.chargeRakeTotal(totalDeltas, totalWinners, cri, rules, afterTotal);
+                }
+            };
+            exports.chargeRake(deltas, roundWinners, cri, rules, afterRake);
+        });
+    });
 };
 

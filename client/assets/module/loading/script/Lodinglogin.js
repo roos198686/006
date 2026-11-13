@@ -120,14 +120,12 @@ cc.Class({
     checkHotUpdate:function(){
         var self = this;
         var base = (cc.vv && cc.vv.http && cc.vv.http.master_url) ? cc.vv.http.master_url : "";
-        if(!base){
-            this.checkVersion();
-            return;
-        }
-        var manifestUrl = base + "/hotupdate/project.manifest";
+        //第一个参数必须是"本地清单路径": AssetsManagerEx 内部用它对本地清单做 parseFile,
+        //远端清单/资源地址由本地清单里的 remoteManifestUrl / packageUrl 决定。传远端URL必然报 ERROR_NO_LOCAL_MANIFEST
+        var manifestUrl = "project.manifest";
         var storagePath = (jsb.fileUtils ? jsb.fileUtils.getWritablePath() : "/") + "baobao_hotupdate";
-        console.log("[HotUpdate] 检查热更:", manifestUrl);
-        console.log("[HotUpdate] 存储目录:", storagePath);
+        console.log("[HotUpdate] 本地清单:", manifestUrl, "是否打进包:", jsb.fileUtils ? jsb.fileUtils.isFileExist(manifestUrl) : "?");
+        console.log("[HotUpdate] 远端服务器:", base, "存储目录:", storagePath);
         this._stateStr = "正在检查更新";
         var am = new jsb.AssetsManager(manifestUrl, storagePath);
         am.retain();

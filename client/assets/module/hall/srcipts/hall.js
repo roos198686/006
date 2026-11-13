@@ -526,8 +526,10 @@ cc.Class({
             this._winBind(win,"btnClose",function(){ self._closeWin("userInfoWin"); });
             this._winBind(win,"btnChangeAvatar",function(){ self._showAvatarWin(); });
             this._winBind(win,"btnBind",function(){ self._showBindWin(); });
-            this._winBind(win,"btnLogout",function(){ self._logout(); });
+            //btnLogout 改为"退出登录"(只清本地登录态,不删账号); 注销账号是旁边另一个按钮
+            this._winBind(win,"btnLogout",function(){ self._confirmLogout(); });
         }
+        this._ensureLogoutBtns(win);
         //左侧头像
         this._loadSelfAvatar(this._winFind(win,"icon"));
         //右侧信息行(val0=名称 val1=ID val2=性别 val3=账号)
@@ -765,6 +767,15 @@ cc.Class({
                 return;
             }
             cc.vv.wc.hide();
+            //该账号原本绑定在别的账号下:服务端已把当前账号并入原主账号,切回原账号登录(原ID/原存档)
+            if(ret.switched){
+                self._closeWin("bindWin");
+                cc.vv.wc.showAlert("已合并到原账号，正在切换...");
+                setTimeout(function(){
+                    if(cc.vv.userMgr && cc.vv.userMgr.pwdAuth){ cc.vv.userMgr.pwdAuth(acc, pwd); }
+                },800);
+                return;
+            }
             self._bindAccount = acc; //更新个人信息页显示
             cc.vv.wc.showAlert(ret.changed ? "密码修改成功" : "绑定成功");
             self._closeWin("bindWin");
@@ -937,8 +948,51 @@ cc.Class({
         },cc.vv.http.master_url);
     },
 
+    //个人信息底部按钮: btnLogout 文案改成"退出登录", 右侧复制一个"注销账号"(场景里只有原来那一个按钮)
+    _ensureLogoutBtns:function(win){
+        var self = this;
+        var btnLogout = this._winFind(win,"btnLogout");
+        if(!btnLogout){ return; }
+        var setText = function(node, text){
+            var lbl = node.getComponentInChildren(cc.Label);
+            if(lbl){ lbl.string = text; }
+        };
+        setText(btnLogout, "退出登录");
+        btnLogout.setPosition(-120, btnLogout.y); //两个按钮并排居中(每个200宽)
+        if(this._winFind(win,"btnDeleteAccount")){ return; }
+        var btn = cc.instantiate(btnLogout);
+        btn.name = "btnDeleteAccount";
+        btn.active = true;
+        btn.parent = btnLogout.parent;
+        btn.setPosition(120, btnLogout.y);
+        setText(btn, "注销账号");
+        btn.on(cc.Node.EventType.TOUCH_END, function(){ self._deleteAccount(); });
+    },
+
+    //退出登录:只清本地登录态回登录页,账号数据保留
+    _confirmLogout:function(){
+        var doLogout = function(){
+            //只清登录态,保留本机游客账号(退出后仍可用游客登录回到原游客号)
+            cc.sys.localStorage.removeItem("wx_account");
+            cc.sys.localStorage.removeItem("wx_sign");
+            cc.sys.localStorage.removeItem("login_account");
+            cc.sys.localStorage.removeItem("login_sign");
+            cc.sys.localStorage.removeItem("login_type");
+            cc.vv.wc.show("正在退出...");
+            setTimeout(function(){
+                cc.director.loadScene("login");
+            },200);
+        };
+        if(cc.vv.alert && cc.vv.alert.show){
+            cc.vv.alert.show("退出登录","确定要退出当前账号吗？",doLogout,true);
+        }
+        else{
+            doLogout();
+        }
+    },
+
     //注销账号:弹确认框→调服务端删除(含创建人俱乐部)→清本地登录态→回登录场景
-    _logout:function(){
+    _deleteAccount:function(){
         var self = this;
         var doDelete = function(){
             cc.vv.wc.show("正在注销账户...");

@@ -180,6 +180,24 @@ cc.Class({
         }
     },
 
+    //小局结束:牌桌(含胡牌明牌)一直保留到小局结算弹窗关闭;
+    //2人房必须两名玩家都点关闭(服务端开新局)才隐藏,自己点关闭时桌面牌保持显示
+    _delayShowPrepare:function(){
+        if(this._overHideCb){ this.unschedule(this._overHideCb); this._overHideCb = null; }
+        var self = this;
+        this._pendingShowPrepare = true;
+        if(!this._overClosedHooked){
+            this._overClosedHooked = true;
+            this.node.on('game_over_popup_closed', function(){
+                if(cc.vv.mahjongmgr && cc.vv.mahjongmgr.is2Player()){ return; }
+                if(!self._pendingShowPrepare){ return; }
+                self._pendingShowPrepare = false;
+                if(self.gameRoot){ self.gameRoot.active = false; }
+                if(self.prepareRoot){ self.prepareRoot.active = true; }
+            });
+        }
+    },
+
     //事件监听
     initEventHandlers:function(){
         cc.vv.gameNetMgr.dataEventHandler = this.node;
@@ -288,10 +306,11 @@ cc.Class({
         });
 
         this.node.on('game_over',function(data){
-            self.gameRoot.active = false;
-            self.prepareRoot.active = true;
             self.hideChiPanel();
             self.hideYoujinPanel();
+            //结算弹窗按后台hu_delay延迟打开,期间牌桌(含胡牌明牌)必须保持显示
+            if(self.gameRoot){ self.gameRoot.active = true; }
+            self._delayShowPrepare();
         });
 
         //漳浦:补花通知 {si,pai,hua,numofmj}
@@ -913,6 +932,9 @@ cc.Class({
     },
     //游戏开始
     onGameBeign:function(fromGameStart, startData){
+        //新一局开始,取消上一局结算遗留的"延时切等待界面"
+        if(this._overHideCb){ this.unschedule(this._overHideCb); this._overHideCb = null; }
+        this._pendingShowPrepare = false; //新一局开始,清掉上局"弹窗关闭才切等待界面"的标记
 
         for(var i = 0; i < this._playEfxs.length; ++i){
             this._playEfxs[i].node.active = false;
@@ -1470,6 +1492,8 @@ cc.Class({
         if(localIndex == 0){
             return;
         }
+        //已胡牌的座位是明牌,对家(up)的牌槽必须保持正立,否则牌面上下颠倒
+        var upright = !!seatData.hued;
         var side = cc.vv.mahjongmgr.getSide(localIndex);
         var game = this.node.getChildByName("game");
         var sideRoot = game ? game.getChildByName(side) : null;
@@ -1494,6 +1518,7 @@ cc.Class({
                 var slotNode = sideHolds.children[idx];
                 if(slotNode == null){ continue; }
                 slotNode.active = true; //贴图/缩放完全用场景固化的,JS只切显隐
+                if(side == "up" && upright){ slotNode.scaleX = 0.73; slotNode.scaleY = 0.73; } //已胡牌明牌正立
             }
             this._hideUnusedHolds(side,sideHolds,num + n2);
             return;

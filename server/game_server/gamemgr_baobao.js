@@ -1026,6 +1026,8 @@ function doGameOver(game){
     };
 
     doCharge(function(){
+        // 统一收费关闭时: 宝宝玩法不再抽水/表情/洗牌, 改按房卡扣(首局结算一次性扣)
+        require("./charge").chargeRoomCard(roomInfo, function(){});
         // 宝宝豆结算: 每局按本局输赢分加减账户余额(gems), 余额刷新后用最新余额作为积分推送结算
         var finish = function(){
         // 组装结果(与房间座位对齐, 空位为 null, 兼容 GameNetMgr game_over_push 处理)

@@ -78,46 +78,72 @@ cc.Class({
             return;
         }
         //加载以下脚本（漳浦玩法无定缺/换三张）;组件已固化到场景,存在则跳过避免重复挂载
-        var deps = ["NoticeTip","GameOverZP","PengGangs","MJRoom","TimePointer","GameResultZP","Chat","Folds","ReplayCtrl","PopupMgr","ReConnect","Voice","UserInfoShow","DeskStyle","Alert"];
+        //注意:结算弹窗必须用场景里实际挂的 GameOver/GameResult(与其他麻将房间一致)。
+        //之前写成 GameOverZP/GameResultZP:场景没有这两个组件,addComponent 会调用到它们的 onLoad,
+        //而它们按 ZP 老场景层级取 game_over_xlch/wanfa 拿不到节点直接抛异常,
+        //整个 onLoad 中断 → 牌桌层不隐藏(残留静态"三万")、game_start监听没注册(双方准备也不发牌)。
+        var deps = ["NoticeTip","GameOver","PengGangs","MJRoom","TimePointer","GameResult","Chat","Folds","ReplayCtrl","PopupMgr","ReConnect","Voice","UserInfoShow","DeskStyle","Alert"];
         for(var di = 0; di < deps.length; ++di){
-            if(this.getComponent(deps[di]) == null){
-                this.addComponent(deps[di]);
+            //单个依赖挂载失败不能中断整个onLoad:否则后面的initView/initEventHandlers都不执行,
+            //收不到game_start → 进房永远不发牌,且牌桌层不会隐藏、局数label停留在场景里的默认文字
+            try{
+                if(this.getComponent(deps[di]) == null){
+                    this.addComponent(deps[di]);
+                }
+            }catch(e){
+                console.error("[Wujin] 依赖脚本挂载失败 " + deps[di] + ":", (e && e.stack) ? e.stack : e);
             }
         }
-        //初始化
-        this.initView();
-        this.initEventHandlers();
+        //初始化:各步骤独立try,任一节点缺失都不影响后续(尤其是事件监听)
+        try{
+            this.initView();
+        }catch(e){
+            console.error("[Wujin] initView 异常:", (e && e.stack) ? e.stack : e);
+        }
+        //事件监听必须无条件注册,漏掉就收不到game_start,进房不发牌
+        try{
+            this.initEventHandlers();
+        }catch(e){
+            console.error("[Wujin] initEventHandlers 异常:", (e && e.stack) ? e.stack : e);
+        }
 
         //场景里这两个引用可能丢失或被误指向子节点/组件(编辑器重存场景后常见),按名字纠正;
         //否则牌桌层(game)进房后不隐藏,一直显示默认牌面,且手牌触摸会吞掉退出按钮的点击
-        if(!this.gameRoot || this.gameRoot.name !== "game"){ this.gameRoot = this.node.getChildByName("game"); }
-        if(!this.prepareRoot || this.prepareRoot.name !== "prepare"){ this.prepareRoot = this.node.getChildByName("prepare"); }
-        if(this.gameRoot){ this.gameRoot.active = false; }
-        if(this.prepareRoot){ this.prepareRoot.active = true; }
-        this.initWanfaLabel();
-        this.onGameBeign();
-        this.initCaishenTip(); //场景加载时若已开局(错过game_start事件)也补绘金牌
+        try{
+            if(!this.gameRoot || this.gameRoot.name !== "game"){ this.gameRoot = this.node.getChildByName("game"); }
+            if(!this.prepareRoot || this.prepareRoot.name !== "prepare"){ this.prepareRoot = this.node.getChildByName("prepare"); }
+            if(this.gameRoot){ this.gameRoot.active = false; }
+            if(this.prepareRoot){ this.prepareRoot.active = true; }
+            this.initWanfaLabel();
+            this.onGameBeign();
+            this.initCaishenTip(); //场景加载时若已开局(错过game_start事件)也补绘金牌
+        }catch(e){
+            console.error("[Wujin] onLoad 收尾异常:", (e && e.stack) ? e.stack : e);
+        }
         cc.vv.audioMgr.playBGM("bgFight.mp3");
     },
 
     //初始化
     initView:function(){
-        //game节点
+        this._captureHoldBackFrames(); //先记录场景默认牌背,后面胡牌明牌会改槽位贴图
+        //game节点(缺失就直接返回,后面全是基于它的节点查找)
         var gameChild = this.node.getChildByName("game");
-        //mj剩余数和剩余局数
-        this._mjcount = gameChild.getChildByName('mjcount').getComponent(cc.Label);
-        this._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
-        this._gamecount = gameChild.getChildByName('gamecount').getComponent(cc.Label);
-        this._gamecount.string = "" + cc.vv.gameNetMgr.numOfGames + "/" + cc.vv.gameNetMgr.maxNumOfGames + "局";
-        //剩余牌数放到中间局数的左侧(下一拍等Label宽度更新后再对齐)
-        var mjcountNode = this._mjcount.node, gamecountNode = this._gamecount.node;
-        this.scheduleOnce(function(){
-            if(!cc.isValid(mjcountNode) || !cc.isValid(gamecountNode)){ return; }
-            mjcountNode.setPosition(gamecountNode.x - gamecountNode.width/2 - mjcountNode.width/2 - 12, gamecountNode.y);
-        }, 0);
+        if(gameChild == null){ return; }
+        //mj剩余数和剩余局数:节点/组件缺失时跳过,不能抛异常,否则initEventHandlers不会注册(进房不发牌)
+        var mjcountNode = gameChild.getChildByName('mjcount');
+        if(mjcountNode){
+            this._mjcount = mjcountNode.getComponent(cc.Label);
+            if(this._mjcount){ this._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张"; }
+        }
+        var gamecountNode = gameChild.getChildByName('gamecount');
+        if(gamecountNode){
+            this._gamecount = gamecountNode.getComponent(cc.Label);
+            if(this._gamecount){ this._gamecount.string = "" + cc.vv.gameNetMgr.numOfGames + "/" + cc.vv.gameNetMgr.maxNumOfGames + "局"; }
+        }
+        //剩余牌数/剩余局数只填文字,节点位置完全按场景里配置,JS不再调整
         //取到手牌节点
         var myselfChild = gameChild.getChildByName("myself");
-        var myholds = myselfChild.getChildByName("holds");
+        var myholds = myselfChild ? myselfChild.getChildByName("holds") : null;
         //无金16张玩法:每人16张手牌,庄家摸牌后17张;场景固化的14个槽不够,先补齐到17槽(自己+各方位)
         this._ensureHoldsSlots(gameChild,"myself",this._holdsSlotCount);
         var sideNames = ["up","right","left"];
@@ -126,8 +152,9 @@ cc.Class({
         }
 
         //手牌数放到myMjarr数组中
-        for(var i = 0; i < myholds.children.length; ++i){
+        for(var i = 0; myholds && i < myholds.children.length; ++i){
             var sprite = myholds.children[i].getComponent(cc.Sprite);
+            if(sprite == null){ continue; }
             this._myMJArr.push(sprite);
             sprite.spriteFrame = null;
         }
@@ -135,7 +162,7 @@ cc.Class({
         //获取真实宽度(2.4无cc.director.getVisibleSize,必须用cc.view)
         var realwidth = cc.view.getVisibleSize().width;
         var mjscale = realwidth/1280;
-        if(mjscale < 1){ //仅窄屏时缩放手牌,宽屏保持原始布局防止手牌超出屏幕右缘
+        if(myholds && mjscale < 1){ //仅窄屏时缩放手牌,宽屏保持原始布局防止手牌超出屏幕右缘
             myholds.scaleX *= mjscale;
             myholds.scaleY *= mjscale;
         }
@@ -147,13 +174,17 @@ cc.Class({
             if(sideChild == null){ continue; }
             this._hupaiTips.push(sideChild.getChildByName("HuPai"));
             this._hupaiLists.push(sideChild.getChildByName("hupailist"));
-            this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
+            var efxNode = sideChild.getChildByName("play_efx");
+            this._playEfxs.push(efxNode ? efxNode.getComponent(cc.Animation) : null);
             //出牌数组将出牌节点获取进来
-            this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
+            var chuPai = sideChild.getChildByName("ChuPai");
+            this._chupaiSprite.push((chuPai && chuPai.childrenCount > 0) ? chuPai.children[0].getComponent(cc.Sprite) : null);
             //获取胡后显示节点
             var opt = sideChild.getChildByName("opt");
+            if(opt == null){ continue; }
             opt.active = false;
-            var sprite = opt.getChildByName("pai").getComponent(cc.Sprite);
+            var pai = opt.getChildByName("pai");
+            var sprite = pai ? pai.getComponent(cc.Sprite) : null;
             var data = {
                 node:opt,
                 sprite:sprite
@@ -232,7 +263,27 @@ cc.Class({
     //隐藏出牌
     hideChupai:function(){
         for(var i = 0; i < this._chupaiSprite.length; ++i){
-            this._chupaiSprite[i].node.active = false;
+            if(this._chupaiSprite[i] && this._chupaiSprite[i].node){ this._chupaiSprite[i].node.active = false; }
+        }
+    },
+
+    //小局结束:按后台hu_delay(缺省2秒)延后切到等待界面,结算弹窗同样延时打开,期间保留牌桌展示胡牌明牌
+    _delayShowPrepare:function(){
+        //胡牌后牌桌(含对家明牌)一直保留到小局结算弹窗关闭,期间不隐藏;
+        //弹窗关闭时由 GameOver.onBtnReadyClicked 发出 game_over_popup_closed,这里再切回等待界面。
+        //(以前固定hu_delay秒后就隐藏牌桌,弹窗还开着牌面就全没了)
+        var self = this;
+        this._pendingShowPrepare = true;
+        if(!this._overClosedHooked){
+            this._overClosedHooked = true;
+            this.node.on('game_over_popup_closed', function(){
+                //2人房:必须两名玩家都点关闭(服务端开新局)才隐藏牌桌,自己点关闭时桌面牌保持显示
+                if(cc.vv.mahjongmgr && cc.vv.mahjongmgr.is2Player()){ return; }
+                if(!self._pendingShowPrepare){ return; }
+                self._pendingShowPrepare = false;
+                if(self.gameRoot){ self.gameRoot.active = false; }
+                if(self.prepareRoot){ self.prepareRoot.active = true; }
+            });
         }
     },
 
@@ -350,10 +401,14 @@ cc.Class({
         });
 
         this.node.on('game_over',function(data){
-            self.gameRoot.active = false;
-            self.prepareRoot.active = true;
             self.hideChiPanel();
             self.hideYoujinPanel();
+            //亮牌:无论谁胡牌,对家的手牌都要翻开成明牌(自己胡牌时同样要亮对家)
+            self.revealAllOtherHolds(data.detail);
+            //结算弹窗按后台hu_delay延迟打开,期间保留牌桌让明牌可见,延时后再切到等待界面
+            //胡牌后到结算弹窗弹出前,牌桌(含胡牌明牌)必须保持显示,不能被任何等待界面逻辑隐藏
+            if(self.gameRoot){ self.gameRoot.active = true; }
+            self._delayShowPrepare();
         });
 
         //漳浦:补花通知 {si,pai,hua,numofmj}
@@ -449,6 +504,7 @@ cc.Class({
         });
         //吃
         this.node.on('chi_notify',function(data){
+            self._chiJustSent = false; //吃牌成功,清掉2秒超时提示标记(否则会误报"吃牌超时")
             self.hideChupai();
             var seatData = data.detail;
             console.log('[chi_notify] seatData.userid=',seatData.userid,'holds=',typeof seatData.holds === 'object' ? seatData.holds.length+':'+JSON.stringify(seatData.holds) : seatData.holds);
@@ -1028,12 +1084,16 @@ cc.Class({
     },
     //游戏开始
     onGameBeign:function(fromGameStart, startData){
+        //新一局开始,取消上一局结算遗留的"延时切等待界面"
+        if(this._overHideCb){ this.unschedule(this._overHideCb); this._overHideCb = null; }
+        this._pendingShowPrepare = false; //新一局开始,清掉上局"弹窗关闭才切等待界面"的标记
 
         for(var i = 0; i < this._playEfxs.length; ++i){
-            this._playEfxs[i].node.active = false;
+            if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
         for(var i = 0; i < this._hupaiLists.length; ++i){
+            if(this._hupaiLists[i] == null){ continue; }
             for(var j = 0; j < this._hupaiLists[i].childrenCount; ++j){
                 this._hupaiLists[i].children[j].active = false;
             }
@@ -1044,6 +1104,7 @@ cc.Class({
             var seatData = cc.vv.gameNetMgr.seats[i];
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
             var hupai = this._hupaiTips[localIndex];
+            if(hupai == null){ continue; }
             hupai.active = seatData.hued;
             if(seatData.hued){
                 hupai.getChildByName("sprHu").active = !seatData.iszimo;
@@ -1063,14 +1124,15 @@ cc.Class({
         for(var i = 0; i < sides.length; ++i){
             var sideChild = gameChild.getChildByName(sides[i]);
             if(sideChild == null){ continue; }
-            //该方位对应的本机座位,-1表示本局不参与
-            var li = cc.vv.mahjongmgr.getLocalIndexBySlot(i + 1);
+            //该方位对应的本机座位,-1表示本局不参与(老版本MahjongMgr没有getLocalIndexBySlot时退回getLocalIndex)
+            var li = (cc.vv.mahjongmgr.getLocalIndexBySlot ? cc.vv.mahjongmgr.getLocalIndexBySlot(i + 1) : cc.vv.gameNetMgr.getLocalIndex(i + 1));
             if(li < 0){
                 sideChild.active = false;
                 continue;
             }
             sideChild.active = true;
             var holds = sideChild.getChildByName("holds");
+            if(holds == null){ continue; }
             //手牌槽(已由initView补齐到17槽)这里一律先全暗;点亮由 initOtherMahjongs 按真实手牌数负责,
             //否则无对局数据(重进房间/结算后)时会残留显示满手的牌背
             for(var j = 0; j < holds.childrenCount; ++j){
@@ -1078,7 +1140,7 @@ cc.Class({
             }
         }
 
-        if(cc.vv.gameNetMgr.gamestate == "" && cc.vv.replayMgr.isReplay() == false){
+        if(cc.vv.gameNetMgr.gamestate == "" && !(cc.vv.replayMgr && cc.vv.replayMgr.isReplay())){
             return;
         }
 
@@ -1576,6 +1638,22 @@ cc.Class({
         }
     },
 
+    //记录场景里各方位手牌槽的默认牌背贴图:胡牌亮明牌会覆盖槽位贴图,新一局必须还原成牌背
+    _captureHoldBackFrames:function(){
+        if(this._holdBackFrames){ return; }
+        this._holdBackFrames = {};
+        var game = this.node.getChildByName("game");
+        if(game == null){ return; }
+        var sides = ["myself","up","right","left"];
+        for(var si = 0; si < sides.length; ++si){
+            var sideNode = game.getChildByName(sides[si]);
+            var holds = sideNode ? sideNode.getChildByName("holds") : null;
+            if(holds == null || holds.childrenCount === 0){ continue; }
+            var sp = holds.children[0].getComponent(cc.Sprite);
+            if(sp && sp.spriteFrame){ this._holdBackFrames[sides[si]] = sp.spriteFrame; }
+        }
+    },
+
     initOtherMahjongs:function(seatData){
         this._cancelDealAnim(); //手牌相关重绘到来即终止发牌动画并归位
         if(seatData == null){ return; }
@@ -1583,6 +1661,8 @@ cc.Class({
         if(localIndex == 0){
             return;
         }
+        //已胡牌的座位是明牌,对家(up)的牌槽必须保持正立(scaleY=1),否则牌面上下颠倒
+        var upright = !!seatData.hued;
         var side = cc.vv.mahjongmgr.getSide(localIndex);
         var game = this.node.getChildByName("game");
         var sideRoot = game ? game.getChildByName(side) : null;
@@ -1606,8 +1686,12 @@ cc.Class({
                 var idx = this.getMJIndex(side,i);
                 var slotNode = sideHolds.children[idx];
                 if(slotNode == null){ continue; }
-                slotNode.active = true; //贴图/缩放完全用场景固化的,JS只切显隐
-                if(side == "up"){ slotNode.scaleX = 1.0; slotNode.scaleY = -1; } //新一局恢复对家牌背的翻转
+                slotNode.active = true;
+                //还原场景默认牌背:上局胡牌亮明牌把槽位贴图改成了真实牌面,不还原新一局对家会一直是明牌
+                var backSf = this._holdBackFrames ? this._holdBackFrames[side] : null;
+                var slotSp = slotNode.getComponent(cc.Sprite);
+                if(backSf && slotSp){ slotSp.spriteFrame = backSf; }
+                if(side == "up"){ slotNode.scaleX = 1.0; slotNode.scaleY = upright ? 1.0 : -1; } //未胡牌保持对家牌背翻转,已胡牌明牌正立
             }
             this._hideUnusedHolds(side,sideHolds,num + n2);
             return;
@@ -1619,6 +1703,8 @@ cc.Class({
             if(sprite == null){ continue; }
             sprite.node.active = true;
             sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,holds[i]);
+            //数组手牌即真实牌面(明牌/回放),对家牌槽必须正立,否则上下颠倒
+            if(side == "up"){ sprite.node.scaleX = 1.0; sprite.node.scaleY = 1.0; }
         }
         //真实手牌之后的固化槽位全部隐藏:槽位数按实际节点数(无金16张已补齐到17槽)
         this._hideUnusedHolds(side,sideHolds,num + holds.length);
@@ -1653,10 +1739,22 @@ cc.Class({
         seatData.holds = arr;
         this.initOtherMahjongs(seatData);
         seatData.holds = oldHolds;
-        //再翻回正向:scaleY -1 => 1,明牌可正常阅读
+        //再翻回正向:全部牌槽(含16张玩法第15~17槽)scaleY -1 => 1,明牌可正常阅读
         for(var i = 0; i < sideHolds.childrenCount; ++i){
             var nc = sideHolds.children[i];
-            if(nc && nc.active){ nc.scaleX = 1.0; nc.scaleY = 1.0; }
+            if(nc){ nc.scaleX = 1.0; nc.scaleY = 1.0; }
+        }
+    },
+
+    //结算亮牌:把其余座位的手牌也翻成明牌(自己胡牌、荒庄都亮)
+    revealAllOtherHolds:function(results){
+        if(!results || typeof(results) != "object" || results.length == null){ return; }
+        for(var i = 0; i < results.length; ++i){
+            var rs = results[i];
+            if(!rs || rs.seatindex == null){ continue; }
+            if(cc.vv.gameNetMgr.getLocalIndex(rs.seatindex) == 0){ continue; } //自己的手牌本来就在自己面前
+            if(!rs.holds || typeof(rs.holds) != "object" || rs.holds.length == null || rs.holds.length === 0){ continue; }
+            this.revealOtherHolds(rs.seatindex,rs.holds,null);
         }
     },
 

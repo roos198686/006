@@ -9,6 +9,7 @@
  * 6. 自摸、点炮、杠开、抢杠胡；老庄翻倍；封顶台数走后台配置
  */
 var roomMgr = require("./roommgr");
+var mjwall = require("./mjwall");
 var userMgr = require("./usermgr");
 var db = require("../utils/db");
 var crypto = require("../utils/crypto");
@@ -144,14 +145,8 @@ function fanCaishen(game){
 }
 
 function mopai(game, seatIndex, fromTail) {
-    //普通摸牌流局线=固定26张+后台gang_liuju*场上杠数;杠补允许从置灰区尾部取牌
-    var limit = 26;
-    var gangExtra = taiRule(game, 'gang_liuju', 0);
-    if(gangExtra > 0){
-        for(var gi = 0; gi < game.gameSeats.length; ++gi){
-            limit += gangExtra * ((game.gameSeats[gi].gangs || []).length);
-        }
-    }
+    //普通摸牌流局线=后台liuju_left(缺省26)+每杠gang_liuju*场上杠数;杠补允许从置灰区尾部取牌
+    var limit = mjwall.deadLimit(game);
     var data = game.gameSeats[seatIndex];
     if(game.tailIndex == null) game.tailIndex = game.mahjongs.length;
     if(fromTail){
@@ -700,6 +695,8 @@ function scheduleMoPai(game, fromTail){
 function getChupaiTimeout(game){
     return taiRule(game, 'chupai_timeout', 15);
 }
+//胡牌后延时打开小局结算弹窗的秒数(后台 taiRules.hu_delay,默认2秒)
+function getHuDelay(game){ return Math.max(0, taiRule(game, 'hu_delay', 2)); }
 function clearTurnTimeout(game){
     if(game && game.turnTimeoutId){
         clearTimeout(game.turnTimeoutId);
@@ -2294,9 +2291,11 @@ exports.start = function(roomInfo){
         fanPai: game.fanPai,
         playStyle: game.playStyle,
         chupaiTimeout: getChupaiTimeout(game), //出牌倒计时(秒),后台可配,客户端同步显示
+        liuju_left: mjwall.liujuLeft(game),
+        gang_liuju: mjwall.gangLiuju(game),
+        hu_delay: getHuDelay(game),
         numofmj: (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex,
         hu_guo_confirm: game.hu_guo_confirm,
-        gang_liuju: taiRule(game, 'gang_liuju', 0), //每杠流局加张,客户端牌墙据此把可摸牌尾部对应张数置灰
         seats: []
     };
     for(var i = 0; i < 2; ++i){
@@ -2377,9 +2376,11 @@ exports.resendGameState = function(roomId, userId){
         fanPai: game.fanPai,
         playStyle: game.playStyle,
         chupaiTimeout: getChupaiTimeout(game), //出牌倒计时(秒),后台可配,客户端同步显示
+        liuju_left: mjwall.liujuLeft(game),
+        gang_liuju: mjwall.gangLiuju(game),
+        hu_delay: getHuDelay(game),
         numofmj: (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex,
         hu_guo_confirm: game.hu_guo_confirm,
-        gang_liuju: taiRule(game, 'gang_liuju', 0), //每杠流局加张,客户端牌墙据此把可摸牌尾部对应张数置灰
         seats: []
     };
     for(var i = 0; i < 2; ++i){

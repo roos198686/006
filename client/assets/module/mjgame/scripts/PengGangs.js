@@ -91,15 +91,18 @@ cc.Class({
         this.hideSide("left");
     },
 
-    //诸暨赖倒胡专用判定:PengGangs为各玩法共用,贴紧/对齐改动只作用zjlao场景,不影响其他6个玩法
-    _isZjlao:function(){
-        return this.node.getComponent("MJGameZJLAO") != null;
+    //带财神的玩法判定:赖倒胡(zjlao)/翻财神(ldh)/自选财神(zjzx)的副露里出现财神时要变色+角标,
+    //其他不带财神的玩法不受影响
+    _isCaishenMeld:function(){
+        return this.node.getComponent("MJGameZJLAO") != null
+            || this.node.getComponent("MJGameLDH") != null
+            || this.node.getComponent("MJGameZJZX") != null;
     },
 
     //副露财神角标: 角标节点已做进预制体PengGangMyself(或场景csCornerMeld),位置/大小在编辑器里直接调,
     //运行时只切换显隐,代码不再算坐标
     _setCaishenCorner:function(tileNode,pai){
-        if(!this._isZjlao() || !tileNode){ return; }
+        if(!this._isCaishenMeld() || !tileNode){ return; }
         var corner = tileNode.getChildByName("csCorner");
         var conf = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.conf) || {};
         var isCs = pai != null && pai >= 0 && (pai == conf.caishen || (conf.caishen2 != null && conf.caishen2 >= 0 && pai == conf.caishen2));

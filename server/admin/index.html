@@ -549,6 +549,13 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
           <input type="number" id="cfg_auto_dissolve" value="300" title="房间内有玩家断线或无动作超过该秒数自动解散">
         </div>
       </div>
+      <div class="form-group">
+        <label>收费模式（每个玩法独立）</label>
+        <select id="cfg_unified_charge">
+          <option value="0">仅扣房卡（进房开局扣，抽水/暗水/房费/表情/洗牌不生效）</option>
+          <option value="1">抽水扣豆（抽水/暗水/房费/表情/洗牌生效，不扣房卡）</option>
+        </select>
+      </div>
     </div>
 
     <!-- 玩法开关(按玩法类型动态显示) -->
@@ -562,10 +569,6 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <label class="inline"><input type="checkbox" id="cfg_cai_pure"> 纯财神吃碰杠(不需真牌)</label>
         <label class="inline"><input type="checkbox" id="cfg_hu_guo_confirm" checked> 过胡二次确认</label>
         <label class="inline"><input type="checkbox" id="cfg_dianpao_hu" checked> 允许点炮胡</label>
-        <label class="inline">每杠流局加张
-          <input type="number" id="cfg_gang_liuju" value="0" min="0" max="20" style="width:60px;">
-          <span style="color:#888;">(0=不加;如设4,每有一个杠流局线26+4)</span>
-        </label>
         <label class="inline" data-switch-group="2p"><input type="checkbox" id="cfg_remove_wan" onchange="removeGroupCheck(this)"> 去掉万子(仅2人)</label>
         <label class="inline" data-switch-group="2p"><input type="checkbox" id="cfg_remove_tiao" onchange="removeGroupCheck(this)"> 去掉条子(仅2人)</label>
         <label class="inline" data-switch-group="2p"><input type="checkbox" id="cfg_remove_tong" onchange="removeGroupCheck(this)"> 去掉筒子(仅2人)</label>
@@ -1501,7 +1504,10 @@ var TAI_RULE_FIELDS = [
   {key:'gang_kai', label:'杠上开花', def:1},
   {key:'qiang_gang', label:'抢杠胡', def:1},
   {key:'wu_cai', label:'无财', def:1},
-  {key:'chupai_timeout', label:'出牌倒计时(秒,0关托管)', def:15}
+  {key:'chupai_timeout', label:'出牌倒计时(秒,0关托管)', def:15},
+  {key:'liuju_left', label:'置灰不可摸数量(剩N张荒庄,0=不置灰)', def:26},
+  {key:'gang_liuju', label:'每杠增加不可摸数量', def:0},
+  {key:'hu_delay', label:'胡牌后延时开结算(秒)', def:2}
 ];
 // 漳浦麻将台数规则字段（玩法 type 以 "zp" 开头时使用，对应 zp/zp4）
 var ZP_TAI_RULE_FIELDS = [
@@ -1520,7 +1526,10 @@ var ZP_TAI_RULE_FIELDS = [
   {key:'you_jin_multi', label:'游金每级倍数', def:2},
   {key:'you_jin_max', label:'游金最高级数', def:3},
   {key:'fenbing', label:'分饼开关(0关1开,仅4人)', def:0},
-  {key:'chupai_timeout', label:'出牌超时(秒)', def:15}
+  {key:'chupai_timeout', label:'出牌超时(秒)', def:15},
+  {key:'liuju_left', label:'置灰不可摸数量(剩N张荒庄,0=不置灰)', def:26},
+  {key:'gang_liuju', label:'每杠增加不可摸数量', def:0},
+  {key:'hu_delay', label:'胡牌后延时开结算(秒)', def:2}
 ];
 // 漳浦无金麻将台数规则字段（wujin/wujin4 共用）
 var WUJIN_TAI_RULE_FIELDS = [
@@ -1529,6 +1538,15 @@ var WUJIN_TAI_RULE_FIELDS = [
   {key:'men_qing', label:'门清加台(暗杠保门清)', def:1},
   {key:'peng_peng', label:'碰碰胡加台', def:2},
   {key:'qing_yise', label:'清一色加台', def:3},
+  {key:'da_san_yuan', label:'大三元加台(中发白各一刻)', def:8},
+  {key:'da_si_xi', label:'大四喜加台(东南西北各一刻)', def:16},
+  {key:'honor_zhong', label:'中刻子加台', def:2},
+  {key:'honor_fa', label:'发刻子加台', def:2},
+  {key:'honor_bai', label:'白刻子加台', def:2},
+  {key:'honor_dong', label:'东刻子加台', def:1},
+  {key:'honor_nan', label:'南刻子加台', def:1},
+  {key:'honor_xi', label:'西刻子加台', def:1},
+  {key:'honor_bei', label:'北刻子加台', def:1},
   {key:'gang_kai', label:'杠上开花加台(不再加自摸)', def:2},
   {key:'qiang_gang', label:'抢加杠加台', def:2},
   {key:'hai_di', label:'海底捞月加台(不再加自摸)', def:2},
@@ -1547,7 +1565,11 @@ var WUJIN_TAI_RULE_FIELDS = [
   {key:'remove_wan', label:'二人去万(0留1去)', def:0},
   {key:'remove_tong', label:'二人去筒(0留1去)', def:0},
   {key:'remove_tiao', label:'二人去条(0留1去)', def:0},
-  {key:'chupai_timeout', label:'出牌超时(秒)', def:15}
+  {key:'remove_zi', label:'去掉字牌东南西北中发白(0留1去)', def:0},
+  {key:'chupai_timeout', label:'出牌超时(秒)', def:15},
+  {key:'liuju_left', label:'流局留牌数(剩N张荒庄,0=打完)', def:0},
+  {key:'gang_liuju', label:'每杠增加不可摸数量', def:0},
+  {key:'hu_delay', label:'胡牌后延时开结算(秒)', def:2}
 ];
 // 宝宝免摆配置字段（type == "baobao_mian" 时使用）
 var BB_MIAN_FIELDS = [
@@ -1740,6 +1762,7 @@ function renderConfigs(){
         '<div class="row"><span class="k">财神可吃/碰/杠</span><span class="v">'+(c.cai_chi?'吃':'-')+'/'+(c.cai_peng?'碰':'-')+'/'+(c.cai_gang?'杠':'-')+'</span></div>'+
         '<div class="row"><span class="k">点炮胡</span><span class="v">'+(c.dianpao_hu?'是':'否')+'</span></div>'+
         '<div class="row"><span class="k">去牌</span><span class="v">'+(function(){var tr=c.tai_rules||{};var arr=[];if(tr.remove_wan)arr.push('万');if(c.remove_tiao)arr.push('条');if(tr.remove_tong)arr.push('筒');return arr.length?arr.join(''):'无';})()+'</span></div>' : '')+
+        '<div class="row"><span class="k">收费模式</span><span class="v">'+(String(c.unified_charge) === '1' ? '抽水扣豆' : '仅房卡')+'</span></div>'+
         '<div class="row"><span class="k">自动解散</span><span class="v">'+(c.auto_dissolve_seconds != null ? c.auto_dissolve_seconds : 300)+'秒</span></div></div>'+
         '<div class="card-actions">'+
         '<button class="btn btn-default btn-sm" onclick="editConfig('+c.id+')">编辑</button>'+
@@ -1785,6 +1808,7 @@ function showConfigModal(){
     document.getElementById('cfg_gp_card_history').checked = false;
   document.getElementById('cfg_sort').value = 0;
   document.getElementById('cfg_auto_dissolve').value = 300;
+  document.getElementById('cfg_unified_charge').value = '0';
   document.getElementById('cfg_enabled').checked = true;
   applyTypeGroups('');
   renderTaiRules({});
@@ -1852,7 +1876,6 @@ function editConfig(id){
     document.getElementById('cfg_dianpao_hu').checked = c.dianpao_hu != null ? !!c.dianpao_hu : true;
     var trRules = c.tai_rules || {};
     document.getElementById('cfg_hu_score').checked = !!trRules.hu_score_enabled;
-    document.getElementById('cfg_gang_liuju').value = trRules.gang_liuju != null ? trRules.gang_liuju : 0;
     document.getElementById('cfg_remove_wan').checked = !!trRules.remove_wan;
     document.getElementById('cfg_remove_tiao').checked = !!c.remove_tiao;
     document.getElementById('cfg_remove_tong').checked = !!trRules.remove_tong;
@@ -1871,6 +1894,7 @@ function editConfig(id){
     document.getElementById('cfg_gp_card_history').checked = !!c.gp_card_history;
     document.getElementById('cfg_sort').value = c.sort;
     document.getElementById('cfg_auto_dissolve').value = c.auto_dissolve_seconds != null ? c.auto_dissolve_seconds : 300;
+    document.getElementById('cfg_unified_charge').value = (String(c.unified_charge) === '1') ? '1' : '0';
     document.getElementById('cfg_enabled').checked = !!c.enabled;
     editingTaiRules = (c.tai_rules && typeof c.tai_rules === 'object') ? c.tai_rules : null;
     var tr = editingTaiRules || {};
@@ -1948,6 +1972,7 @@ function saveConfig(){
     gp_straight_a2: document.getElementById('cfg_gp_straight_a2').checked ? 1 : 0,
     gp_card_history: document.getElementById('cfg_gp_card_history').checked ? 1 : 0,
     auto_dissolve_seconds: parseInt(document.getElementById('cfg_auto_dissolve').value) || 300,
+    unified_charge: parseInt(document.getElementById('cfg_unified_charge').value) || 0,
     sort: parseInt(document.getElementById('cfg_sort').value),
     enabled: document.getElementById('cfg_enabled').checked
   };
@@ -1965,7 +1990,9 @@ function saveConfig(){
   }
   //每杠流局加张/去万/去筒 随 tai_rules JSON 存储(去条保持原有独立列)
   data.tai_rules = data.tai_rules || {};
-  data.tai_rules.gang_liuju = parseInt(document.getElementById('cfg_gang_liuju').value) || 0;
+  //每杠流局加张已并入台数规则字段(getTaiRules);老版独立输入框不存在时跳过
+  var _gangEl = document.getElementById('cfg_gang_liuju');
+  if(_gangEl){ data.tai_rules.gang_liuju = parseInt(_gangEl.value) || 0; }
   data.tai_rules.remove_wan = document.getElementById('cfg_remove_wan').checked ? 1 : 0;
   data.tai_rules.remove_tong = document.getElementById('cfg_remove_tong').checked ? 1 : 0;
   data.tai_rules.hu_score_enabled = document.getElementById('cfg_hu_score').checked ? 1 : 0;

@@ -142,11 +142,8 @@ cc.Class({
     
     onLoginResp:function(code){
         var data = {code:code,os:cc.sys.os};
-        //本机已有游客账号时带上,服务端自动完成游客账号与微信账号的绑定
-        var guest = cc.sys.localStorage.getItem("account");
-        if(guest && guest.indexOf("guest_") === 0){
-            data.bind_account = guest;
-        }
+        //微信登录不做自动绑定:每次微信登录只对应微信自己的账号,
+        //要与已有账号合并,必须登录后到个人信息里手动"绑定账号"(按账号密码校验后合并)
         var fn = function(ret){
             if(ret.errcode == 0){
                 cc.sys.localStorage.setItem("wx_account",ret.account);

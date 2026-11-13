@@ -20,9 +20,9 @@ android {
                     targets 'cocos2djs'
                     arguments 'NDK_TOOLCHAIN_VERSION=clang'
                     
-                    def module_paths = [project.file("../../jsb-default/frameworks/cocos2d-x"),
-                                        project.file("../../jsb-default/frameworks/cocos2d-x/cocos"),
-                                        project.file("../../jsb-default/frameworks/cocos2d-x/external")]
+                    def module_paths = [project.file("../../../../../jsb-default/frameworks/cocos2d-x"),
+                                        project.file("../../../../../jsb-default/frameworks/cocos2d-x/cocos"),
+                                        project.file("../../../../../jsb-default/frameworks/cocos2d-x/external")]
                     if (Os.isFamily(Os.FAMILY_WINDOWS)) {
                         arguments 'NDK_MODULE_PATH=' + module_paths.join(";")
                     }
@@ -119,12 +119,19 @@ android.applicationVariants.all { variant ->
             from "${sourceDir}/project.json"
             into outputDir
         }
+
+        // 热更新本地清单必须打进APK(assets/project.manifest), 否则AssetsManagerEx读不到本地清单, 热更永远不生效
+        copy {
+            from "${sourceDir}/project.manifest"
+            from "${sourceDir}/version.manifest"
+            into outputDir
+        }
     }
 }
 
 dependencies {
     implementation fileTree(dir: '../libs', include: ['*.jar','*.aar'])
     implementation fileTree(dir: 'libs', include: ['*.jar','*.aar'])
-    implementation fileTree(dir: "../../jsb-default/frameworks/cocos2d-x/cocos/platform/android/java/libs", include: ['*.jar'])
+    implementation fileTree(dir: "../../../../../jsb-default/frameworks/cocos2d-x/cocos/platform/android/java/libs", include: ['*.jar'])
     implementation project(':libcocos2dx')
 }

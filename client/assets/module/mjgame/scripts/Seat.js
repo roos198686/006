@@ -154,7 +154,7 @@ cc.Class({
         }
         
         if(this._ready){
-            this._ready.active = this._isReady; //首局未开(numOfGames==0)也要显示准备状态,后进入的玩家才能看到前人已准备
+            this._ready.active = this._isReady && this._canShowReady();
         }
         
         if(this._zhuang){
@@ -219,10 +219,15 @@ cc.Class({
         }
     },
 
+    //"已准备"标识只在首局开局前显示;开局后(含胡牌结算期点准备)永久隐藏,不再出现在牌桌上
+    _canShowReady:function(){
+        return !!(cc.vv && cc.vv.gameNetMgr && cc.vv.gameNetMgr.numOfGames == 0);
+    },
+
     setReady:function(isReady){
         this._isReady = isReady;
         if(this._ready){
-            this._ready.active = this._isReady; //首局未开(numOfGames==0)也要显示准备状态,后进入的玩家才能看到前人已准备
+            this._ready.active = this._isReady && this._canShowReady();
         }
     },
     
