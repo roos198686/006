@@ -35575,7 +35575,7 @@
         "__id__": 869
       }
     ],
-    "_active": true,
+    "_active": false,
     "_components": [
       {
         "__id__": 871
@@ -36316,7 +36316,7 @@
       "__id__": 852
     },
     "_children": [],
-    "_active": true,
+    "_active": false,
     "_components": [
       {
         "__id__": 868
@@ -98679,6 +98679,7 @@
       "__id__": 9
     },
     "_myMJArr": [],
+    "_holdsSlotCount": 17,
     "_options": null,
     "_selectedMJ": null,
     "_chupaiSprite": [],
