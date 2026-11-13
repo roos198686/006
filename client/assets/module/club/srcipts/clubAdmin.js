@@ -382,7 +382,16 @@ cc.Class({
         if (this._partnerContent) {
             var widget = this._partnerContent.getComponent(cc.Widget);
             if (widget) { widget.enabled = false; }
-            this._partnerLayout = this._partnerContent.getComponent(cc.Layout);
+            // 场景里 content 的 Layout 类型是 NONE(未配置), 所有行会堆在原点重叠;
+            // 强制改为纵向排列、随行数撑高, 与奖励页保持一致
+            var lay = this._partnerContent.getComponent(cc.Layout);
+            if (!lay) { lay = this._partnerContent.addComponent(cc.Layout); }
+            lay.type = cc.Layout.Type.VERTICAL;
+            lay.resizeMode = cc.Layout.ResizeMode.CONTAINER;
+            lay.verticalDirection = cc.Layout.VerticalDirection.TOP_TO_BOTTOM;
+            if (!lay.spacingY) { lay.spacingY = 16; }
+            if (!lay.paddingTop) { lay.paddingTop = 10; }
+            this._partnerLayout = lay;
             this._partnerContent.anchorX = 0.5;
             this._partnerContent.anchorY = 1;
         }
@@ -513,6 +522,15 @@ _bindPartnerStatsPage: function () {
     // 场景 content 挂了 cc.Widget(alignFlags=40=BOTTOM+VCENTER), 每次强制拉回底部导致行叠一起
     var widget = content.getComponent(cc.Widget);
     if (widget) { widget.enabled = false; }
+    // 同合伙人页: 场景 Layout 类型为 NONE, 不排列子节点会导致行重叠
+    var lay = content.getComponent(cc.Layout);
+    if (!lay) { lay = content.addComponent(cc.Layout); }
+    lay.type = cc.Layout.Type.VERTICAL;
+    lay.resizeMode = cc.Layout.ResizeMode.CONTAINER;
+    lay.verticalDirection = cc.Layout.VerticalDirection.TOP_TO_BOTTOM;
+    if (!lay.spacingY) { lay.spacingY = 16; }
+    if (!lay.paddingTop) { lay.paddingTop = 10; }
+    this._partnerStatsLayout = lay;
     content.anchorX = 0.5; content.anchorY = 1;
     content.setPosition(0, scroll.height / 2);
     var sv = scroll.getComponent(cc.ScrollView);
