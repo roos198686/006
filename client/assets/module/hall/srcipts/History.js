@@ -13,6 +13,7 @@ var TYPE_NAMES = {
     "zp": "翻财神",
     "zp4": "翻财神(四人)",
     "wujin": "五经",
+    "wujin4": "五经(四人)",
     "guanpai2": "关牌",
     "guanpai3": "关牌"
 };

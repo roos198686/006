@@ -687,12 +687,6 @@ cc.Class({
             //静态背景节点引用,尺寸由场景Widget控制
             this._clubDetailBgNode = bakedPage.getChildByName("detailBgImg");
             this._clubDetailFullBg = bakedPage.getChildByName("detailFullBg");
-            //顶部俱乐部名称(节点固化在wfPage下,JS只填文字,超宽截断)
-            var nameLbl = this._clubFind(bakedPage, "nameLabel");
-            if(nameLbl){
-                var nl = nameLbl.getComponent(cc.Label);
-                if(nl){ this._clubClampLabel(nl, club.name || ""); }
-            }
             this._clubOpenDetail(club); //复用原详情渲染(左玩法右牌桌),全部画到独立页上
             this._wfBindAddTable(club); //左下角添加牌桌按钮+弹窗(场景固化节点,只绑事件)
             return;
@@ -972,6 +966,7 @@ cc.Class({
         if(s.indexOf("baobao") === 0){ return "六宝"; }
         if(s == "sss2"){ return "十三水(2人)"; }
         if(s == "sss4"){ return "十三水(4人)"; }
+        if(s == "sss6"){ return "十三水(6人)"; }
         return s ? s : "-";
     },
 
@@ -1463,7 +1458,8 @@ cc.Class({
         var gt = (t && t.game_type) ? t.game_type
             : ((this._clubCurGame && this._clubCurGame.game_type) ? this._clubCurGame.game_type : "");
         if(gt.indexOf("baobao") === 0){ return 6; } //宝宝牌固定6座
-        return (gt.indexOf("zj4") === 0 || gt.indexOf("zp4") === 0 || gt == "wujin" || gt == "sss4") ? 4 : 2;
+        if(gt == "sss6"){ return 6; }
+        return (gt.indexOf("zj4") === 0 || gt.indexOf("zp4") === 0 || gt == "wujin4" || gt == "sss4") ? 4 : 2;
     },
 
     //创建牌桌卡片(绿色桌面+按玩法人数画座位+名称+人数),返回卡片节点
@@ -1804,7 +1800,7 @@ cc.Class({
         });
     },
 
-    //设置牌桌座位人物:uid>0按性别显示落座人物(sex=2为女性,无法区分默认男性),0=恢复空位
+    //设置牌桌座位:uid>0显示头像与昵称,0=恢复空位(座位人物图已从场景移除)
     _clubSetSeat:function(slotNode,uid,name){
         if(!slotNode || !cc.isValid(slotNode)){ return; }
         uid = uid || 0;
@@ -1819,26 +1815,14 @@ cc.Class({
         //同一玩家也要继续往下走: 头像/名字可能在别处改过, 交给 ImageLoader 比对头像地址后再决定要不要换图
         slotNode._uid = uid;
         slotNode._seatName = name;
-        var chara = slotNode.getChildByName("chara");    //男
-        var charaF = slotNode.getChildByName("charaF");  //女(位置在编辑器里单独调好)
         var head = slotNode.getChildByName("head");      //头顶圆形头像(位置在场景里调)
-        if(!chara && !charaF){ return; }
+        if(!head){ return; }
         if(uid <= 0){
-            if(chara){ chara.active = false; } //空位:只显示空椅子
-            if(charaF){ charaF.active = false; }
-            if(head){ head.active = false; }
+            head.active = false;
             return;
         }
         var self = this;
         var apply = function(info){
-            var female = info && Number(info.sex) === 2; //性别不明默认男性
-            //座位方位直接对应 clud_pz 图集帧名(下左/左/上左/上右/右/下右),按性别取男/女
-            var side = slotNode._side || "下左";
-            var node = (female && charaF) ? charaF : chara;
-            if(!node || !cc.isValid(node)){ return; }
-            if(chara){ chara.active = !(female && charaF); }
-            if(charaF){ charaF.active = !!female; }
-            self._clubApplyFrame(node, "bbt_" + (female ? "女" : "男") + side);
             //头顶头像:仅填数据,布局全在场景里
             if(head && cc.isValid(head)){
                 head.active = true;

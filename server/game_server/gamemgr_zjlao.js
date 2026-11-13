@@ -144,9 +144,7 @@ function fanCaishen(game){
 }
 
 function mopai(game, seatIndex, fromTail) {
-    //死墙26张:摸到只剩26张即荒庄判和,不再发牌(doUserMoPai拿到-1会doGameOver)
-    //后台 tai_rules.gang_liuju: 每杠一次流局线额外+N张(如设4,场上每有一个杠剩30/34..张即流局直接结束本局)
-    //杠后补牌(fromTail=true):从死墙尾部(墙尾)摸,不从墙头
+    //普通摸牌流局线=固定26张+后台gang_liuju*场上杠数;杠补允许从置灰区尾部取牌
     var limit = 26;
     var gangExtra = taiRule(game, 'gang_liuju', 0);
     if(gangExtra > 0){
@@ -155,17 +153,17 @@ function mopai(game, seatIndex, fromTail) {
         }
     }
     var data = game.gameSeats[seatIndex];
+    if(game.tailIndex == null) game.tailIndex = game.mahjongs.length;
     if(fromTail){
-        if(game.tailIndex == null) game.tailIndex = game.mahjongs.length;
-        if(game.tailIndex <= game.currentIndex) return -1; //墙尾已被杠补摸完
+        //先取置灰区最后一张;墙尾收缩后,置灰区向前移一张,再按本次杠新增N张
+        if(game.tailIndex <= game.currentIndex) return -1;
+        var tailPai = game.mahjongs[game.tailIndex - 1];
         game.tailIndex--;
-        var tailPai = game.mahjongs[game.tailIndex];
         data.holds.push(tailPai);
         data.countMap[tailPai] = (data.countMap[tailPai] || 0) + 1;
         return tailPai;
     }
-    //剩余可摸=墙尾-墙头(杠补已消耗的尾部不计入);<=流局线即荒庄
-    var remain = (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex;
+    var remain = game.tailIndex - game.currentIndex;
     if(remain <= limit) return -1;
     var pai = game.mahjongs[game.currentIndex];
     game.currentIndex++;
@@ -1528,6 +1526,8 @@ exports.hu = function(userId){
 
     userMgr.brocastInRoom(roomMgr.getRoomIdOfUser(userId), 'game_hu_push', {
         si: seatIndex,
+        //胡牌亮明牌:下发胡牌者手牌(含所胡的牌),客户端据此翻回正向展示
+        holds: game.gameSeats[seatIndex].holds.slice(),
         pai: huPai,
         zimo: isZimo,
         qianggang: isQiangGang || false,

@@ -22,9 +22,8 @@ cc.Class({
         }
 
         cc.vv.wc = this;
-        //等待提示文字统一深色
         if(this.lblContent){
-            this.lblContent.node.color = cc.color(90,50,20);
+            // 文字颜色由场景节点自身配置, 不在代码里改
             // 黑框是文字的兄弟节点 public_frame_a(13个场景结构一致), 不是父节点; 父节点是WaitingConnection根, 改它无效
             this._frame = this.node.getChildByName("public_frame_a") || this.lblContent.node.parent;
             if(this._frame){ this._origFrameW = this._frame.width; this._origFrameH = this._frame.height; }
@@ -32,6 +31,7 @@ cc.Class({
             this._origLblY = this.lblContent.node.y;
             this._origLblW = this.lblContent.node.width;
             this._origOverflow = this.lblContent.overflow;
+            this._origWrap = this.lblContent.enableWrapText;
             this._origHAlign = this.lblContent.horizontalAlign;
             this._origVAlign = this.lblContent.verticalAlign;
         }
@@ -116,7 +116,8 @@ cc.Class({
             var fw = (this._origFrameW > 0) ? this._origFrameW : 300;
             var fh = (this._origFrameH > 0) ? this._origFrameH : 300;
             this._frame.setContentSize(fw, fh);
-            lb.overflow = cc.Label.Overflow.CLAMP;            // 固定框: 超出宽度自动换行, 超出高度裁剪
+            lb.enableWrapText = true;
+            lb.overflow = cc.Label.Overflow.CLAMP;            // 固定框: 超出宽度自动换行, 超出高度直接截断
             lbNode.setContentSize(Math.max(60, fw - 48), Math.max(40, fh - 48));
             lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
             lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
@@ -133,6 +134,7 @@ cc.Class({
         if(!this.lblContent || !this._frame) return;
         this._frame.setContentSize(this._origFrameW, this._origFrameH);
         this.lblContent.overflow = this._origOverflow;
+        this.lblContent.enableWrapText = this._origWrap;
         this.lblContent.horizontalAlign = this._origHAlign;
         this.lblContent.verticalAlign = this._origVAlign;
         this.lblContent.node.width = this._origLblW;

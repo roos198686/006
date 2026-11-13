@@ -34,56 +34,34 @@ cc.Class({
         else{
             this._gameover = this.node.getChildByName("game_over_xlch");
         }
-        
+        if(this._gameover == null){
+            console.error('[GameOver] 场景里没有结算弹窗节点,跳过初始化');
+            return;
+        }
         this._gameover.active = false;
 
-        this._pingju = this._gameover.getChildByName("pingju");
-        this._win = this._gameover.getChildByName("win");
-        this._lose = this._gameover.getChildByName("lose");
+        //弹窗内部节点可能被包在容器里,统一递归查找,避免层级调整后取不到而中断onLoad
+        this._pingju = this.findDeep(this._gameover, "pingju");
+        this._win = this.findDeep(this._gameover, "win");
+        this._lose = this.findDeep(this._gameover, "lose");
 
-        //局结算弹窗不要全屏:整体等比缩小居中显示,底板/标题/列表/按钮保持场景原始相对布局
-        this._gameover.x = 0;
-        this._gameover.setScale(0.85);
-
-        // 子视图(win/lose/pingju)为标题艺术字:保持原始尺寸居中显示,禁止拉满屏(会拉伸变形)
-        var titleViews = [this._win, this._lose, this._pingju];
-        for(var fv = 0; fv < titleViews.length; ++fv){
-            var v = titleViews[fv];
-            if(v){
-                v.x = 0; //仅水平居中,宽度沿用场景原始配置
-            }
-        }
+        //弹窗的层级/位置/大小/缩放全部在场景里配置,JS不再调整
 
         this._gameresult = this.node.getChildByName("game_result");
-
-        //一局结算弹窗(game_result)左右满屏:底板GameEnd7跟随屏幕宽度拉伸(与最终结算弹窗一致),避免宽屏两侧露桌面
-        if(this._gameresult){
-            this._gameresult.width = cc.winSize.width;
-            this._gameresult.x = 0;
-            var grMask = this._gameresult.getChildByName("Z_jiesuanditu");
-            if(grMask){
-                grMask.width = cc.winSize.width;
-                grMask.x = 0;
-            }
-            var grPanel = this._gameresult.getChildByName("GameEnd7");
-            if(grPanel){
-                grPanel.width = cc.winSize.width;
-                grPanel.x = 0;
-                var grSp = grPanel.getComponent(cc.Sprite);
-                if(grSp && grSp.spriteFrame){
-                    grSp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-                    grSp.type = cc.Sprite.Type.SLICED;
-                }
-            }
+        
+        var wanfaNode = this.findDeep(this._gameover, "wanfa");
+        var wanfa = wanfaNode ? wanfaNode.getComponent(cc.Label) : null;
+        if(wanfa){ wanfa.string = cc.vv.gameNetMgr.getWanfa(); }
+        
+        var listRoot = this.findDeep(this._gameover, "result_list");
+        if(listRoot == null){
+            console.error('[GameOver] 结算弹窗缺少 result_list 列表节点');
         }
-        
-        var wanfa = this._gameover.getChildByName("wanfa").getComponent(cc.Label);
-        wanfa.string = cc.vv.gameNetMgr.getWanfa();
-        
-        var listRoot = this._gameover.getChildByName("result_list");
         for(var i = 1; i <= 4; ++i){
+            if(listRoot == null){ break; }
             var s = "s" + i;
             var sn = listRoot.getChildByName(s);
+            if(sn == null){ break; }
             var viewdata = {};
             viewdata.username = sn.getChildByName('username').getComponent(cc.Label);
             viewdata.reason = sn.getChildByName('reason').getComponent(cc.Label);
@@ -98,6 +76,8 @@ cc.Class({
             viewdata.mahjongs = sn.getChildByName('pai');
             viewdata.zhuang = sn.getChildByName('zhuang');
             viewdata.hupai = sn.getChildByName('hupai');
+            //结算行头像:场景里每行可放一个 useravatars 节点(带 cc.Sprite),运行时挂 ImageLoader 拉真实头像
+            viewdata.avatar = sn.getChildByName('useravatars');
             viewdata._pengandgang = [];
             this._seats.push(viewdata);
         }
@@ -105,6 +85,7 @@ cc.Class({
         //初始化网络事件监听器
         var self = this;
         this.node.on('game_over',function(data){self.onGameOver(data.detail);});
+        console.log('[GameOver] 结算弹窗初始化完成, 座位行数=' + this._seats.length);
         
         this.node.on('game_end',function(data){
             self._isGameEnd = true;
@@ -114,9 +95,40 @@ cc.Class({
                 self._autoReadyCb = null;
             }
             //需求4:牌局全部结束(服务端下发endinfo/最终结算)时直接展示"本次游戏总分数"面板
-            if(self._gameresult){ self._gameresult.active = true; self._popIn(self._gameresult); }
+            //game_result 的位置/大小/缩放全部在场景里配置,JS只控制显隐
+            if(self._gameresult){ self._gameresult.active = true; }
             if(self._gameover){ self._gameover.active = false; }
         });
+    },
+
+    //结算行头像:节点上补一个 ImageLoader(场景里该节点需要有 cc.Sprite 作为载体)
+    setAvatar:function(node, userid){
+        if(node == null || userid == null){ return; }
+        var il = node.getComponent("ImageLoader");
+        if(il == null){
+            try{ il = node.addComponent("ImageLoader"); }catch(e){ il = null; }
+        }
+        if(il && il.setUserID){ il.setUserID(userid); }
+    },
+
+    //切换标题艺术字:win/lose/pingju 只显示一个,"none"全隐藏;节点缺失时跳过
+    showTitle:function(which){
+        var views = { pingju: this._pingju, win: this._win, lose: this._lose };
+        for(var k in views){
+            if(views[k]){ views[k].active = (k == which); }
+        }
+    },
+
+    //按名字递归查找子节点:结算弹窗内部节点可能被包在容器节点里
+    findDeep:function(root, name){
+        if(root == null){ return null; }
+        if(root.name == name){ return root; }
+        var ch = root.children || [];
+        for(var i = 0; i < ch.length; ++i){
+            var r = this.findDeep(ch[i], name);
+            if(r){ return r; }
+        }
+        return null;
     },
 
     //结算弹窗弹入动画:从60%缩小+透明回弹到正常大小
@@ -151,14 +163,11 @@ cc.Class({
         console.log(data);
         if(!data || data.length == 0){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
         this._popIn(this._gameover);
-        this._pingju.active = false;
-        this._win.active = false;
-        this._lose.active = false;
+        this.showTitle("none");
 
         var myIdx = cc.vv.gameNetMgr.seatIndex;
         var myscore = 0;
@@ -168,15 +177,7 @@ cc.Class({
                 break;
             }
         }
-        if(myscore > 0){
-            this._win.active = true;
-        }
-        else if(myscore < 0){
-            this._lose.active = true;
-        }
-        else{
-            this._pingju.active = true;
-        }
+        this.showTitle(myscore > 0 ? "win" : (myscore < 0 ? "lose" : "pingju"));
 
         //显示玩家信息（按实际座位数渲染，隐藏多余座位行）
         for(var i = 0; i < this._seats.length; ++i){
@@ -279,6 +280,7 @@ cc.Class({
             }
 
             seatView.username.string = cc.vv.gameNetMgr.seats[i] ? cc.vv.gameNetMgr.seats[i].name : "";
+            this.setAvatar(seatView.avatar, userData.userid);
             seatView.zhuang.active = cc.vv.gameNetMgr.button == i;
             //老庄:庄家连庄>=1时在庄标正下方显示"老庄X"(与游戏内头像庄标规则一致)
             var lzCnt = (cc.vv.gameNetMgr.button == i) ? (cc.vv.gameNetMgr.laozhuang || 0) : 0;
@@ -366,7 +368,7 @@ cc.Class({
         var cs2 = (conf.caishen2 != null) ? conf.caishen2 : -1;
         if(cs1 < 0){ return; }
         // 绑定场景内已固化的财神展示区:路径 game_result/settleCsArea (用户在编辑器里手动摆好位置)
-        var area = this._gameover.getChildByName("settleCsArea");
+        var area = this.findDeep(this._gameover, "settleCsArea");
         if(!area){
             console.log("[结算财神] 场景内未找到 settleCsArea 节点,跳过显示(请在结算弹窗下手动添加)");
             return;
@@ -408,55 +410,31 @@ cc.Class({
         this.scheduleOnce(this._autoReadyCb, 30);
     },
 
-    //结算行老庄标签:挂在庄标节点正下方(庄标56x56,下方空隙不碰右侧牌区),count>=1时显示"老庄X",否则隐藏
+    //结算行老庄标签:节点在场景里(s*/zhuang/laozhuang_ex,含 Label+描边),JS只填字和显隐
     updateSettleLaoZhuang:function(seatView, count){
         var z = seatView.zhuang;
         if(!z){ return; }
         var lz = z.getChildByName("laozhuang_ex");
-        if(lz == null){
-            lz = new cc.Node("laozhuang_ex");
-            lz.setContentSize(60, 22);
-            lz.setPosition(0, -34);
-            z.addChild(lz);
-            var lbl = lz.addComponent(cc.Label);
-            lbl.fontSize = 18;
-            lbl.lineHeight = 22;
-            lbl.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-            lbl.verticalAlign = cc.Label.VerticalAlign.CENTER;
-            lbl.overflow = cc.Label.Overflow.NONE;
-            lz.color = cc.color(255, 225, 120);
-            var ol = lz.addComponent(cc.LabelOutline);
-            ol.color = cc.color(60, 30, 0);
-            ol.width = 2;
-        }
+        if(lz == null){ return; }
         var show = (count != null && count >= 1);
         lz.active = show;
-        if(show){ lz.getComponent(cc.Label).string = "老庄" + count; }
+        if(show){
+            var lb = lz.getComponent(cc.Label);
+            if(lb){ lb.string = "老庄" + count; }
+        }
     },
 
     onGameOver_XZDD(data){
         console.log(data);
         if(data.length == 0){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
         this._popIn(this._gameover);
-        this._pingju.active = false;
-        this._win.active = false;
-        this._lose.active = false;
 
         var myscore = data[cc.vv.gameNetMgr.seatIndex].score;
-        if(myscore > 0){
-            this._win.active = true;
-        }         
-        else if(myscore < 0){
-            this._lose.active = true;
-        }
-        else{
-            this._pingju.active = true;
-        }
+        this.showTitle(myscore > 0 ? "win" : (myscore < 0 ? "lose" : "pingju"));
         
             
         //显示玩家信息
@@ -671,25 +649,12 @@ cc.Class({
         console.log(data);
         if(data.length == 0){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
         this._popIn(this._gameover);
-        this._pingju.active = false;
-        this._win.active = false;
-        this._lose.active = false;
-
         var myscore = data[cc.vv.gameNetMgr.seatIndex].score;
-        if(myscore > 0){
-            this._win.active = true;
-        }         
-        else if(myscore < 0){
-            this._lose.active = true;
-        }
-        else{
-            this._pingju.active = true;
-        }
+        this.showTitle(myscore > 0 ? "win" : (myscore < 0 ? "lose" : "pingju"));
             
         //显示玩家信息
         for(var i = 0; i < 4; ++i){
@@ -999,7 +964,6 @@ cc.Class({
         }
         if(this._isGameEnd){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
         }
         else{
             cc.vv.net.send('ready');   

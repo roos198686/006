@@ -20,6 +20,8 @@ cc.Class({
 
     // use this for initialization
     onLoad: function () {
+        //弹窗遮罩: 与设置面板同级的 popups/New Layout(全屏暗色), 面板显示时同步显示
+        this._mask = (this.node.parent) ? this.node.parent.getChildByName("New Layout") : null;
         if(cc.vv == null){
             return;
         }
@@ -49,6 +51,14 @@ cc.Class({
         this.refreshVolume();
     },
     
+    onEnable: function () {
+        if(this._mask && cc.isValid(this._mask)){ this._mask.active = true; }
+    },
+
+    onDisable: function () {
+        if(this._mask && cc.isValid(this._mask)){ this._mask.active = false; }
+    },
+
     //滑动
     onSlided:function(slider){
         if(slider.node.parent.name == "yinxiao"){
@@ -62,7 +72,10 @@ cc.Class({
     
     //按钮绑定监听事件
     initButtonHandler:function(btn){
-        cc.vv.utils.addClickEvent(btn,this.node,"setting","onBtnClicked");    
+        //场景里可能已删除对应按钮(如牌桌设置弹窗删掉了btn_exit),取不到节点时跳过,
+        //避免addClickEvent空引用抛错中断onLoad导致整个场景激活失败
+        if(btn == null){ return; }
+        cc.vv.utils.addClickEvent(btn,this.node,"setting","onBtnClicked");
     },
     //刷新音频
     refreshVolume:function(){

@@ -13,14 +13,23 @@ var games = {};
 var ARRANGE_SECONDS = 30;   // 摆牌倒计时(秒)
 
 // ============ 牌面基础 ============
-function suitOf(id){ return Math.floor(id / 13); }
-function idxOf(id){ return id % 13; }
+function suitOf(id){ return Math.floor((id % 52) / 13); }
+function idxOf(id){ return id % 52 % 13; }
 function rankVal(id){ var i = idxOf(id); return i == 0 ? 14 : i + 1; } // A=14 ... 2=2
 
-function buildDeck(){
+function buildDeck(copies){
+    // 6人桌两副牌(104张, id 0..103 保证唯一), 2/4人桌单副牌(52张)
+    copies = copies || 1;
     var deck = [];
-    for(var i = 0; i < 52; ++i) deck.push(i);
+    for(var c = 0; c < copies; ++c){
+        for(var i = 0; i < 52; ++i) deck.push(c * 52 + i);
+    }
     return deck;
+}
+// 各玩法最少开局人数
+function minPlayersOf(conf){
+    // 2/4/6人桌都允许2人开局(房内已就座玩家全部准备即开始)
+    return 2;
 }
 function shuffle(a){
     for(var i = a.length - 1; i > 0; --i){
@@ -390,6 +399,7 @@ function doCompare(game){
             name: s.name,
             seatindex: s.roomSeatIndex,
             roomSeatIndex: s.roomSeatIndex,
+            gameSeat: i,
             arrange: s.arrange,
             special: s.special ? s.special.name : null,
             invalid: !!s.invalid,
@@ -412,6 +422,11 @@ function doCompare(game){
         details: details,
         baseScore: baseScore
     });
+    console.log("[十三水] 比牌结算 room=" + game.roomId + " 人数=" + n + " 分数=" + JSON.stringify(deltas));
+    // 本局结束: 清掉准备状态, 下一局必须玩家重新点准备/继续才开始
+    if(roomInfo){
+        for(var ri = 0; ri < roomInfo.seats.length; ++ri){ roomInfo.seats[ri].ready = false; }
+    }
     userMgr.brocastInRoom(game.roomId, 'game_over_push', {
         results: results,
         baseScore: baseScore
@@ -459,14 +474,21 @@ function doCompare(game){
 
 // ============ 对外接口 ============
 exports.start = function(roomInfo){
+    // 已有一局在进行时不再重复发牌
+    var running = games[roomInfo.id];
+    if(running != null && !running.gameOver){
+        console.log("[十三水] 已在对局中, 忽略重复开局 room=" + roomInfo.id);
+        return;
+    }
     var seatedPlayers = collectSeats(roomInfo);
-    var minPlayers = (roomInfo.conf.type == 'sss2') ? 2 : 4;
+    var minPlayers = minPlayersOf(roomInfo.conf);
     if(seatedPlayers.length < minPlayers){
         console.log("[十三水] 人数不足, 无法开局(", seatedPlayers.length, "/", minPlayers, ")");
         return;
     }
 
-    var deck = buildDeck();
+    //6人桌需要78张, 单副牌不够, 用两副牌
+    var deck = buildDeck(roomInfo.conf.type == 'sss6' ? 2 : 1);
     shuffle(deck);
 
     var game = {
@@ -608,9 +630,11 @@ exports.setReady = function(userId){
         if(roomInfo.seats[i].userId > 0) total++;
         if(roomInfo.seats[i].ready) count++;
     }
-    var minPlayers = (roomInfo.conf.type == 'sss2') ? 2 : 4;
-    if(count >= minPlayers && count >= total){
+    var minPlayers = minPlayersOf(roomInfo.conf);
+    if(count >= minPlayers && count >= total && !roomInfo._sssStarting){
+        roomInfo._sssStarting = true;
         setTimeout(function(){
+            roomInfo._sssStarting = false;
             var room = roomMgr.getRoom(roomId);
             if(room != null) exports.begin(room);
         }, 1000);
@@ -618,8 +642,14 @@ exports.setReady = function(userId){
 };
 
 exports.begin = function(roomInfo){
+    // 防重复开局: 两端几乎同时准备/重发ready会多次触发begin, 重复开局会让客户端反复重播发牌动画
+    var cur = games[roomInfo.id];
+    if(cur != null && !cur.gameOver){
+        console.log("[十三水] 房间已开局, 忽略重复开始 room=" + roomInfo.id);
+        return;
+    }
     // 人数不足直接返回: 不递增局数、不清准备状态, 避免房间卡死
-    var minPlayers = (roomInfo.conf.type == 'sss2') ? 2 : 4;
+    var minPlayers = minPlayersOf(roomInfo.conf);
     if(collectSeats(roomInfo).length < minPlayers){
         console.log("[十三水] 人数不足, 无法开局(" + collectSeats(roomInfo).length + "/" + minPlayers + ")");
         return;

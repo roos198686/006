@@ -12,11 +12,7 @@ cc.Class({
         }
 
         this._gameresult = this.node.getChildByName("game_result");
-        if(this._gameresult){
-            //弹窗左右收窄:结算底图GameEnd7是九宫格(SLICED),直接改宽度不会变形
-            var panel = this._gameresult.getChildByName("GameEnd7");
-            if(panel){ panel.setContentSize(880, panel.getContentSize().height); }
-        }
+        //game_result 及其子节点的位置/大小/缩放全部在场景里配置,JS只控制显隐
 
         var btnClose = cc.find("Canvas/game_result/btnClose");
         var btnShare = cc.find("Canvas/game_result/btnShare");
@@ -135,25 +131,13 @@ cc.Class({
         this.renderList(null, null);
     },
 
-    //结算弹窗弹入动画:从60%缩小+透明回弹到正常大小
-    _popIn:function(node){
-        if(!node){ return; }
-        if(this._popBase == null){ this._popBase = {}; }
-        var key = node.uuid;
-        if(this._popBase[key] == null){ this._popBase[key] = node.scaleX; }
-        var base = this._popBase[key];
-        cc.Tween.stopAllByTarget(node);
-        node.setScale(base * 0.6);
-        node.opacity = 0;
-        cc.tween(node).to(0.28, {scaleX: base, scaleY: base, opacity: 255}, {easing: "backOut"}).start();
-    },
-
     //game_end入口:整场结束优先展示每局得分明细+总成绩(roundHistory),无明细时降级
     onGameEnd:function(endinfo, roundHistory){
         if(this._gameresult == null){
             this._gameresult = this.node.getChildByName("game_result");
         }
-        if(this._gameresult){ this._gameresult.active = true; this._popIn(this._gameresult); }
+        //game_result 的位置/大小/缩放全部在场景里配置,JS只控制显隐
+        if(this._gameresult){ this._gameresult.active = true; }
         if(roundHistory && roundHistory.length > 0){
             //需求:结算列表按局列出每局得分明细(正绿负红),最终总成绩保持显示,不展示全局统计数据
             this.renderList(null, roundHistory);

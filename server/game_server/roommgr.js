@@ -157,8 +157,8 @@ function getGameMgrByType(type){
 	if(type == "zp4"){
 		return require("./gamemgr_zp4");    // 漳浦金麻将 4人
 	}
-	if(type == "wujin"){
-		return require("./gamemgr_wujin");  // 漳浦无金
+	if(type == "wujin" || type == "wujin4"){
+		return require("./gamemgr_wujin");  // 漳浦无金 2人/4人
 	}
 	if(type == "guanpai2" || type == "guanpai3"){
 		return require("./gamemgr_guanpai"); // 跑得快/关牌 2人/3人
@@ -166,8 +166,8 @@ function getGameMgrByType(type){
 	if(type == "niuniu"){
 		return require("./gamemgr_niuniu");  // 抢庄牛牛
 	}
-	if(type == "sss2" || type == "sss4"){
-		return require("./gamemgr_sss");     // 十三水 2人/4人
+	if(type == "sss2" || type == "sss4" || type == "sss6"){
+		return require("./gamemgr_sss");     // 十三水 2人/4人/6人
 	}
 	if(type == "dzpk"){
 		return require("./gamemgr_dzpk");   // 德州扑克(仅服务端,无客户端场景)
@@ -255,7 +255,7 @@ function constructRoomFromDb(dbdata){
 exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 	var type = roomConf.type;
 	// 开放玩法: 宝宝(免摆/手摆) + 翻财神/包麻将/赖倒胡/自选财神/漳浦/无金/跑得快/牛牛
-	var allowedTypes = ["baobao_mian","baobao_shou","zj","zj4","zj4_bt","zj_bt","zj_lao","zj_zx","zj4_zx","zp","zp4","wujin","guanpai2","guanpai3","niuniu","sss2","sss4"];
+	var allowedTypes = ["baobao_mian","baobao_shou","zj","zj4","zj4_bt","zj_bt","zj_lao","zj_zx","zj4_zx","zp","zp4","wujin","wujin4","guanpai2","guanpai3","niuniu","sss2","sss4","sss6"];
 	if(allowedTypes.indexOf(type) < 0){
 		callback(1,null);
 		return;
@@ -390,7 +390,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 						}
 
 						// 漳浦麻将特有配置：台数规则优先用俱乐部自配(牌桌conf下发),空则用后台全局 tai_rules
-						if(type == "zp" || type == "zp4" || type == "wujin"){
+						if(type == "zp" || type == "zp4" || type == "wujin" || type == "wujin4"){
 							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
 						}
 
@@ -401,7 +401,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 						}
 
 						// 十三水:摆牌超时来自 tai_rules.arrange_timeout(俱乐部/后台配置),默认30秒
-						if(type == "sss2" || type == "sss4"){
+						if(type == "sss2" || type == "sss4" || type == "sss6"){
 							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
 							var sssRules = conf.taiRules;
 							if(typeof sssRules === "string"){

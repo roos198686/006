@@ -598,6 +598,10 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
         <label class="inline"><input type="checkbox" id="cfg_gp_card_history"> 记牌器</label>
       </div>
       <!-- 包财神专属: 胡牌分=底分×2^(台数-1), 包台分=底分×2^(包台数-1), 底分取添加牌桌时选的底分 -->
+      <!-- 包财神专属:是否计算胡牌分(默认不选=牌局中不计胡牌分,只结算包台分) -->
+      <div class="cfg-grid" data-switch-group="zj_bt">
+        <label class="inline"><input type="checkbox" id="cfg_hu_score"> 计算胡牌分</label>
+      </div>
       <!-- 台数相关(翻财神/包财神/漳浦用,赖倒胡不用) -->
       <div class="form-row" data-switch-group="maxtai">
         <div class="form-group">
@@ -802,7 +806,15 @@ function api(path, opts){
   if(currentClubId && /\/admin\/(club_|club_detail)/.test(path)){
     url += (url.indexOf('?') >= 0 ? '&' : '?') + 'club_id=' + currentClubId;
   }
-  return fetch(url, opts).then(function(r){ return r.json(); }).then(function(ret){
+  return fetch(url, opts).then(function(r){
+    return r.text().then(function(text){
+      try { return JSON.parse(text); }
+      catch(e){
+        if(r.status === 413){ throw new Error('文件超过服务器上传限制(HTTP 413)，请将 Nginx client_max_body_size 调大到 512m'); }
+        throw new Error('服务器返回异常(HTTP ' + r.status + ')，请检查账号服和 Nginx 配置');
+      }
+    });
+  }).then(function(ret){
     if(ret && ret.code === 401){ onAuthExpired(); }
     return ret;
   });
@@ -855,44 +867,34 @@ function uploadApp(){
   btn.disabled = true;
   box.style.display = 'block';
   bar.style.width = '0%';
-  txt.textContent = '正在读取文件...';
-  var reader = new FileReader();
-  reader.onload = function(){
-    var dataUrl = reader.result;
-    txt.textContent = '正在上传（' + fmtSize(file.size) + '）...';
-    // 进度条用定时器缓慢推进到90%,收到响应后跳100%
-    if(appUploadTimer) clearInterval(appUploadTimer);
-    var pct = 0;
-    appUploadTimer = setInterval(function(){
-      pct = Math.min(90, pct + Math.max(1, (90-pct)*0.08));
-      bar.style.width = pct.toFixed(1) + '%';
-    }, 200);
-    api('/admin/app/upload', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({version: ver, base64: dataUrl})
-    }).then(function(ret){
-      clearInterval(appUploadTimer); appUploadTimer = null;
-      if(ret.code === 0){
-        bar.style.width = '100%';
-        txt.textContent = '上传成功，版本 ' + ret.data.version + '（' + fmtSize(ret.data.size) + '）';
-        document.getElementById('appFile').value = '';
-        loadAppInfo();
-      } else {
-        txt.textContent = '上传失败：' + ret.msg + (ret.code === 403 ? '（当前登录账号不是超级管理员，请用超级管理员账号重新登录）' : '');
-      }
-      btn.disabled = false;
-    }).catch(function(e){
-      clearInterval(appUploadTimer); appUploadTimer = null;
-      txt.textContent = '上传出错：' + e.message;
-      btn.disabled = false;
-    });
-  };
-  reader.onerror = function(){
-    txt.textContent = '文件读取失败';
+  txt.textContent = '正在上传（' + fmtSize(file.size) + '）...';
+  // 直接上传APK二进制,不再转Base64,避免请求体积放大约33%
+  if(appUploadTimer) clearInterval(appUploadTimer);
+  var pct = 0;
+  appUploadTimer = setInterval(function(){
+    pct = Math.min(90, pct + Math.max(1, (90-pct)*0.08));
+    bar.style.width = pct.toFixed(1) + '%';
+  }, 200);
+  api('/admin/app/upload?version=' + encodeURIComponent(ver), {
+    method:'POST',
+    headers:{'Content-Type':'application/vnd.android.package-archive'},
+    body:file
+  }).then(function(ret){
+    clearInterval(appUploadTimer); appUploadTimer = null;
+    if(ret.code === 0){
+      bar.style.width = '100%';
+      txt.textContent = '上传成功，版本 ' + ret.data.version + '（' + fmtSize(ret.data.size) + '）';
+      document.getElementById('appFile').value = '';
+      loadAppInfo();
+    } else {
+      txt.textContent = '上传失败：' + ret.msg + (ret.code === 403 ? '（当前登录账号不是超级管理员，请用超级管理员账号重新登录）' : '');
+    }
     btn.disabled = false;
-  };
-  reader.readAsDataURL(file);
+  }).catch(function(e){
+    clearInterval(appUploadTimer); appUploadTimer = null;
+    txt.textContent = '上传出错：' + e.message;
+    btn.disabled = false;
+  });
 }
 
 // 登录
@@ -1520,27 +1522,31 @@ var ZP_TAI_RULE_FIELDS = [
   {key:'fenbing', label:'分饼开关(0关1开,仅4人)', def:0},
   {key:'chupai_timeout', label:'出牌超时(秒)', def:15}
 ];
-// 漳浦无金麻将台数规则字段（type == "wujin" 时使用）
+// 漳浦无金麻将台数规则字段（wujin/wujin4 共用）
 var WUJIN_TAI_RULE_FIELDS = [
-  {key:'ping_hu', label:'平胡台数', def:1},
+  {key:'ping_hu', label:'平胡基础台(至少一顺)', def:1},
   {key:'zi_mo', label:'自摸加台', def:1},
-  {key:'men_qing', label:'门清加台', def:1},
-  {key:'peng_peng', label:'碰碰胡台数', def:2},
-  {key:'cou_yise', label:'凑一色台数', def:2},
-  {key:'qing_yise', label:'清一色台数', def:4},
-  {key:'qi_dui', label:'七对台数', def:3},
-  {key:'da_sanyuan', label:'大三元台数', def:8},
-  {key:'da_sixi', label:'大四喜台数', def:8},
-  {key:'ming_gang', label:'明杠台数', def:1},
-  {key:'an_gang', label:'暗杠台数', def:2},
-  {key:'gang_kai', label:'杠上开花台数', def:1},
-  {key:'qiang_gang', label:'抢杠胡台数', def:1},
-  {key:'hai_di', label:'海底捞月台数', def:1},
-  {key:'tian_hu', label:'天胡台数', def:8},
-  {key:'di_hu', label:'地胡台数', def:8},
+  {key:'men_qing', label:'门清加台(暗杠保门清)', def:1},
+  {key:'peng_peng', label:'碰碰胡加台', def:2},
+  {key:'qing_yise', label:'清一色加台', def:3},
+  {key:'gang_kai', label:'杠上开花加台(不再加自摸)', def:2},
+  {key:'qiang_gang', label:'抢加杠加台', def:2},
+  {key:'hai_di', label:'海底捞月加台(不再加自摸)', def:2},
+  {key:'tian_hu', label:'天胡固定总台数', def:8},
+  {key:'di_hu', label:'地胡固定总台数', def:8},
+  {key:'lian_zhuang', label:'庄家每次连庄加台', def:1},
+  {key:'zhuang_multiplier', label:'庄家赔付倍数', def:2},
   {key:'can_chi', label:'允许吃牌(0禁1允)', def:1},
+  {key:'can_peng', label:'允许碰牌(0禁1允)', def:1},
+  {key:'can_gang', label:'允许杠牌(0禁1允)', def:1},
   {key:'yi_pao_duo_xiang', label:'一炮多响(0关1开)', def:1},
-  {key:'dian_pao_bao', label:'点炮包牌(0不包1包)', def:0},
+  {key:'dian_pao_all_pay', label:'点炮各家付(0炮家付1各家付)', def:0},
+  {key:'gang_money_on', label:'独立杠钱(0关1开)', def:1},
+  {key:'ming_gang_score', label:'点杠/加杠每份底分数', def:1},
+  {key:'an_gang_score', label:'暗杠每份底分数', def:2},
+  {key:'remove_wan', label:'二人去万(0留1去)', def:0},
+  {key:'remove_tong', label:'二人去筒(0留1去)', def:0},
+  {key:'remove_tiao', label:'二人去条(0留1去)', def:0},
   {key:'chupai_timeout', label:'出牌超时(秒)', def:15}
 ];
 // 宝宝免摆配置字段（type == "baobao_mian" 时使用）
@@ -1619,7 +1625,7 @@ function getTaiRuleFields(){
     }
     return all;
   }
-  if(type == 'wujin') return WUJIN_TAI_RULE_FIELDS;
+  if(type == 'wujin' || type == 'wujin4') return WUJIN_TAI_RULE_FIELDS;
   return (type && type.indexOf('zp') === 0) ? ZP_TAI_RULE_FIELDS : TAI_RULE_FIELDS;
 }
 function renderTaiRules(rules){
@@ -1631,7 +1637,7 @@ function renderTaiRules(rules){
   var titleEl = document.getElementById('taiRulesSectionTitle');
   if(titleEl){
     if(type === 'baobao_mian' || type === 'baobao_shou') titleEl.textContent = '倍率配置 / 动画开关';
-    else if(type && (type.indexOf('zp') === 0 || type === 'wujin' || type.indexOf('zj') === 0)) titleEl.textContent = '台数规则 / 动画配置';
+    else if(type && (type.indexOf('zp') === 0 || (type === 'wujin' || type === 'wujin4') || type.indexOf('zj') === 0)) titleEl.textContent = '台数规则 / 动画配置';
     else titleEl.textContent = '规则参数 / 开关配置';
   }
   var fields = getTaiRuleFields();
@@ -1719,7 +1725,7 @@ function renderConfigs(){
     return;
   }
   list.forEach(function(c){
-      var MJ_TYPES = ['zj','zj_lao','zj_bt','zj4','zj4_bt','zj_zx','zj4_zx','zp','zp4','wujin'];
+      var MJ_TYPES = ['zj','zj_lao','zj_bt','zj4','zj4_bt','zj_zx','zj4_zx','zp','zp4','wujin','wujin4'];
       var isMJ = MJ_TYPES.indexOf(c.type) >= 0;
       var card = document.createElement('div');
       card.className = 'card';
@@ -1764,6 +1770,7 @@ function showConfigModal(){
   document.getElementById('cfg_remove_tiao').checked = false;
   document.getElementById('cfg_remove_tong').checked = false;
   document.getElementById('cfg_cai7').checked = true;
+  document.getElementById('cfg_hu_score').checked = false;
   document.getElementById('cfg_laozhuang_multiplier').value = 2;
   document.getElementById('cfg_tianhu_di').checked = true;
     document.getElementById('cfg_cai_diao').checked = true;
@@ -1799,10 +1806,10 @@ function applyTypeGroups(type){
     'fc':      ['zj', 'zj_lao', 'zj4'],                                              // 翻财神/赖倒胡:财神模式
     'zx':      ['zj_zx', 'zj4_zx'],                                                   // 自选财神:老庄倍数
     'zj_lao':  ['zj_lao'],                                                            // 赖倒胡专属
-    'zj_bt':   ['zj_bt', 'zj4_bt'],                                                   // 包财神专属
+    'zj_bt':   ['zj_bt'],                                                             // 包财神(2人)专属
     'gp':      ['guanpai2', 'guanpai3'],                                              // 关牌专属
-    'tai':     ['zj', 'zj_bt', 'zj4', 'zj4_bt', 'zj_zx', 'zj4_zx', 'zp', 'zp4', 'wujin', 'baobao_mian', 'baobao_shou'],  // 有台数/倍率玩法(宝宝倍率走台数规则区)
-    'maxtai':  ['zj', 'zj_lao', 'zj_bt', 'zj4', 'zj4_bt', 'zj_zx', 'zj4_zx', 'zp', 'zp4', 'wujin'],   // 封顶台数仅麻将类(宝宝无台数)
+    'tai':     ['zj', 'zj_bt', 'zj4', 'zj4_bt', 'zj_zx', 'zj4_zx', 'zp', 'zp4', 'wujin', 'wujin4', 'baobao_mian', 'baobao_shou'],  // 有台数/倍率玩法(宝宝倍率走台数规则区)
+    'maxtai':  ['zj', 'zj_lao', 'zj_bt', 'zj4', 'zj4_bt', 'zj_zx', 'zj4_zx', 'zp', 'zp4', 'wujin', 'wujin4'],   // 封顶台数仅麻将类(宝宝无台数)
     'bb_cost': ['baobao_mian', 'baobao_shou']   // 宝宝扣豆/代理分成
   };
   function showGroup(name){
@@ -1844,6 +1851,7 @@ function editConfig(id){
     document.getElementById('cfg_hu_guo_confirm').checked = c.hu_guo_confirm != null ? !!c.hu_guo_confirm : true;
     document.getElementById('cfg_dianpao_hu').checked = c.dianpao_hu != null ? !!c.dianpao_hu : true;
     var trRules = c.tai_rules || {};
+    document.getElementById('cfg_hu_score').checked = !!trRules.hu_score_enabled;
     document.getElementById('cfg_gang_liuju').value = trRules.gang_liuju != null ? trRules.gang_liuju : 0;
     document.getElementById('cfg_remove_wan').checked = !!trRules.remove_wan;
     document.getElementById('cfg_remove_tiao').checked = !!c.remove_tiao;
@@ -1960,6 +1968,7 @@ function saveConfig(){
   data.tai_rules.gang_liuju = parseInt(document.getElementById('cfg_gang_liuju').value) || 0;
   data.tai_rules.remove_wan = document.getElementById('cfg_remove_wan').checked ? 1 : 0;
   data.tai_rules.remove_tong = document.getElementById('cfg_remove_tong').checked ? 1 : 0;
+  data.tai_rules.hu_score_enabled = document.getElementById('cfg_hu_score').checked ? 1 : 0;
   if(editingConfigId){
     api('/admin/game_config/'+editingConfigId, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)}).then(function(ret){
       if(ret.code === 0){ closeConfigModal(); afterSaveConfig(data); }
@@ -2252,7 +2261,7 @@ function clubGetTaiRuleFields(gameType){
     }
     return all;
   }
-  if(gameType === 'wujin') return WUJIN_TAI_RULE_FIELDS;
+  if(gameType === 'wujin' || gameType === 'wujin4') return WUJIN_TAI_RULE_FIELDS;
   return (gameType && gameType.indexOf('zp') === 0) ? ZP_TAI_RULE_FIELDS : TAI_RULE_FIELDS;
 }
 function clubRenderTaiRules(rules, gameType){

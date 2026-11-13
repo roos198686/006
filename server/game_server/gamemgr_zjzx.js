@@ -1718,6 +1718,8 @@ exports.hu = function(userId, data){
 
     userMgr.brocastInRoom(roomMgr.getRoomIdOfUser(userId), 'game_hu_push', {
         si: seatIndex,
+        //胡牌亮明牌:下发胡牌者手牌(含所胡的牌),客户端据此翻回正向展示
+        holds: game.gameSeats[seatIndex].holds.slice(),
         pai: huPai,
         zimo: isZimo,
         qianggang: isQiangGang || false,

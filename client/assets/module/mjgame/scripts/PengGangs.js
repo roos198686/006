@@ -33,6 +33,13 @@ cc.Class({
         }
         
         var self = this;
+        //场景里的副露模板节点(meldTpl)只用于克隆,必须常驻隐藏,否则会当成一组副露显示出来
+        ["myself","up","left","right"].forEach(function(s){
+            var sn = gameChild.getChildByName(s);
+            var pr = sn ? sn.getChildByName("penggangs") : null;
+            var tpl = pr ? pr.getChildByName("meldTpl") : null;
+            if(tpl){ tpl.active = false; }
+        });
         this.node.on('peng_notify',function(data){
             //刷新所有的牌
             //console.log(data.detail);
@@ -89,7 +96,8 @@ cc.Class({
         return this.node.getComponent("MJGameZJLAO") != null;
     },
 
-    //副露财神角标: 克隆场景里的csCornerMeld模板,位置/大小只在编辑器里调
+    //副露财神角标: 角标节点已做进预制体PengGangMyself(或场景csCornerMeld),位置/大小在编辑器里直接调,
+    //运行时只切换显隐,代码不再算坐标
     _setCaishenCorner:function(tileNode,pai){
         if(!this._isZjlao() || !tileNode){ return; }
         var corner = tileNode.getChildByName("csCorner");
@@ -97,6 +105,7 @@ cc.Class({
         var isCs = pai != null && pai >= 0 && (pai == conf.caishen || (conf.caishen2 != null && conf.caishen2 >= 0 && pai == conf.caishen2));
         if(!isCs){
             if(corner){ corner.active = false; }
+            tileNode.color = cc.Color.WHITE;
             return;
         }
         if(!corner){
@@ -108,20 +117,52 @@ cc.Class({
             tileNode.addChild(corner);
         }
         corner.active = true;
+        //财神牌牌面染金黄(与吃碰杠提示里的财神牌同色)
+        tileNode.color = cc.color(255, 208, 90);
     },
 
-    //副露牌贴紧重排:图集帧55x84但可见牌体约47宽,按55排会有缝;收紧到47(仅zjlao调用)
-    _tightenMeld:function(pgroot){
-        var xs = 47;
-        var ci = 0;
-        for(var i = 0; i < pgroot.childrenCount; ++i){
-            var n = pgroot.children[i];
-            if(n.name == "gang"){ n.x = xs; continue; } //杠的第4张叠在中间那张上
-            n.x = ci * xs;
-            ci++;
-        }
+    //换牌面时保持预制体/场景里摆好的尺寸(避免Sprite为TRIMMED时被图片原始大小覆盖)
+    _setTileFrame:function(sprite, frame){
+        if(!sprite || !frame){ return; }
+        var w = sprite.node.width;
+        var h = sprite.node.height;
+        sprite.spriteFrame = frame;
+        if(w > 0 && h > 0){ sprite.node.setContentSize(w, h); }
     },
-    
+
+    //副露组实例池:场景penggangs下的meldTpl只作模板,不参与槽位计数,所以已创建的副露组单独用数组管理
+    _meldPool:function(pengangroot){
+        if(!pengangroot._meldPool){ pengangroot._meldPool = []; }
+        return pengangroot._meldPool;
+    },
+
+    //优先用场景game下的meldTplUp/meldTplSelf(牌面+财神角标都在场景里,可在编辑器直接摆),没有则回退到原预制体
+    _createMeld:function(pengangroot,side){
+        var gameChild = this.node.getChildByName("game");
+        var tpl = null;
+        if(gameChild && (side == "up" || side == "myself")){
+            tpl = gameChild.getChildByName(side == "up" ? "meldTplUp" : "meldTplSelf");
+        }
+        if(!tpl){ tpl = pengangroot.getChildByName("meldTpl"); }
+        var pg = null;
+        if(tpl){
+            pg = cc.instantiate(tpl);
+        }
+        else if(side == "left" || side == "right"){
+            pg = cc.instantiate(cc.vv.mahjongmgr.pengPrefabLeft);
+        }
+        else{
+            pg = cc.instantiate(cc.vv.mahjongmgr.pengPrefabSelf);
+        }
+        pg.active = true;
+        //模板自身带缩放(场景里按实际显示比例摆),实例化后归1,大小交给所在penggangs节点
+        pg.setPosition(0, 0);
+        pg.setScale(1, 1);
+        pengangroot.addChild(pg);
+        this._meldPool(pengangroot).push(pg);
+        return pg;
+    },
+
     hideSide:function(side){
         var gameChild = this.node.getChildByName("game");
         if(gameChild == null){ return; }
@@ -129,9 +170,10 @@ cc.Class({
         if(myself == null){ return; }
         var pengangroot = myself.getChildByName("penggangs");
         if(pengangroot){
-            for(var i = 0; i < pengangroot.childrenCount; ++i){
-                pengangroot.children[i].active = false;
-            }            
+            var pool = this._meldPool(pengangroot);
+            for(var i = 0; i < pool.length; ++i){
+                pool[i].active = false;
+            }
         }
     },
     
@@ -162,10 +204,10 @@ cc.Class({
         var pengangroot = myself.getChildByName("penggangs");
         if(pengangroot == null){ return; }
 
-        for(var i = 0; i < pengangroot.childrenCount; ++i){
-            pengangroot.children[i].active = false;
+        var pool = this._meldPool(pengangroot);
+        for(var i = 0; i < pool.length; ++i){
+            pool[i].active = false;
         }
-        //初始化杠牌
         var index = 0;
 
         var gangs = seatData.angangs || [];
@@ -209,21 +251,12 @@ cc.Class({
     //吃牌组渲染：3张牌平铺（复用碰预制体，三张都亮牌，无杠背）
     initChis:function(pengangroot,side,pre,index,pais){
         var pgroot = null;
-        if(pengangroot.childrenCount <= index){
-            if(side == "left" || side == "right"){
-                pgroot = cc.instantiate(cc.vv.mahjongmgr.pengPrefabLeft);
-            }
-            else{
-                pgroot = cc.instantiate(cc.vv.mahjongmgr.pengPrefabSelf);
-            }
-
-            pengangroot.addChild(pgroot);
-            if(this._isZjlao() && (side == "myself" || side == "up")){
-                this._tightenMeld(pgroot);
-            }
+        var pool = this._meldPool(pengangroot);
+        if(pool.length <= index){
+            pgroot = this._createMeld(pengangroot,side);
         }
         else{
-            pgroot = pengangroot.children[index];
+            pgroot = pool[index];
             pgroot.active = true;
         }
 
@@ -235,47 +268,72 @@ cc.Class({
             pgroot.zIndex = -index;
         }
         else if(side == "myself"){
-            pgroot.x = this._isZjlao() ? (index * 47 * 3 + index * 12) : (index * 55 * 3 + index * 10);
+            pgroot.x = index * 55 * 3 + index * 10;
         }
         else{
-            pgroot.x = this._isZjlao() ? -(index * 47 * 3) : -(index * 55*3);
+            //对家:组间距按模板里牌的实际宽度算,写死间距比一组牌还窄时相邻组会把牌盖住(看起来像少一张)
+            pgroot.x = -(index * this._meldStride(pgroot, 55 * 3));
         }
 
-        var sprites = pgroot.getComponentsInChildren(cc.Sprite);
+        var sprites = this._meldTileSprites(pgroot);
         var pi = 0;
         for(var s = 0; s < sprites.length; ++s){
             var sprite = sprites[s];
-            if(sprite.node.name == "csCorner"){ continue; } //角标不是牌面,复用副露时跳过
             if(sprite.node.name == "gang"){
                 sprite.node.active = false; //吃牌无杠背
-                this._setCaishenCorner(sprite.node,null);
             }
             else{
                 var mj = (pi < pais.length) ? pais[pi] : pais[pais.length - 1];
-                sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mj);
+                this._setTileFrame(sprite, cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mj));
                 this._setCaishenCorner(sprite.node,mj);
                 pi++;
             }
         }
     },
+
+    //取副露组里的牌(直接子节点,排除杠背与角标),顺序按层级顺序,保证张数确定
+    _meldTileSprites:function(pgroot){
+        var list = [];
+        for(var i = 0; i < pgroot.childrenCount; ++i){
+            var n = pgroot.children[i];
+            if(n.name == "gang" || n.name.indexOf("csCorner") == 0){ continue; }
+            var sp = n.getComponent(cc.Sprite);
+            if(!sp){ continue; }
+            n.active = true; //模板里可能被关掉过,渲染前统一打开
+            list.push(sp);
+        }
+        var gangNode = pgroot.getChildByName("gang");
+        if(gangNode){
+            var gsp = gangNode.getComponent(cc.Sprite);
+            if(gsp){ list.push(gsp); }
+        }
+        return list;
+    },
+
+    //一组副露实际占的宽度(按场景里摆好的牌宽/位置算),组间距用它,避免JS写死间距把牌盖住
+    _meldStride:function(pgroot,minStep){
+        var left = null;
+        var right = null;
+        var tiles = this._meldTileSprites(pgroot);
+        for(var i = 0; i < tiles.length; ++i){
+            var n = tiles[i].node;
+            var l = n.x - n.width * n.anchorX;
+            var r = n.x + n.width * (1 - n.anchorX);
+            if(left == null || l < left){ left = l; }
+            if(right == null || r > right){ right = r; }
+        }
+        if(left == null){ return minStep; }
+        return Math.max(minStep, (right - left) + 6);
+    },
     
     initPengAndGangs:function(pengangroot,side,pre,index,mjid,flag,tiles){
         var pgroot = null;
-        if(pengangroot.childrenCount <= index){
-            if(side == "left" || side == "right"){
-                pgroot = cc.instantiate(cc.vv.mahjongmgr.pengPrefabLeft);
-            }
-            else{
-                pgroot = cc.instantiate(cc.vv.mahjongmgr.pengPrefabSelf);
-            }
-            
-            pengangroot.addChild(pgroot);
-            if(this._isZjlao() && (side == "myself" || side == "up")){
-                this._tightenMeld(pgroot);
-            }
+        var pool = this._meldPool(pengangroot);
+        if(pool.length <= index){
+            pgroot = this._createMeld(pengangroot,side);
         }
         else{
-            pgroot = pengangroot.children[index];
+            pgroot = pool[index];
             pgroot.active = true;
         }
 
@@ -287,38 +345,32 @@ cc.Class({
             pgroot.zIndex = -index;
         }
         else if(side == "myself"){
-            pgroot.x = this._isZjlao() ? (index * 47 * 3 + index * 12) : (index * 55 * 3 + index * 10);
+            pgroot.x = index * 55 * 3 + index * 10;
         }
         else{
-            pgroot.x = this._isZjlao() ? -(index * 47 * 3) : -(index * 55*3);
+            //对家:组间距按模板里牌的实际宽度算,避免相邻组互相盖住
+            pgroot.x = -(index * this._meldStride(pgroot, 55 * 3));
         }
 
-        var sprites = pgroot.getComponentsInChildren(cc.Sprite);
+        var sprites = this._meldTileSprites(pgroot);
         var pi = 0; //碰组真实组成的渲染索引(仅peng且有tiles时使用)
         for(var s = 0; s < sprites.length; ++s){
             var sprite = sprites[s];
-            if(sprite.node.name == "csCorner"){ continue; } //角标不是牌面,复用副露时跳过
             if(sprite.node.name == "gang"){
                 var isGang = flag != "peng";
                 sprite.node.active = isGang;
-                sprite.node.scaleX = 1.0;
-                sprite.node.scaleY = 1.0;
                 if(flag == "angang"){
-                    sprite.spriteFrame = cc.vv.mahjongmgr.getEmptySpriteFrame(side);
-                    if(side == "myself" || side == "up"){
-                        sprite.node.scaleX = 1.4;
-                        sprite.node.scaleY = 1.4;
-                    }
+                    this._setTileFrame(sprite, cc.vv.mahjongmgr.getEmptySpriteFrame(side));
                 }
                 else{
-                    sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
+                    this._setTileFrame(sprite, cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid));
                 }
                 this._setCaishenCorner(sprite.node,(isGang && flag != "angang") ? mjid : null);
             }
             else{
                 //碰组有真实组成数据时按实际牌渲染(财神碰会显示出财神),否则三张同牌
                 var showMj = (flag == "peng" && tiles && pi < tiles.length) ? tiles[pi] : mjid;
-                sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,showMj);
+                this._setTileFrame(sprite, cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,showMj));
                 this._setCaishenCorner(sprite.node,showMj);
                 pi++;
             }

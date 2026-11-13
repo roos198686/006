@@ -14,9 +14,10 @@ cc.Class({
     ctor: function () {
         this.SCENE_LIST = ["login", "loading", "hall", "club", "mjgame_bb_mian", "mjgame_bb_shou", "mjgame",
             "mjgame_ldh", "mjgame_bmj", "mjgame_zjlao", "mjgame_zjzx", "mjgame_zjzx4",
-            "mjgame_zp", "mjgame_zp4", "mjgame_wujin", "mjgame_gp2", "mjgame_gp3"];
+            "mjgame_zp", "mjgame_zp4", "mjgame_wujin", "mjgame_wujin4", "mjgame_gp2", "mjgame_gp3"];
         this._preloaded = {};
         this._isTransitioning = false;
+        this._transitionStart = 0;
     },
 
     init: function () {
@@ -52,8 +53,16 @@ cc.Class({
     load: function (sceneName, onLaunched, opts) {
         opts = opts || {};
         if (this._isTransitioning) {
-            console.warn("[SceneMgr] 已有切换在进行,忽略重复切场景:", sceneName);
-            return false;
+            //看门狗:场景不存在/加载失败时 cc.director.loadScene 可能既不回调也不返回false,
+            //此前会让 _isTransitioning 永久为true,之后进任何房间都不再切场景(表现为一直停在原场景)
+            if (!this._transitionStart || (Date.now() - this._transitionStart) > 3000) {
+                console.warn("[SceneMgr] 上次切换超过3秒未完成,强制复位后继续切:", sceneName);
+                this._isTransitioning = false;
+                this._transitionStart = 0;
+            } else {
+                console.warn("[SceneMgr] 已有切换在进行,忽略重复切场景:", sceneName);
+                return false;
+            }
         }
         if (!sceneName) {
             console.warn("[SceneMgr] load: sceneName empty");
@@ -67,12 +76,14 @@ cc.Class({
             return true;
         }
         this._isTransitioning = true;
+        this._transitionStart = Date.now();
         var self = this;
         var cb = function () {
             if (onLaunched) {
                 try { onLaunched(); } catch (e) { console.warn("[SceneMgr] onLaunched err:", e.message); }
             }
             self._isTransitioning = false;
+            self._transitionStart = 0;
         };
         var ok = false;
         try {
@@ -80,10 +91,12 @@ cc.Class({
         } catch (e) {
             console.warn("[SceneMgr] loadScene(" + sceneName + ") exc:", e.message);
             self._isTransitioning = false;
+            self._transitionStart = 0;
         }
         if (ok === false) {
             console.warn("[SceneMgr] loadScene(" + sceneName + ") returned false (scene not imported?)");
             self._isTransitioning = false;
+            self._transitionStart = 0;
         }
         return true;
     },

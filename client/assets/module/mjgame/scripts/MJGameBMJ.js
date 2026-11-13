@@ -19,6 +19,8 @@ function tintHandCard(node, isCs){
     }
 }
 
+var OpTiles = require("OpTiles");
+
 cc.Class({
     extends: cc.Component,
 
@@ -82,8 +84,12 @@ cc.Class({
         this.initView();
         this.initEventHandlers();
 
-        this.gameRoot.active = false;
-        this.prepareRoot.active = true;
+        //场景里这两个引用可能丢失或被误指向子节点/组件(编辑器重存场景后常见),按名字纠正;
+        //否则牌桌层(game)进房后不隐藏,一直显示默认牌面,且手牌触摸会吞掉退出按钮的点击
+        if(!this.gameRoot || this.gameRoot.name !== "game"){ this.gameRoot = this.node.getChildByName("game"); }
+        if(!this.prepareRoot || this.prepareRoot.name !== "prepare"){ this.prepareRoot = this.node.getChildByName("prepare"); }
+        if(this.gameRoot){ this.gameRoot.active = false; }
+        if(this.prepareRoot){ this.prepareRoot.active = true; }
         this.initWanfaLabel();
         this.onGameBeign();
         this.initCaishenTip(); //场景加载时若已开局(错过game_start事件)也补绘财神
@@ -149,6 +155,8 @@ cc.Class({
         //获取到ops节点
         var opts = gameChild.getChildByName("ops");
         this._options = opts;
+        //吃碰杠胡的组合提示模板(场景 game/opTpl:牌大小/间距/底板都在编辑器里配)
+        this._opTpl = gameChild.getChildByName("opTpl");
         //操作区只留文字按钮:去掉每个op槽位的底图(op节点自身的Sprite)和牌面
         if(opts){
             for(var oi = 0; oi < opts.childrenCount; ++oi){
@@ -338,6 +346,10 @@ cc.Class({
             else if(cc.vv.replayMgr.isReplay()){
                 self.initMopai(data.seatIndex,pai);
             }
+            else{
+                //对家摸牌:点亮其摸牌位牌背(缩放沿用场景固化值,保证翻转方向)
+                self.initMopai(data.seatIndex,-1);
+            }
         });
 
         this.node.on('game_action',function(data){
@@ -360,6 +372,8 @@ cc.Class({
             hupai.getChildByName("sprZimo").active = !!data.zimo;
 
             self.initMopai(seatIndex,data.pai);
+            //对家胡牌亮明牌:把上下翻转的牌背(scaleY=-1)翻回正向并显示真实牌面
+            self.revealOtherHolds(seatIndex,data.holds,data.pai);
 
             if(data.zimo){
                 self.playEfx(localIndex,"play_zimo");
@@ -481,7 +495,7 @@ cc.Class({
     },
 
     //出牌位置显示
-    addOption:function(btnName,pai){
+    addOption:function(btnName,pai,gangpai){
         for(var i = 0; i < this._options.childrenCount; ++i){
             var child = this._options.children[i];
             if(child.name == "op" && child.active == false){
@@ -492,12 +506,38 @@ cc.Class({
                 var btn = child.getChildByName(btnName);
                 btn.active = true;
                 btn.pai = pai;
+                btn.gangpai = (gangpai && gangpai.length) ? gangpai.slice() : null;
+                //按钮上方按"组合"显示整副牌(与zjlao一致):碰=3张(缺的真牌用财神补位)、杠=每个可杠组合3张、胡=1张
+                var self = this;
+                var groups;
+                if(btn.gangpai){
+                    groups = btn.gangpai.map(function(gp){
+                        var g = OpTiles.build([gp, gp, gp]);
+                        g.opPai = gp; //发包必须发面值,不能用换算后的财神id
+                        return g;
+                    });
+                }else if(btnName == "btnPeng"){
+                    var pg = OpTiles.build([pai, pai]);
+                    pg.push(pai);
+                    groups = [pg.sort(function(m, n){ return m - n; })];
+                }else{
+                    groups = [[pai]];
+                }
+                var onPick = null;
+                if(btnName == "btnGang"){
+                    onPick = function(grp){ cc.vv.net.send("gang", grp.opPai != null ? grp.opPai : grp[0]); self.hideOptions(); };
+                }else if(btnName == "btnPeng"){
+                    onPick = function(){ cc.vv.net.send("peng"); self.hideOptions(); };
+                }else if(btnName == "btnHu"){
+                    onPick = function(){ cc.vv.net.send("hu"); self.hideOptions(); };
+                }
+                OpTiles.show(this, btn, groups, onPick);
                 return;
             }
         }
     },
     //吃按钮选项：与碰/杠/胡同级显示在op栏（全新创建按钮，克隆btnPeng会残留"碰"字精灵）
-    addChiOption:function(pai){
+    addChiOption:function(pai, chipai){
         for(var i = 0; i < this._options.childrenCount; ++i){
             var child = this._options.children[i];
             if(child.name == "op" && child.active == false){
@@ -509,6 +549,25 @@ cc.Class({
                 if(btn){
                     btn.active = true;
                     btn.pai = pai;
+                    btn.chipai = chipai || null;
+                    //按钮上方显示可吃组合(每组三张:两张手牌+被吃的牌,缺的手牌用财神补位展示,按顺子排好)
+                    var groups = [];
+                    if(chipai && chipai.length){
+                        for(var ci = 0; ci < chipai.length; ++ci){
+                            var c = chipai[ci];
+                            if(c && c.length >= 3){
+                                var tiles = OpTiles.build([c[0], c[1]]);
+                                tiles.push(c[2]);
+                                groups.push(tiles.sort(function(m, n){ return m - n; }));
+                            }
+                        }
+                    }
+                    if(!groups.length && pai != null && pai >= 0){ groups.push([pai]); }
+                    //点哪个组合就直接吃哪组,不再回手牌选
+                    var self = this;
+                    OpTiles.show(this, btn, groups, function(grp){
+                        if(grp.length >= 3){ self._sendChi(grp); }
+                    });
                 }
                 return;
             }
@@ -628,6 +687,10 @@ cc.Class({
                 child.getChildByName("btnHu").active = false;
                 var btnChi = child.getChildByName("btnChi");
                 if(btnChi){ btnChi.active = false; }
+                //清掉上一轮按钮上方的组合牌提示
+                for(var bi = 0; bi < child.childrenCount; ++bi){
+                    OpTiles.clear(child.children[bi]);
+                }
             }
         }
         if(!inBaoOrCs){
@@ -638,6 +701,11 @@ cc.Class({
     },
     //显示动作
     showAction:function(data){
+        //刚发过吃牌请求又收到带chi的操作推送:服务端判组合不合法,给个可见反馈(否则玩家以为点了没反应)
+        if(data && data.chi && this._chiJustSent){
+            this._chiJustSent = false;
+            OpTiles.toast(this, "这两张不能吃,请重选");
+        }
         // 叫台或定财神阶段禁止显示碰杠胡
         if((this._baoPanel && this._baoPanel.active) || (this._csPanel && this._csPanel.active)){ return; }
         if(this._options.active){
@@ -649,21 +717,20 @@ cc.Class({
             if(data.hu){
                 this.addOption("btnHu",data.pai);
             }
-            //吃碰杠：原按钮提示方式（碰/杠显示目标牌，吃按钮点击后从手牌自选两张）
+            //吃碰杠：按钮上方显示组合牌，点组合牌直接执行（与zjlao一致）
             if(data.peng){
                 this.addOption("btnPeng",data.pai);
             }
 
             if(data.gang){
-                for(var i = 0; i < data.gangpai.length;++i){
-                    var gp = data.gangpai[i];
-                    this.addOption("btnGang",gp);
-                }
+                //无论几种可杠都只显示一个杠按钮:全部可杠的牌并列显示在按钮上方,多张时点小牌选杠
+                var gp0 = (data.gangpai && data.gangpai.length) ? data.gangpai[0] : data.pai;
+                this.addOption("btnGang", gp0, data.gangpai);
             }
 
             if(data.chi){
-                //吃：显示"吃"按钮，点击后从手牌中自选两张（服务端已保证存在可吃组合，否则chi为false按钮不显示）
-                this.addChiOption(data.pai);
+                //吃：显示"吃"按钮，点按钮上方的组合牌直接吃（服务端已保证存在可吃组合，否则chi为false按钮不显示）
+                this.addChiOption(data.pai, data.chipai);
             }
             //"过"按钮常驻，便于跳过任意可选操作
             var btnGuo = this._options.getChildByName("btnGuo");
@@ -1660,18 +1727,17 @@ cc.Class({
         var nc = holds.children[lastIndex];
         if(nc == null){ return; }
 
-        nc.scaleX = 1.0;
-        nc.scaleY = 1.0;
+        //对家牌背的翻转完全由场景固化的scaleY=-1控制,JS不再改写对家缩放,避免摸牌位被重置
+        if(side != "up"){
+            nc.scaleX = 1.0;
+            nc.scaleY = 1.0;
+        }
 
         if(pai == null){
             nc.active = false;
         }
         else if(pai >= 0){
             nc.active = true;
-            if(side == "up"){
-                nc.scaleX = 0.73;
-                nc.scaleY = 0.73;
-            }
             var sprite = nc.getComponent(cc.Sprite);
             sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,pai);
             //自己的摸牌若为财神同样金色区分
@@ -1683,10 +1749,6 @@ cc.Class({
         }
         else if(pai != null){
             nc.active = true;
-            if(side == "up"){
-                nc.scaleX = 1.0;
-                nc.scaleY = 1.0;
-            }
             var sprite = nc.getComponent(cc.Sprite);
             sprite.spriteFrame = cc.vv.mahjongmgr.getHoldsEmptySpriteFrame(side);
         }
@@ -1702,8 +1764,10 @@ cc.Class({
         var spriteFrame = cc.vv.mahjongmgr.getEmptySpriteFrame(side);
         for(var i = 0; i < holds.childrenCount; ++i){
             var nc = holds.children[i];
-            nc.scaleX = 1.0;
-            nc.scaleY = 1.0;
+            if(side != "up"){
+                nc.scaleX = 1.0;
+                nc.scaleY = 1.0;
+            }
 
             var sprite = nc.getComponent(cc.Sprite);
             sprite.spriteFrame = spriteFrame;
@@ -1741,6 +1805,7 @@ cc.Class({
                 var slotNode = sideHolds.children[idx];
                 if(slotNode == null){ continue; }
                 slotNode.active = true; //贴图/缩放完全用场景固化的,JS只切显隐
+                if(side == "up"){ slotNode.scaleX = 1.0; slotNode.scaleY = -1; } //新一局恢复对家牌背的翻转
             }
             this._hideUnusedHolds(side,sideHolds,num + n2);
             return;
@@ -1750,10 +1815,6 @@ cc.Class({
             if(sideHolds.children[idx] == null){ continue; }
             var sprite = sideHolds.children[idx].getComponent(cc.Sprite);
             if(sprite == null){ continue; }
-            if(side == "up"){
-                sprite.node.scaleX = 0.73;
-                sprite.node.scaleY = 0.73;
-            }
             sprite.node.active = true;
             sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,holds[i]);
         }
@@ -1767,6 +1828,33 @@ cc.Class({
             var idx = this.getMJIndex(side,i);
             if(sideHolds.children[idx] == null){ continue; }
             sideHolds.children[idx].active = false;
+        }
+    },
+
+    //对家胡牌亮明牌:对家牌背在场景里是上下翻转(scaleY=-1)的,胡牌后恢复正常朝向并显示真实牌面
+    revealOtherHolds:function(seatIndex,holds,pai){
+        if(!holds || typeof(holds) != "object" || holds.length == null || holds.length === 0){ return; }
+        var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
+        if(localIndex == 0){ return; }
+        var side = cc.vv.mahjongmgr.getSide(localIndex);
+        if(side != "up"){ return; }
+        var game = this.node.getChildByName("game");
+        var sideRoot = game ? game.getChildByName(side) : null;
+        var sideHolds = sideRoot ? sideRoot.getChildByName("holds") : null;
+        if(sideHolds == null){ return; }
+        //先把胡牌者的真实手牌铺到对家手牌区(点炮时服务端手牌可能只有13张,补上所胡的牌)
+        var arr = holds.slice();
+        if(arr.length < 14 && pai != null && pai >= 0){ arr.push(pai); }
+        var seatData = cc.vv.gameNetMgr.seats[seatIndex];
+        if(!seatData){ return; }
+        var oldHolds = seatData.holds;
+        seatData.holds = arr;
+        this.initOtherMahjongs(seatData);
+        seatData.holds = oldHolds;
+        //再翻回正向:scaleY -1 => 1,明牌可正常阅读
+        for(var i = 0; i < 14; ++i){
+            var nc = sideHolds.children[this.getMJIndex(side,i)];
+            if(nc && nc.active){ nc.scaleX = 1.0; nc.scaleY = 1.0; }
         }
     },
 
@@ -1882,6 +1970,9 @@ cc.Class({
         var conf = cc.vv.gameNetMgr.conf || {};
         var isCs = (mjid != null && mjid >= 0) && ((conf.caishen >= 0 && mjid == conf.caishen) || (conf.caishen2 != null && conf.caishen2 >= 0 && mjid == conf.caishen2));
         tintHandCard(sprite.node, isCs);
+        //财神角标: 场景里手牌下的csCorner子节点, 位置/大小在编辑器里调, 代码只控制显隐
+        var corner = sprite.node.getChildByName("csCorner");
+        if(corner){ corner.active = isCs; }
     },
 
     //自己座位数据:优先 seatIndex 命中,异常时用 userId 兜底(2人房/4人房都适用)
@@ -2028,19 +2119,27 @@ cc.Class({
         this.hideOptions();
     },
 
+    //发吃牌请求:带2秒无响应超时反馈(服务端校验失败会重推操作栏,超时则静默)
+    _sendChi:function(combo){
+        this._chiJustSent = true;
+        var self = this;
+        this.scheduleOnce(function(){
+            if(self._chiJustSent){
+                self._chiJustSent = false;
+                OpTiles.toast(self, "吃牌超时,下次手快一点");
+            }
+        }, 2.0);
+        cc.vv.net.send("chi", combo.slice());
+        this.hideOptions();
+    },
+
     //碰杠过胡 点击事件
     onOptionClicked:function(event){
         var btn = this._findBtnNode(event);
         if(btn == null){ return; }
         var name = btn.name;
         if(name == "btnChi"){
-            //吃：进入/取消手牌二选模式，不隐藏操作栏，可改选碰/杠/胡/过
-            if(this._chiSelect){
-                this.cancelChiSelect();
-            }
-            else{
-                this.enterChiSelect(btn.pai);
-            }
+            //吃按钮仅作展示,不响应点击:只能点按钮上方的组合牌吃
             return;
         }
         this.cancelChiSelect();
@@ -2048,7 +2147,13 @@ cc.Class({
             cc.vv.net.send("peng");
         }
         else if(name == "btnGang"){
-            cc.vv.net.send("gang", btn.pai);
+            var gps = (btn.gangpai && btn.gangpai.length) ? btn.gangpai : [btn.pai];
+            if(gps.length > 1){
+                //多个可杠:点按钮上方对应组合牌选杠,点按钮本身只闪烁提示
+                OpTiles.flash(btn);
+                return;
+            }
+            cc.vv.net.send("gang", gps[0]);
         }
         else if(name == "btnHu"){
             cc.vv.net.send("hu");

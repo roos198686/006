@@ -190,13 +190,12 @@ cc.Class({
         if(t == "zj_lao") return "mjgame_zjlao";
         if(t == "zj_bt") return "mjgame_bmj";
         if(t == "zj_zx") return "mjgame_zjzx";
-        if(t == "zj4_zx") return "mjgame_zjzx4";
         if(t == "zp") return "mjgame_zp";
-        if(t == "zp4") return "mjgame_zp4";
         if(t == "wujin") return "mjgame_wujin";
+        if(t == "wujin4") return "mjgame_wujin4";
         if(t == "guanpai2") return "mjgame_gp2";
         if(t == "guanpai3") return "mjgame_gp3";
-        if(t == "sss2" || t == "sss4") return "mjgame_sss";
+        if(t == "sss2" || t == "sss4" || t == "sss6") return "mjgame_sss";
         if(t == "zj" || t == "zj4" || t == "zj4_bt") return "mjgame_ldh";
         return "mjgame_bb_mian";
     },

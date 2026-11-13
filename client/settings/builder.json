@@ -34,8 +34,8 @@
     "REMOTE_SERVER_ROOT": "",
     "orientation": "portrait"
   },
-  "startScene": "5e9f5d23-04af-48ce-8a8e-4e81f8d85742",
-  "start-scene": "5e9f5d23-04af-48ce-8a8e-4e81f8d85742",
+  "startScene": "17f52cf1-e57d-4777-b520-afc4f7482a8b",
+  "start-scene": "17f52cf1-e57d-4777-b520-afc4f7482a8b",
   "title": "SCMJ",
   "webOrientation": "landscape",
   "wechatgame": {
@@ -51,7 +51,7 @@
   "nativeMd5Cache": true,
   "android": {
     "packageName": "com.baobao.scmj",
-    "REMOTE_SERVER_ROOT": ""
+    "REMOTE_SERVER_ROOT": "http://47.239.100.68:9100/hotupdate/"
   },
   "ios": {
     "packageName": "com.baobao.scmj",

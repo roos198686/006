@@ -43,7 +43,9 @@ cc.Class({
         }
         //头像尺寸/位置/层级以场景内icon节点的设计值为准(80x80、玻璃底层之上),此处不再覆盖
         //获取名字(宽度对齐头像框,字号缩小,不换行,超出部分裁剪隐藏)
-        this._lblName = this.node.getChildByName("name").getComponent(cc.Label);
+        //场景可能改用 ncSprite 子树显示昵称(老布局才有直接子节点 name),取不到时为 null,不能直接 getComponent
+        var nameNode = this.node.getChildByName("name");
+        this._lblName = nameNode ? nameNode.getComponent(cc.Label) : null;
         var iconNode = this.node.getChildByName("icon");
         if(iconNode && this._lblName){
             this._lblName.node.width = iconNode.width + 16;
@@ -54,8 +56,9 @@ cc.Class({
             this._lblName.enableWrapText = false;
             this._lblName.overflow = cc.Label.Overflow.CLAMP;
         }
-        //获取分数
-        this._lblScore = this.node.getChildByName("score").getComponent(cc.Label);
+        //获取分数(同上,老布局才有直接子节点 score)
+        var scoreNode = this.node.getChildByName("score");
+        this._lblScore = scoreNode ? scoreNode.getComponent(cc.Label) : null;
         //获取语音
         this._voicemsg = this.node.getChildByName("voicemsg");
         

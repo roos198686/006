@@ -8,13 +8,10 @@ var GESTURE_MULTI_SELECT_KEY = "gesture_multi_select";
 var MJ_GESTURE_SWIPE_UP_KEY = "mj_gesture_swipe_up";
 // 出牌点击方式: 仅麻将, "single"=单击出牌, "double"=双击出牌(二选一)
 var MJ_PLAY_MODE_KEY = "mj_play_mode";
-var BG_LIST = [
-    { name: "经典绿", color: cc.color(36, 92, 56) },
-    { name: "宝石蓝", color: cc.color(30, 58, 118) },
-    { name: "深咖啡", color: cc.color(74, 46, 30) },
-];
-// 牌面缩放范围: 滑杆progress 0~1 映射 1.0~1.5
-var SCALE_MIN = 1.0, SCALE_MAX = 1.5;
+// 桌面背景: 图片直接摆在场景弹窗 Canvas/popups/bg_choose/panel/itemN/preview 上,
+// 点哪个item就把哪个preview的spriteFrame换到桌面背景, 代码里不维护图片列表、不动态加载.
+// 牌面缩放范围: 滑杆progress 0~1 映射 1.0~1.25
+var SCALE_MIN = 1.0, SCALE_MAX = 1.25;
 
 function loadJson(key, def) {
     try {
@@ -26,30 +23,6 @@ function loadJson(key, def) {
 
 function saveJson(key, v) {
     try { cc.sys.localStorage.setItem(key, JSON.stringify(v)); } catch (e) { }
-}
-
-function makeSprite(parent, name, x, y, w, h, color, frame, sizeMode) {
-    var n = new cc.Node(name);
-    parent.addChild(n);
-    n.setPosition(x, y);
-    var sp = n.addComponent(cc.Sprite);
-    sp.sizeMode = sizeMode === undefined ? cc.Sprite.SizeMode.CUSTOM : sizeMode;
-    if (frame) { sp.spriteFrame = frame; }
-    if (color) { n.color = color; }
-    n.setContentSize(w, h);
-    return n;
-}
-
-function makeLabel(parent, name, str, fontSize, x, y, color) {
-    var n = new cc.Node(name);
-    parent.addChild(n);
-    n.setPosition(x, y);
-    var lab = n.addComponent(cc.Label);
-    lab.string = str;
-    lab.fontSize = fontSize;
-    lab.lineHeight = fontSize + 4;
-    if (color) { n.color = color; }
-    return n;
 }
 
 function addClick(node, target, comp, handler, custom) {
@@ -90,7 +63,8 @@ cc.Class({
         this._bgIndex = loadJson(BG_KEY, 0);
         this._cardScale = loadJson(SCALE_KEY, 1);
         if (typeof this._cardScale !== "number" || this._cardScale < SCALE_MIN || this._cardScale > SCALE_MAX) {
-            this._cardScale = 1;
+            //旧存档可能超出新上限(如1.5),钳到边界而不是重置回100%
+            this._cardScale = (typeof this._cardScale === "number") ? Math.min(SCALE_MAX, Math.max(SCALE_MIN, this._cardScale)) : 1;
         }
         // 出牌手势设置
         this._gestureMultiSelect = !!loadJson(GESTURE_MULTI_SELECT_KEY, false);
@@ -110,6 +84,9 @@ cc.Class({
                 self._applyBg();
             }
         });
+        // 绑定场景里摆好的背景选择弹窗并应用上次选择(图片都在场景上, 无需加载)
+        this._tryBindScenePanel();
+        this._applyBg();
         // 绑定设置面板:桌面背景按钮文字 + 牌面大小滑杆
         var bgBtn = cc.find("Canvas/popups/settings/btn_desk_bg");
         var bgLab = bgBtn ? bgBtn.getChildByName("lbl_desk_bg") : null;
@@ -242,26 +219,48 @@ cc.Class({
     },
 
     // ===== 对外:设置面板调用 =====
+    // 绑定场景里固化的"切换桌面背景"弹窗(Canvas/popups/bg_choose).
+    // 场景摆好 mask/panel/title/item0..itemN(每个item的preview上就是背景图)/btn_default,
+    // 这里只做点击绑定与显隐/换图, 不创建节点、不维护图片列表.
+    // 按名字 item0..itemN 收集场景里摆好的选项(下标=数字后缀)
+    _getItems: function (panel) {
+        var items = [];
+        if (!panel) { return items; }
+        for (var i = 0; i < panel.childrenCount; ++i) {
+            var c = panel.children[i];
+            var m = /^item(\d+)$/.exec(c.name);
+            if (m) { items[parseInt(m[1], 10)] = c; }
+        }
+        return items;
+    },
+
+    _tryBindScenePanel: function () {
+        if (this._panel) { return; }
+        var root = cc.find("Canvas/popups/bg_choose");
+        if (!root) { return; }
+        this._panel = root;
+        var mask = root.getChildByName("mask");
+        if (mask) { addClick(mask, this.node, "DeskStyle", "_onMaskClick"); }
+        var panel = root.getChildByName("panel");
+        if (panel) {
+            var items = this._getItems(panel);
+            for (var i = 0; i < items.length; ++i) {
+                if (items[i]) { addClick(items[i], this.node, "DeskStyle", "_onPickBg", String(i + 1)); }
+            }
+            var defBtn = panel.getChildByName("btn_default");
+            if (defBtn) { addClick(defBtn, this.node, "DeskStyle", "_onPickBg", "0"); }
+        }
+        root.active = false;
+    },
+
     // "桌面背景"按钮:弹出选择窗
     openBgChoose: function () {
-        if (this._panel) {
-            this._panel.active = true;
-            this._refreshPanel();
+        if (!this._panel) { this._tryBindScenePanel(); }
+        if (!this._panel) {
+            console.warn("[DeskStyle] 场景缺少 Canvas/popups/bg_choose, 请在场景中摆好背景选择弹窗");
             return;
         }
-        if (!this._whiteFrame) {
-            // 白图尚未加载完成,加载后再弹(正常onLoad已预载,这里是极端时序兜底)
-            var self = this;
-            cc.resources.load("images/ui/white", cc.SpriteFrame, function (err, frame) {
-                if (!err && frame) {
-                    self._whiteFrame = frame;
-                    self._applyBg();
-                    self.openBgChoose();
-                }
-            });
-            return;
-        }
-        this._buildPanel();
+        this._panel.active = true;
     },
 
     // ===== 背景 =====
@@ -276,10 +275,14 @@ cc.Class({
             }
             return;
         }
-        var item = BG_LIST[idx - 1];
-        if (!item || !this._whiteFrame) { return; }
-        this._bgSpr.spriteFrame = this._whiteFrame;
-        this._bgSpr.node.color = item.color;
+        // 点哪个item, 就把哪个item里preview的图换到桌面背景上
+        var panel = this._panel ? this._panel.getChildByName("panel") : null;
+        var item = this._getItems(panel)[idx - 1];
+        var preview = item ? item.getChildByName("preview") : null;
+        var spr = preview ? preview.getComponent(cc.Sprite) : null;
+        if (!spr || !spr.spriteFrame) { return; }
+        this._bgSpr.spriteFrame = spr.spriteFrame;
+        this._bgSpr.node.color = cc.Color.WHITE;
     },
 
     // ===== 牌面放大 =====
@@ -321,77 +324,10 @@ cc.Class({
         }
     },
 
-    // ===== 弹窗构建 =====
-    _buildPanel: function () {
-        var popups = cc.find("Canvas/popups");
-        if (!popups || !this._whiteFrame) { return; }
-        var root = new cc.Node("bg_choose");
-        popups.addChild(root);
-        root.zIndex = 99;
-        root.setContentSize(popups.getContentSize());
-        root.setPosition(0, 0);
-        this._panel = root;
-
-        // 遮罩
-        var mask = makeSprite(root, "mask", 0, 0, root.width, root.height, cc.color(0, 0, 0, 160), this._whiteFrame);
-        addClick(mask, this.node, "DeskStyle", "_onMaskClick");
-
-        // 面板
-        var panel = makeSprite(root, "panel", 0, 0, 620, 380, cc.color(46, 34, 28), this._whiteFrame);
-
-        makeLabel(panel, "title", "选择桌面背景", 34, 0, 150, cc.color(255, 230, 180));
-
-        // 三个选项卡片
-        var startX = -200;
-        for (var i = 0; i < BG_LIST.length; ++i) {
-            var itemNode = new cc.Node("item" + i);
-            panel.addChild(itemNode);
-            itemNode.setPosition(startX + i * 200, 0);
-            itemNode.setContentSize(180, 240);
-            addClick(itemNode, this.node, "DeskStyle", "_onPickBg", String(i + 1));
-            // 预览色块
-            makeSprite(itemNode, "preview", 0, 30, 160, 100, BG_LIST[i].color, this._whiteFrame);
-            // 名称
-            makeLabel(itemNode, "name", BG_LIST[i].name, 28, 0, -55, cc.Color.WHITE);
-            // 选中框(默认隐藏)
-            var sel = makeSprite(itemNode, "selected", 0, 30, 172, 112, null, null);
-            sel.active = false;
-            // 用四个边框条拼选中框
-            var edgeColor = cc.color(255, 196, 0);
-            var t = 6, w = 172, h = 112;
-            makeSprite(sel, "t", 0, h / 2 - t / 2, w, t, edgeColor, this._whiteFrame);
-            makeSprite(sel, "b", 0, -h / 2 + t / 2, w, t, edgeColor, this._whiteFrame);
-            makeSprite(sel, "l", -w / 2 + t / 2, 0, t, h, edgeColor, this._whiteFrame);
-            makeSprite(sel, "r", w / 2 - t / 2, 0, t, h, edgeColor, this._whiteFrame);
-        }
-        // "恢复默认"按钮
-        var defBtn = new cc.Node("btn_default");
-        panel.addChild(defBtn);
-        defBtn.setPosition(0, -150);
-        defBtn.setContentSize(200, 56);
-        makeSprite(defBtn, "bg", 0, 0, 200, 56, cc.color(96, 74, 60), this._whiteFrame);
-        makeLabel(defBtn, "label", "恢复默认", 28, 0, 0, cc.Color.WHITE);
-        addClick(defBtn, this.node, "DeskStyle", "_onPickBg", "0");
-
-        this._refreshPanel();
-    },
-
-    _refreshPanel: function () {
-        if (!this._panel) { return; }
-        var panel = this._panel.getChildByName("panel");
-        for (var i = 0; i < BG_LIST.length; ++i) {
-            var item = panel.getChildByName("item" + i);
-            if (item) {
-                item.getChildByName("selected").active = (this._bgIndex === i + 1);
-            }
-        }
-    },
-
     _onPickBg: function (event, custom) {
         this._bgIndex = parseInt(custom, 10) || 0;
         saveJson(BG_KEY, this._bgIndex);
         this._applyBg();
-        this._refreshPanel();
         this._syncSettingLabels();
         if (this._panel) { this._panel.active = false; }
     },
@@ -403,7 +339,15 @@ cc.Class({
     // ===== 设置面板文字同步 =====
     _syncSettingLabels: function () {
         if (this._bgNameLabel) {
-            this._bgNameLabel.string = "桌面背景: " + (this._bgIndex === 0 ? "默认" : BG_LIST[this._bgIndex - 1].name);
+            var name = "默认";
+            if (this._bgIndex > 0) {
+                var panel = this._panel ? this._panel.getChildByName("panel") : null;
+                var item = this._getItems(panel)[this._bgIndex - 1];
+                var nameNode = item ? item.getChildByName("name") : null;
+                var lab = nameNode ? nameNode.getComponent(cc.Label) : null;
+                name = lab ? lab.string : ("背景" + this._bgIndex);
+            }
+            this._bgNameLabel.string = "桌面背景: " + name;
         }
         if (this._scaleLabel) {
             this._scaleLabel.string = Math.round(this._cardScale * 100) + "%";

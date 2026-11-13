@@ -12,11 +12,7 @@ cc.Class({
         }
 
         this._gameresult = this.node.getChildByName("game_result");
-        if(this._gameresult){
-            //弹窗左右收窄:结算底图GameEnd7是九宫格(SLICED),直接改宽度不会变形
-            var panel = this._gameresult.getChildByName("GameEnd7");
-            if(panel){ panel.setContentSize(880, panel.getContentSize().height); }
-        }
+        //结算面板宽度/列表容器/行模板都在场景里摆好,JS不再创建节点或改尺寸
 
         var btnClose = cc.find("Canvas/game_result/btnClose");
         var btnShare = cc.find("Canvas/game_result/btnShare");
@@ -42,102 +38,97 @@ cc.Class({
         return v > 0 ? ("+" + v) : ("" + v);
     },
 
-    //结算列表渲染:隐藏场景标题(title)与统计卡片(seats),按行列表显示数据
-    //整场(roundHistory):自家/对家两行总成绩 + 每局"自家X 对家Y X家胡T台"明细
-    //单局(endinfo):行内含自摸/接炮/点炮/暗杠/明杠/查叫统计
+    //结算渲染(参考 mjgame_bb_shou 的 game_result):
+    //顶部信息条(房号/玩法/扣费/倍率/时间) + 每个座位一张玩家卡片(头像/昵称/ID/总分/大赢家)
     renderList:function(endinfo, roundHistory){
         if(this._gameresult == null){ return; }
         var root = this._gameresult;
-        //隐藏场景自带标题与统计卡片(标题重复、卡片内容重叠,统一改为列表)
-        var title = root.getChildByName("title");
-        if(title){ title.active = false; }
-        var seats = root.getChildByName("seats");
-        if(seats){ seats.active = false; }
-        var old = root.getChildByName("resultList");
-        if(old){ old.destroy(); }
+        this.setInfoLine(root);
 
-        var info = cc.vv.gameNetMgr.seats;
-        if(!info){ return; }
-        var maxscore = -1;
-        for(var i = 0; i < info.length; ++i){
-            if(info[i] && typeof info[i].score == 'number' && info[i].score > maxscore){ maxscore = info[i].score; }
+        var cards = this.getCards(root);
+        if(cards.length === 0){
+            console.error('[GameResult] 场景缺少 game_result/card0、card1 玩家卡片');
+            return;
         }
-
-        var box = new cc.Node("resultList");
-        root.addChild(box);
-        //先收集所有行再统一排布:整列在面板内上下居中
-        var rows = [];
-        //自家/对家都显示:按座位顺序列出,标注身份(大赢家判定按全部座位分数)
-        var selfIdx = cc.vv.gameNetMgr.seatIndex;
-        for(var i = 0; i < info.length; ++i){
-            var s = info[i];
+        var seats = cc.vv.gameNetMgr.seats || [];
+        if(seats.length > cards.length){
+            console.warn('[GameResult] 座位数(' + seats.length + ')多于卡片数(' + cards.length + '),多出的座位不显示');
+        }
+        //大赢家 = 总分最高且为正
+        var maxscore = -Infinity;
+        for(var i = 0; i < seats.length; ++i){
+            var v = seats[i] ? (Number(seats[i].score) || 0) : 0;
+            if(v > maxscore){ maxscore = v; }
+        }
+        for(var c = 0; c < cards.length; ++c){
+            var card = cards[c];
+            var s = seats[c];
+            card.node.active = !!s;
             if(!s){ continue; }
-            //score兜底:整场结束时seats数据可能缺score字段,undefined会既显示错又撞背景色
-            var sc = (typeof s.score == 'number') ? s.score : 0;
-            var isBig = sc > 0 && sc == maxscore;
-            var sideTag = (i === selfIdx) ? "[自家] " : "[对家] ";
-            //玩家主行
-            var txt = (isBig ? "【大赢家】" : "") + sideTag + (s.name || "玩家") + "(" + s.userid + ")";
-            if(endinfo && endinfo[i] != null){
-                var e = endinfo[i];
-                txt += "   自摸" + this.signedNum(e.numzimo)
-                     + "  接炮" + this.signedNum(e.numjiepao)
-                     + "  点炮" + this.signedNum(e.numdianpao)
-                     + "  暗杠" + this.signedNum(e.numangang)
-                     + "  明杠" + this.signedNum(e.numminggang)
-                     + "  查叫" + this.signedNum(e.numchadajiao);
-            }
-            txt += "   总成绩:" + this.signedNum(sc);
-            rows.push({text:txt, fontSize:28, color:sc > 0 ? cc.color(40,120,40) : (sc < 0 ? cc.color(170,40,40) : cc.color(90,90,90))});
-        }
-        //整场结算:每局明细行——自家/对家双方分数 + 本局胡牌方与台数(荒庄只显分数)
-        if(roundHistory && roundHistory.length > 0){
-            var selfUserId = (selfIdx >= 0 && info[selfIdx]) ? info[selfIdx].userid : -1;
-            for(var r = 0; r < roundHistory.length; ++r){
-                var rh = roundHistory[r];
-                var selfSc = 0, oppSc = 0, winSide = "", winTai = 0, winZimo = false, winLZ = false;
-                for(var k = 0; k < rh.scores.length; ++k){
-                    var it = rh.scores[k];
-                    if(it.userid == selfUserId){ selfSc = it.score; } else { oppSc = it.score; }
-                    if(it.tai != null){
-                        winSide = (it.userid == selfUserId) ? "自家" : "对家";
-                        winTai = it.tai;
-                        winZimo = !!it.zimo;
-                        winLZ = !!it.laozhuang;
-                    }
+            var sc = Number(s.score) || 0;
+            if(card.bg){ card.bg.color = sc > 0 ? cc.color(255,132,112) : (sc < 0 ? cc.color(128,166,255) : cc.color(235,235,235)); }
+            if(card.avatar && s.userid){
+                var il = card.avatar.getComponent("ImageLoader");
+                if(il == null){
+                    try{ il = card.avatar.addComponent("ImageLoader"); }catch(e){}
                 }
-                var line = "第" + rh.index + "局   自家" + this.signedNum(selfSc) + "  对家" + this.signedNum(oppSc);
-                if(winSide != ""){
-                    //老庄局庄家胡牌分数×2,标注"(老庄)"解释翻倍原因
-                    line += "   " + winSide + "胡" + winTai + "台" + (winZimo ? "(自摸)" : "") + (winLZ ? "(老庄)" : "");
-                }
-                rows.push({text:line, fontSize:22, color:selfSc > 0 ? cc.color(34,120,34) : (selfSc < 0 ? cc.color(180,40,40) : cc.color(120,120,120))});
+                if(il && il.setUserID){ il.setUserID(s.userid); }
             }
-        }
-        //整列上下居中:起始y=总高的一半,逐行向下排
-        var totalH = 0;
-        for(var i = 0; i < rows.length; ++i){ totalH += rows[i].fontSize + 14; }
-        var y = totalH / 2;
-        for(var i = 0; i < rows.length; ++i){
-            y -= this.addListRow(box, rows[i].text, rows[i].fontSize, y, rows[i].color);
+            this.setText(card.name, s.name || "");
+            this.setText(card.id, (s.userid != null) ? ("ID:" + s.userid) : "");
+            this.setText(card.score, this.signedNum(sc));
+            if(card.score){ card.score.color = sc > 0 ? cc.color(255,212,70) : (sc < 0 ? cc.color(92,232,160) : cc.color(240,240,255)); }
+            if(card.win){ card.win.active = sc > 0 && sc == maxscore; }
         }
     },
 
-    //列表行工具:创建一行Label(无描边,浅色底图上用深色字保证可读),返回占用的行高
-    addListRow:function(parent, text, fontSize, y, color){
-        var row = new cc.Node("row");
-        var lb = row.addComponent(cc.Label);
-        lb.string = text;
-        lb.fontSize = fontSize;
-        lb.lineHeight = fontSize + 10;
-        lb.overflow = cc.Label.Overflow.NONE;
-        lb.enableWrapText = false;
-        lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-        lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
-        row.color = color || cc.color(90,90,90);
-        row.setPosition(0, y);
-        parent.addChild(row);
-        return fontSize + 14;
+    //取 game_result 下按序号排列的玩家卡片(card0/card1/...)
+    getCards:function(root){
+        var found = [];
+        for(var i = 0; i < root.childrenCount; ++i){
+            var ch = root.children[i];
+            if(!ch || !/^card\d+$/.test(ch.name)){ continue; }
+            found.push({ idx: parseInt(ch.name.substring(4), 10), node: ch });
+        }
+        found.sort(function(x, y){ return x.idx - y.idx; });
+        var out = [];
+        for(var k = 0; k < found.length; ++k){
+            var n = found[k].node;
+            out.push({
+                node: n,
+                bg: n.getChildByName("bbCardBg"),
+                win: n.getChildByName("bbWinTag"),
+                avatar: n.getChildByName("bbAvatar"),
+                name: n.getChildByName("bbPName"),
+                id: n.getChildByName("bbPId"),
+                score: n.getChildByName("bbPScore")
+            });
+        }
+        return out;
+    },
+
+    //顶部信息条:房号/玩法/扣费/倍率/时间
+    setInfoLine:function(root){
+        var bar = root.getChildByName("infoBar");
+        var lbl = bar ? bar.getChildByName("infoLabel") : null;
+        var lb = lbl ? lbl.getComponent(cc.Label) : null;
+        if(lb == null){ return; }
+        var nm = cc.vv.gameNetMgr || {};
+        var conf = nm.conf || {};
+        var wanfa = nm.getWanfa ? (nm.getWanfa() || "") : "";
+        var cost = (conf.cost != null) ? conf.cost : ((conf.fangka != null) ? conf.fangka : "-");
+        var rate = (conf.rate != null) ? conf.rate : ((conf.multiple != null) ? conf.multiple : 1);
+        var d = new Date();
+        var pad = function(v){ return v < 10 ? ("0" + v) : ("" + v); };
+        var time = d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+        lb.string = "房号：" + (nm.roomId || "") + "   " + wanfa + "   扣费:" + cost + "   倍率:" + rate + "倍   " + time;
+    },
+
+    //给节点上的 Label 填字
+    setText:function(node, text){
+        if(node == null){ return; }
+        var lb = node.getComponent(cc.Label);
+        if(lb){ lb.string = (text == null) ? "" : ("" + text); }
     },
 
     //整场结束(无endinfo):仅显示昵称+本次累计总分列表
@@ -145,25 +136,13 @@ cc.Class({
         this.renderList(null, null);
     },
 
-    //结算弹窗弹入动画:从60%缩小+透明回弹到正常大小
-    _popIn:function(node){
-        if(!node){ return; }
-        if(this._popBase == null){ this._popBase = {}; }
-        var key = node.uuid;
-        if(this._popBase[key] == null){ this._popBase[key] = node.scaleX; }
-        var base = this._popBase[key];
-        cc.Tween.stopAllByTarget(node);
-        node.setScale(base * 0.6);
-        node.opacity = 0;
-        cc.tween(node).to(0.28, {scaleX: base, scaleY: base, opacity: 255}, {easing: "backOut"}).start();
-    },
-
     //game_end入口:整场结束优先展示每局得分明细+总成绩(roundHistory),无明细时降级
     onGameEnd:function(endinfo, roundHistory){
         if(this._gameresult == null){
             this._gameresult = this.node.getChildByName("game_result");
         }
-        if(this._gameresult){ this._gameresult.active = true; this._popIn(this._gameresult); }
+        //game_result 的位置/大小/缩放全部在场景里配置,JS只控制显隐
+        if(this._gameresult){ this._gameresult.active = true; }
         if(roundHistory && roundHistory.length > 0){
             //需求:结算列表按局列出每局得分明细(正绿负红),最终总成绩保持显示,不展示全局统计数据
             this.renderList(null, roundHistory);

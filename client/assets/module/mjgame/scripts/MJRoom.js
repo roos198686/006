@@ -43,20 +43,35 @@ cc.Class({
             return;
         }
         
-        this.initView();
-        this.initSeats();
-        this.initEventHandlers();
-        this.initStartButton();
-        this.applyCustomBtnSkins();
-        this.initBrickWall();
+        //任一初始化步骤异常都不能中断退出监听的注册,否则房间内点"退出房间"会毫无反应
+        try{
+            this.initView();
+            this.initSeats();
+            this.initEventHandlers();
+            this.initStartButton();
+            this.applyCustomBtnSkins();
+            this.initBrickWall();
+        }catch(e){
+            console.error("[MJRoom] 初始化异常(继续注册退出监听):", (e && e.stack) ? e.stack : e);
+        }
         this.initNetExitListeners();
     },
     
     initView:function(){
         var prepare = this.node.getChildByName("prepare");
-        //按钮缩放:返回/退出保持场景原始大小0.9
+        //prepare层只放退出/解散/开始按钮,渲染层级必须高于game层:否则开局前牌桌层的手牌(带触摸)会吞掉退出按钮的点击
+        var gameNode = this.node.getChildByName("game");
+        if(prepare && gameNode && prepare.getSiblingIndex() < gameNode.getSiblingIndex()){
+            prepare.setSiblingIndex(gameNode.getSiblingIndex());
+        }
+        //退出按钮:位置/大小/缩放全部用场景配置,代码只补绑点击事件(场景事件丢失时也能退出)
         var btnBack = prepare.getChildByName("btnBack");
-        if(btnBack){ btnBack.scaleX = 0.9; btnBack.scaleY = 0.9; }
+        if(btnBack){
+            var btnBackComp = btnBack.getComponent(cc.Button);
+            if(btnBackComp && btnBackComp.clickEvents.length == 0){
+                cc.vv.utils.addClickEvent(btnBack, this.node, "MJRoom", "onBtnBackClicked");
+            }
+        }
         //场景已统一为一套座位(只在game下),prepare/seats 删除后不再存在
         var seats = prepare.getChildByName("seats");
         if(seats){
@@ -303,7 +318,6 @@ cc.Class({
 
     // ===== 牌墙:节点全部在场景 game/brickWall 内摆好 =====
     //U00~U35 对家36张, RT00~RT05 右侧6张, LT00~LT30 左侧31张
-    //其中 LT05~LT30 共26张为不可摸的死墙(场景里已置灰),摸到剩26张即荒庄
     //位置/尺寸/颜色都在编辑器里调,代码只切显隐
     initBrickWall:function(){
         var game = this.node.getChildByName("game");
@@ -312,24 +326,48 @@ cc.Class({
         if(wall == null){ this._brickBuilt = false; return; }
         this._brickWall = wall;
         this._brickBuilt = true;
+        this._brickRemainCount = 0;
+        this._brickZJLao = !!(cc.vv.gameNetMgr.conf && cc.vv.gameNetMgr.conf.type == "zj_lao");
+        this._brickPendingTail = false;
         wall.zIndex = -1; //压到座位层之下,防止墙牌盖住吃/碰/杠/过提示字
 
         this._brickDrawable = []; //可摸的47张:左侧31 → 对家前16
-        //左侧按 y 坐标升序入列:无论场景里 LT 编号如何编排,摸牌消耗都从最下面一张开始(左侧从下到上少牌)
         var lts = [];
         for(var i = 0; i < 31; ++i){
             var lt = wall.getChildByName("LT" + (i < 10 ? "0" : "") + i);
             if(lt){ lts.push(lt); }
         }
-        lts.sort(function(a, b){ return a.y - b.y; });
-        for(var i = 0; i < lts.length; ++i){
-            this._brickDrawable.push(lts[i]);
+        var zjLao = this._brickZJLao;
+        if(zjLao){
+            //诸暨赖倒胡:左侧从下往上摸,每墩先上层后下层;
+            //再到对面从左到右摸,同样每墩先上层后下层
+            //每墩配对规则:偶数编号是靠近桌心的上层,奇数编号是下层
+            var groups = [];
+            for(var i = 0; i < lts.length; i += 2){
+                var group = [lts[i]];
+                if(lts[i + 1]){ group.push(lts[i + 1]); }
+                groups.push(group);
+            }
+            groups.reverse(); //整面墙改为从下往上
+            for(var i = 0; i < groups.length; ++i){
+                for(var k = 0; k < groups[i].length; ++k){
+                    this._brickDrawable.push(groups[i][k]);
+                }
+            }
+            for(var i = 0; i < 16; ++i){
+                this._brickDrawable.push(wall.getChildByName("U" + (i < 10 ? "0" : "") + i));
+            }
+        } else {
+            lts.sort(function(a, b){ return a.y - b.y; });
+            for(var i = 0; i < lts.length; ++i){
+                this._brickDrawable.push(lts[i]);
+            }
+            for(var i = 0; i < 16; ++i){
+                this._brickDrawable.push(wall.getChildByName("U" + (i < 10 ? "0" : "") + i));
+            }
         }
-        for(var i = 0; i < 16; ++i){
-            this._brickDrawable.push(wall.getChildByName("U" + (i < 10 ? "0" : "") + i));
-        }
-        //死墙26张(对家前 U16-U35 + 右侧 RT00-RT05)永远摸不到;
-        //进房间未开局时隐藏,开局后与墙牌一样常显(只是不可摸,剩26张即荒庄)
+        //初始置灰区26张(对家前 U16-U35 + 右侧 RT00-RT05),普通摸牌不可进入;
+        //杠补从置灰区末尾RT05开始向前取,取后置灰区向前移一张并新增后台配置N张
         this._brickDead = [];
         for(var i = 16; i < 36; ++i){
             var du = wall.getChildByName("U" + i);
@@ -355,7 +393,8 @@ cc.Class({
             if(!st) continue;
             gangs += (st.angangs ? st.angangs.length : 0) + (st.diangangs ? st.diangangs.length : 0) + (st.wangangs ? st.wangangs.length : 0);
         }
-        var extra = (nm.conf && nm.conf.gang_liuju) ? nm.conf.gang_liuju * gangs : 0;
+        var gangLiuju = (nm.conf && Number(nm.conf.gang_liuju)) || 0;
+        var extra = gangLiuju * gangs;
         //死墙26张:进房间(未开局,numOfMJ=0)隐藏;开局后剩余牌数>=26 时与墙牌一样显示
         var showDead = (n >= 26);
         if(this._brickDead){
@@ -364,19 +403,45 @@ cc.Class({
                 if(dn){ dn.active = showDead; }
             }
         }
-        //可摸 = 剩余 - 死墙26 - 杠加张(流局线26+extra),从前往后隐藏
         var drawable = this._brickDrawable;
-        var d = Math.max(0, Math.min(n - 26 - extra, drawable.length));
-        var hide = drawable.length - d;
-        //可摸区尾部 extra 张(紧挨死墙的)仍显示但置灰:已转死墙不可摸
-        var grayStart = drawable.length - extra;
-        for(var i = 0; i < drawable.length; ++i){
-            var node = drawable[i];
-            if(!node) continue;
-            node.active = (i >= hide);
-            if(extra > 0 && i >= grayStart){ node.color = new cc.Color(140, 140, 140, 255); }
-            else { node.color = cc.Color.WHITE; }
+        if(!this._brickZJLao){
+            //其他玩法保持原逻辑
+            var d = Math.max(0, Math.min(n - 26 - extra, drawable.length));
+            var hide = drawable.length - d;
+            var grayStart = drawable.length - extra;
+            var remain0 = 0;
+            for(var i = 0; i < drawable.length; ++i){
+                var node = drawable[i];
+                if(!node) continue;
+                node.active = (i >= hide);
+                var isGray0 = (extra > 0 && i >= grayStart);
+                node.color = isGray0 ? new cc.Color(140, 140, 140, 255) : cc.Color.WHITE;
+                if(node.active && !isGray0){ remain0++; }
+            }
+            this._brickRemainCount = remain0;
+            return;
         }
+
+        //诸暨赖倒胡:普通摸牌从墙头隐藏;杠补从整个置灰区末尾隐藏
+        //补牌完成后,置灰区先向前补一张替代被摸走的牌,再新增本次杠的N张
+        var tailDraws = Math.max(0, gangs - (this._brickPendingTail ? 1 : 0));
+        var all = drawable.concat(this._brickDead || []);
+        var total = all.length;
+        var tailStart = total - tailDraws;
+        var grayLimit = 26 + gangLiuju * tailDraws;
+        var headHide = Math.max(0, Math.min(total, total - n - tailDraws));
+        var grayStart = tailStart - grayLimit;
+        var remain = 0;
+        for(var i = 0; i < total; ++i){
+            var node = all[i];
+            if(!node) continue;
+            node.active = (i >= headHide && i < tailStart);
+            var isGray = (node.active && i >= grayStart);
+            node.color = isGray ? new cc.Color(140, 140, 140, 255) : cc.Color.WHITE;
+            if(node.active && !isGray){ remain++; }
+        }
+        //"剩余X张"用墙上还能摸的牌数(亮着的牌减掉置灰的死墙)
+        this._brickRemainCount = remain;
     },
 
     // ===== 需求1:notify入口打印服务端载荷,便于实机核对 =====
@@ -466,6 +531,14 @@ cc.Class({
         var curName = (curScene && curScene.name) ? curScene.name : "";
         if(curName == "hall" || curName == "club"){ return; }
         this._leaving = true;
+        //兜底:2秒后仍停在房间里说明这次切场景没成功,复位标记,保证退出按钮之后还能再点
+        var self = this;
+        this.scheduleOnce(function(){
+            if(!cc.isValid(self.node)){ return; }
+            var sc = cc.director.getScene();
+            var name = (sc && sc.name) ? sc.name : "";
+            if(name != "hall" && name != "club"){ self._leaving = false; }
+        }, 2);
         //解散/退出/被移出房间:socket即将被服务端断开,标记忽略本次disconnect,
         //否则断开处理器会再切一次场景(房间流程已决定去向),玩家被带到大厅页而非俱乐部
         //3秒兜底自动复位由GameNetMgr的exit_result/dispress_push处理器统一管理
@@ -487,6 +560,10 @@ cc.Class({
 
     initEventHandlers:function(){
         var self = this;
+        //退出/解散成功:GameNetMgr 已把服务端事件转发到场景节点(dataEventHandler),
+        //这里监听节点事件,不再只依赖原生socket监听(重连换socket后原生监听会丢,导致点退出后界面不动)
+        this.node.on('exit_result',function(){ self.leaveToHall(); });
+        this.node.on('dispress_push',function(){ self.leaveToHall(); });
         this.node.on('new_user',function(data){
             self.initSingleSeat(data.detail);
         });
@@ -540,11 +617,20 @@ cc.Class({
         });
 
         //需求2:剩余牌数变化时刷新牌墙(game_start/mj_count/game_mopai 都会更新 numOfMJ)
-        this.node.on('game_start',function(data){ self.refreshBrickWall(); });
+        this.node.on('game_start',function(data){
+            self._brickPendingTail = false;
+            self.refreshBrickWall();
+        });
         this.node.on('mj_count',function(data){ self.refreshBrickWall(); });
-        this.node.on('game_mopai',function(data){ self.refreshBrickWall(); });
-        //杠后:流局线+gang_liuju张,可摸牌尾部对应张数置灰转死墙(GameNetMgr杠事件名gang_notify)
-        this.node.on('gang_notify',function(data){ self.refreshBrickWall(); });
+        this.node.on('game_mopai',function(data){
+            if(self._brickZJLao){ self._brickPendingTail = false; }
+            self.refreshBrickWall();
+        });
+        //杠通知先到时保留即将补走的置灰牌;补牌推送后再隐藏并扩大置灰区
+        this.node.on('gang_notify',function(data){
+            if(self._brickZJLao){ self._brickPendingTail = true; }
+            self.refreshBrickWall();
+        });
 
         //需求1:在 notify 入口打印服务端下发的完整载荷(holds/pengs/chis/gangs),便于实机核对
         this.node.on('game_start',function(data){
@@ -588,6 +674,10 @@ cc.Class({
         
         console.log("isOffline:" + isOffline);
         
+        //4人房进2座场景时索引会越界,必须直接跳过,否则onLoad中断会导致退出监听等后续初始化全部丢失
+        if(!this._seats[index] || !this._seats2[index]){
+            return;
+        }
         this._seats[index].setInfo(seat.name,seat.score);
         this._seats[index].setReady(seat.ready);
         this._seats[index].setOffline(isOffline);
@@ -613,15 +703,15 @@ cc.Class({
     onBtnBackClicked:function(){
         //"退出房间"按钮:服务端exit为释放式退出(仅自己退出,不再占用房间;房内还有其他玩家时房间保留给他人),
         //服务端回exit_result清本地状态后断开连接,由disconnect处理器按来源回俱乐部/大厅
-        if(cc.vv.alert && cc.vv.alert.show){
-            // title/content 全传 null:保留场景内默认节点文字
-            cc.vv.alert.show(null,"是否确定退出房间？",function(){
-                cc.vv.net.send("exit");
-            },true);
-        }
-        else{
-            cc.vv.net.send("exit");
-        }
+        var doSend = function(){ cc.vv.net.send("exit"); };
+        //弹窗组件异常时也必须能退出,不能被确认框拖死
+        try{
+            if(cc.vv.alert && cc.vv.alert.show){
+                cc.vv.alert.show(null,"是否确定退出房间？",doSend,true);
+                return;
+            }
+        }catch(e){ console.warn("[room] 退出确认框异常,直接发送exit:", e.message); }
+        doSend();
     },
     
     onBtnChatClicked:function(){
@@ -657,15 +747,15 @@ cc.Class({
     
     onBtnExit:function(){
         //退出前弹确认框,避免误触直接退房(与解散按钮同一原生弹窗组件)
-        if(cc.vv.alert && cc.vv.alert.show){
-            // title/content 全传 null:保留场景内默认节点文字
-            cc.vv.alert.show(null,"是否确定退出房间？",function(){
-                cc.vv.net.send("exit");
-            },true);
-        }
-        else{
-            cc.vv.net.send("exit");
-        }
+        var doSend = function(){ cc.vv.net.send("exit"); };
+        try{
+            if(cc.vv.alert && cc.vv.alert.show){
+                // title/content 全传 null:保留场景内默认节点文字
+                cc.vv.alert.show(null,"是否确定退出房间？",doSend,true);
+                return;
+            }
+        }catch(e){ console.warn("[room] 退出确认框异常,直接发送exit:", e.message); }
+        doSend();
     },
     
     playVoice:function(){

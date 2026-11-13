@@ -557,8 +557,7 @@ cc.Class({
             var child = this._options.children[i];
             if(child.name == "op" && child.active == false){
                 child.active = true;
-                var sprite = child.getChildByName("opTarget").getComponent(cc.Sprite);
-                sprite.spriteFrame = (pai != null && pai >= 0) ? cc.vv.mahjongmgr.getSpriteFrameByMJID("M_",pai) : null;
+                //操作区只显示文字按钮,不再显示目标牌(opTarget已移除)
                 var btn = this.getZpOpButton(child, btnName, text, fontSize);
                 btn.active = true;
                 btn.pai = pai;

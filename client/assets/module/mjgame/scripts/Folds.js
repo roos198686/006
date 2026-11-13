@@ -156,25 +156,8 @@ cc.Class({
             if(Math.abs(foldsSprites[t].node.y - y0) < 1) perRow++;
         }
         if(perRow <= 0){ perRow = foldsSprites.length; }
-        var rowH = 0;
-        if(perRow < foldsSprites.length){ rowH = foldsSprites[perRow].node.y - y0; }
-        if(rowH == 0){ rowH = -40; } //场景只有一排时兜底行高
-
-        //最多3排，超出后从第一排开始叠放，不再无限加排盖住手牌
-        var maxSlots = perRow * 3;
-        if(maxSlots > foldsSprites.length){
-            for(var m = foldsSprites.length; m < maxSlots; ++m){
-                var col = m % perRow;
-                var row = Math.floor(m / perRow);
-                var nn = cc.instantiate(foldsSprites[col].node);
-                nn.y = y0 + rowH * row;
-                nn.active = false;
-                foldRoot.addChild(nn);
-                foldsSprites.push(nn.getComponent(cc.Sprite));
-            }
-        } else {
-            maxSlots = foldsSprites.length; //场景自带槽位比3排多，沿用场景槽位
-        }
+        //槽位数量与位置完全以场景为准:不克隆新槽位,也不改写坐标
+        var maxSlots = foldsSprites.length;
 
         //记录布局参数(出牌飞入动画定位用)
         if(!this._foldLayout){ this._foldLayout = {}; }
@@ -194,7 +177,11 @@ cc.Class({
             var slotIdx = i % maxSlots;      //超过3排后回到第一排叠放
             var layer = Math.floor(i / maxSlots); //叠放层数
             var index = slotIdx;
-            if(side == "right" || side == "up"){
+            if(side == "up"){
+                //对家:同一排从右往左排,仍然先上排后下排
+                index = Math.floor(slotIdx / perRow) * perRow + (perRow - 1 - slotIdx % perRow);
+            }
+            else if(side == "right"){
                 index = foldsSprites.length - slotIdx - 1;
             }
             var sprite = foldsSprites[index];
@@ -216,7 +203,10 @@ cc.Class({
         }
         for(var i = usedSlots; i < foldsSprites.length; ++i){
             var index = i;
-            if(side == "right" || side == "up"){
+            if(side == "up"){
+                index = Math.floor(i / perRow) * perRow + (perRow - 1 - i % perRow);
+            }
+            else if(side == "right"){
                 index = foldsSprites.length - i - 1;
             }
             var sprite = foldsSprites[index];
@@ -238,7 +228,10 @@ cc.Class({
         var idx = folds.length - 1;
         var slotIdx = idx % lay.maxSlots;
         var index = slotIdx;
-        if(side == "right" || side == "up"){
+        if(side == "up"){
+            index = Math.floor(slotIdx / lay.perRow) * lay.perRow + (lay.perRow - 1 - slotIdx % lay.perRow);
+        }
+        else if(side == "right"){
             index = foldsSprites.length - slotIdx - 1;
         }
         var layer = Math.floor(idx / lay.maxSlots);
@@ -291,7 +284,10 @@ cc.Class({
         var idx = folds.length - 1;
         var slotIdx = idx % lay.maxSlots;
         var index = slotIdx;
-        if(side == "right" || side == "up"){
+        if(side == "up"){
+            index = Math.floor(slotIdx / lay.perRow) * lay.perRow + (lay.perRow - 1 - slotIdx % lay.perRow);
+        }
+        else if(side == "right"){
             index = foldsSprites.length - slotIdx - 1;
         }
         var layer = Math.floor(idx / lay.maxSlots);
@@ -327,7 +323,11 @@ cc.Class({
     },
 
     setSpriteFrameByMJID:function(pre,sprite,mjid){
+        //保持场景里摆好的尺寸:换帧时若Sprite为TRIMMED会按图片原始大小改写节点尺寸,这里还原
+        var w = sprite.node.width;
+        var h = sprite.node.height;
         sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,mjid);
+        if(w > 0 && h > 0){ sprite.node.setContentSize(w, h); }
         sprite.node.active = true;
     },
 

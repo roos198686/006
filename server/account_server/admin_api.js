@@ -1100,19 +1100,26 @@ app.get('/admin/app/info', auth, function(req, res){
     getAppInfo(function(info){ send(res, 0, "ok", info); });
 });
 
-// 上传APP安装包(APK),base64方式,避免引入multipart依赖
-app.post('/admin/app/upload', auth, requireSuper, function(req, res){
+// 上传APP安装包(APK):优先直接上传二进制,避免Base64增加约33%请求体积;兼容旧base64方式
+app.post('/admin/app/upload', auth, requireSuper, express.raw({
+    type: ['application/vnd.android.package-archive', 'application/octet-stream'],
+    limit: '512mb'
+}), function(req, res){
     var body = req.body || {};
-    var version = String(body.version || '').trim();
-    var base64 = body.base64 || '';
+    var version = String(req.query.version || body.version || '').trim();
     if(!version){ send(res, 1, "版本号不能为空"); return; }
-    if(!base64){ send(res, 1, "文件内容为空"); return; }
-    // 去掉 data URI 前缀(如 "data:application/vnd.android.package-archive;base64,")
-    var commaIdx = base64.indexOf(',');
-    if(commaIdx >= 0 && base64.indexOf('base64') >= 0){ base64 = base64.substring(commaIdx + 1); }
     var buf;
-    try { buf = Buffer.from(base64, 'base64'); }
-    catch(e){ send(res, 1, "文件解析失败"); return; }
+    if(Buffer.isBuffer(body)){
+        buf = body;
+    } else {
+        var base64 = body.base64 || '';
+        if(!base64){ send(res, 1, "文件内容为空"); return; }
+        // 去掉 data URI 前缀(如 "data:application/vnd.android.package-archive;base64,")
+        var commaIdx = base64.indexOf(',');
+        if(commaIdx >= 0 && base64.indexOf('base64') >= 0){ base64 = base64.substring(commaIdx + 1); }
+        try { buf = Buffer.from(base64, 'base64'); }
+        catch(e){ send(res, 1, "文件解析失败"); return; }
+    }
     if(buf.length < 1024){ send(res, 1, "文件过小,可能不是有效APK"); return; }
     // 先写临时文件,成功后再rename,避免中途失败留下残缺包
     var tmpFile = APK_FILE + '.tmp';
@@ -1422,4 +1429,14 @@ app.get('/game_config/:type', function(req, res){
             enabled: r.enabled
         });
     });
+});
+
+//请求体过大等解析错误统一返回JSON,避免前端只收到Unexpected token '<'
+app.use(function(err, req, res, next){
+    if(err && (err.status === 413 || err.type === 'entity.too.large')){
+        send(res, 413, '文件超过账号服上传大小限制');
+        return;
+    }
+    console.error('[admin api]', err && err.stack || err);
+    send(res, 500, '服务器处理请求失败');
 });

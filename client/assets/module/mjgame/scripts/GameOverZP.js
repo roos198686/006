@@ -55,27 +55,7 @@ cc.Class({
         }
 
         this._gameresult = this.node.getChildByName("game_result");
-
-        //一局结算弹窗(game_result)左右满屏:底板GameEnd7跟随屏幕宽度拉伸(与最终结算弹窗一致),避免宽屏两侧露桌面
-        if(this._gameresult){
-            this._gameresult.width = cc.winSize.width;
-            this._gameresult.x = 0;
-            var grMask = this._gameresult.getChildByName("Z_jiesuanditu");
-            if(grMask){
-                grMask.width = cc.winSize.width;
-                grMask.x = 0;
-            }
-            var grPanel = this._gameresult.getChildByName("GameEnd7");
-            if(grPanel){
-                grPanel.width = cc.winSize.width;
-                grPanel.x = 0;
-                var grSp = grPanel.getComponent(cc.Sprite);
-                if(grSp && grSp.spriteFrame){
-                    grSp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-                    grSp.type = cc.Sprite.Type.SLICED;
-                }
-            }
-        }
+        //game_result 及其子节点的位置/大小/缩放全部在场景里配置,JS只控制显隐
         
         var wanfa = this._gameover.getChildByName("wanfa").getComponent(cc.Label);
         wanfa.string = cc.vv.gameNetMgr.getWanfa();
@@ -109,7 +89,7 @@ cc.Class({
         this.node.on('game_end',function(data){
             self._isGameEnd = true;
             //需求4:牌局全部结束(服务端下发endinfo/最终结算)时直接展示"本次游戏总分数"面板
-            if(self._gameresult){ self._gameresult.active = true; self._popIn(self._gameresult); }
+            if(self._gameresult){ self._gameresult.active = true; }
             if(self._gameover){ self._gameover.active = false; }
         });
     },
@@ -129,7 +109,7 @@ cc.Class({
     
     onGameOver(data){
         var type = cc.vv.gameNetMgr.conf.type;
-        if(type == "zp" || type == "zp4" || type == "wujin" || type == "zj" || type == "zj_bt" || type == "zj4" || type == "zj4_bt"){
+        if(type == "zp" || type == "zp4" || type == "wujin" || type == "wujin4" || type == "zj" || type == "zj_bt" || type == "zj4" || type == "zj4_bt"){
             this.onGameOver_ZJ(data);
         }
         else if(type == "xzdd"){
@@ -145,7 +125,6 @@ cc.Class({
         console.log(data);
         if(!data || data.length == 0){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
@@ -343,7 +322,6 @@ cc.Class({
         console.log(data);
         if(data.length == 0){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
@@ -576,7 +554,6 @@ cc.Class({
         console.log(data);
         if(data.length == 0){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
             return;
         }
         this._gameover.active = true;
@@ -899,7 +876,6 @@ cc.Class({
         console.log("onBtnReadyClicked");
         if(this._isGameEnd){
             this._gameresult.active = true;
-            this._popIn(this._gameresult);
         }
         else{
             cc.vv.net.send('ready');   

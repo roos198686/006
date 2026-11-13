@@ -1729,6 +1729,17 @@ exports.hu = function(userId){
             baoScore = baoScore * caiMul;
         }
     }
+    // 后台开关:是否计算胡牌分(tai_rules.hu_score_enabled, 默认0=不选)
+    // 不选时本局不计胡牌分(score=0),包财神仍照常结算包台分
+    var _huTr = game.taiRules;
+    if(typeof _huTr === 'string'){
+        try{ _huTr = JSON.parse(_huTr); }catch(e){ _huTr = null; }
+    }
+    var huScoreEnabled = !!(_huTr && typeof _huTr === 'object' && Number(_huTr.hu_score_enabled) > 0);
+    if(!huScoreEnabled){
+        huScore = 0;
+    }
+
     var score = huScore; // 胡牌分(兼容 game_hu_push 的 score 字段)
 
     if(isBaoPlay){
@@ -1791,6 +1802,8 @@ exports.hu = function(userId){
 
     userMgr.brocastInRoom(roomMgr.getRoomIdOfUser(userId), 'game_hu_push', {
         si: seatIndex,
+        //胡牌亮明牌:下发胡牌者手牌(含所胡的牌),客户端据此翻回正向展示
+        holds: game.gameSeats[seatIndex].holds.slice(),
         pai: huPai,
         zimo: isZimo,
         qianggang: isQiangGang || false,
