@@ -39,9 +39,8 @@ jobs:
           OUT="client/build/jsb-default/frameworks/runtime-src/proj.android-studio/app/build/outputs/apk/release"
           UNSIGNED=$(ls $OUT/*-unsigned.apk | head -1)
           echo "unsigned: $UNSIGNED"
-          keytool -genkeypair -v -keystore scmj.jks -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias scmj -storepass scmj123456 -keypass scmj123456 \
-            -dname "CN=SCMJ, OU=Dev, O=SCMJ, L=PZ, ST=SC, C=CN" > /dev/null 2>&1
+          # 固定签名: 用仓库里固定的keystore, 不再每次随机生成(随机密钥每次都变, 新包无法覆盖安装, 只能卸载重装)
+          cp .github/signing/scmj.jks scmj.jks
           $BT/zipalign -f -p 4 "$UNSIGNED" SCMJ-aligned.apk
           $BT/apksigner sign --ks scmj.jks --ks-pass pass:scmj123456 --key-pass pass:scmj123456 \
             --v1-signing-enabled true --v2-signing-enabled true --out SCMJ-signed.apk SCMJ-aligned.apk

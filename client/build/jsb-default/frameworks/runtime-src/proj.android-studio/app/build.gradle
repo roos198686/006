@@ -119,6 +119,13 @@ android.applicationVariants.all { variant ->
             from "${sourceDir}/project.json"
             into outputDir
         }
+
+        // 热更新本地清单必须打进APK(assets/project.manifest), 否则AssetsManagerEx读不到本地清单, 热更永远不生效
+        copy {
+            from "${sourceDir}/project.manifest"
+            from "${sourceDir}/version.manifest"
+            into outputDir
+        }
     }
 }
 
