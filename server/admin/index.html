@@ -1010,7 +1010,7 @@ function switchTab(name, btn){
   document.querySelectorAll('.panel').forEach(function(p){ p.style.display = 'none'; });
   document.getElementById('tab-' + name).style.display = 'block';
   document.getElementById('pageTitle').textContent = TAB_TITLES[name] || '';
-  if(name === 'clubs') loadClubs();
+  if(name === 'clubs'){ loadClubs(); }
   if(name === 'club_detail') enterClubDetail();
   if(name === 'club_partner') enterPartnerPage();
   if(name === 'admins') loadAdmins();
@@ -1307,6 +1307,16 @@ function uploadHotupdate(){
 }
 
 // ============ 俱乐部管理 ============
+// ============ 一级俱乐部开关:统一牌桌大厅 ============
+function toggleHallMode(clubId, cur){
+  var next = cur ? 0 : 1;
+  if(!confirm(next ? '开启后该一级俱乐部及其所有下级的玩家进入同一个牌桌大厅（玩法取该一级俱乐部开通的玩法），确定开启？' : '关闭后该体系恢复各俱乐部独立大厅，确定关闭？')) return;
+  api('/admin/club_hall_mode', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({club_id:clubId, enabled:next})}).then(function(ret){
+    if(ret.code !== 0){ alert(ret.msg || '保存失败'); return; }
+    loadClubs();
+  });
+}
+
 var allClubs = [];
 function loadClubs(cb){
   api('/admin/clubs').then(function(ret){
@@ -1331,6 +1341,8 @@ function renderClubs(){
   }
   list.forEach(function(c){
     var time = c.create_time ? new Date(c.create_time * 1000).toLocaleString() : '-';
+    var isRoot = (Number(c.parent_clubid) || 0) === 0;
+    var hallOn = Number(c.hall_mode) === 1 ? 1 : 0;
     var card = document.createElement('div');
     card.className = 'card';
     card.innerHTML = '<div class="card-header">'+
@@ -1343,8 +1355,10 @@ function renderClubs(){
       '<div class="row"><span class="k">玩法 / 牌桌</span><span class="v">'+c.game_count+' / '+c.table_count+'</span></div>'+
       '<div class="row"><span class="k">管理员</span><span class="v">'+(c.admin_names||'-')+'</span></div>'+
       '<div class="row"><span class="k">俱乐部等级</span><span class="v">'+(Number(c.is_top_level)===1?'一级俱乐部(增减豆豆不受自身限制)':'普通俱乐部')+'</span></div>'+
+      '<div class="row"><span class="k">统一大厅</span><span class="v">'+(isRoot ? (hallOn ? '已开启' : '已关闭') : '跟随一级俱乐部')+'</span></div>'+
       '<div class="row"><span class="k">创建时间</span><span class="v">'+time+'</span></div></div>'+
       '<div class="card-actions">'+
+      (isRoot ? '<button class="btn btn-sm '+(hallOn ? 'btn-success' : 'btn-default')+'" onclick="toggleHallMode('+c.id+','+hallOn+')">'+(hallOn ? '关闭统一大厅' : '开启统一大厅')+'</button>' : '')+
       (Number(c.is_top_level)===1
         ? '<button class="btn btn-default btn-sm" onclick="setTopLevel('+c.id+',0)">取消一级</button>'
         : '<button class="btn btn-success btn-sm" onclick="setTopLevel('+c.id+',1)">设为一级俱乐部</button>')+

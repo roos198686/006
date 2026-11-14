@@ -442,6 +442,41 @@ app.get('/admin/club_detail', auth, function(req, res){
     });
 });
 
+// ============ 一级俱乐部开关:统一牌桌大厅 ============
+//每个一级俱乐部独立配置;开启后该一级俱乐部及其所有下级的玩家进入同一个大厅,
+//大厅玩法取该一级俱乐部后台开通的玩法,牌桌汇总该体系内所有俱乐部的桌
+app.get('/admin/club_hall_mode', auth, function(req, res){
+    var cid = parseInt(req.query.club_id);
+    if(!(cid > 0)){ send(res, 1, "club_id required"); return; }
+    db.club_get(cid, function(club){
+        if(!club){ send(res, 1, "club not found"); return; }
+        send(res, 0, "ok", {
+            club_id: cid,
+            enabled: Number(club.hall_mode) === 1 ? 1 : 0,
+            is_root: (Number(club.parent_clubid) || 0) === 0
+        });
+    });
+});
+
+app.post('/admin/club_hall_mode', auth, function(req, res){
+    var body = req.body || {};
+    var cid = parseInt(body.club_id);
+    if(!(cid > 0)){ send(res, 1, "club_id required"); return; }
+    db.club_get(cid, function(club){
+        if(!club){ send(res, 1, "club not found"); return; }
+        if((Number(club.parent_clubid) || 0) !== 0){
+            send(res, 2, "只有一级俱乐部可以配置统一大厅");
+            return;
+        }
+        var b = body.enabled;
+        var on = (b === 1 || b === true || b === '1') ? 1 : 0;
+        db.query('UPDATE t_clubs SET hall_mode = ' + on + ' WHERE id = ' + cid, function(err){
+            if(err){ send(res, 1, "保存失败"); return; }
+            send(res, 0, "ok", {club_id: cid, enabled: on});
+        });
+    });
+});
+
 // 俱乐部玩法列表
 app.get('/admin/club_games', auth, function(req, res){
     var cid = resolveClubId(req, res);

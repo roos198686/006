@@ -238,6 +238,7 @@ cc.Class({
         var root = this.node;
         n.infobar = this.findNode(root, "infobar");
         n.titleLabel = this.findNode(n.infobar, "titleLabel");
+        n.bbWatermark = this.findNode(root, "bbWatermark");   // 场景水印: 显示本房间牌桌名称
         n.prepare = this.findNode(root, "prepare");
         n.game = this.findNode(root, "game");
         n.up = this.findNode(n.game, "up");
@@ -344,6 +345,9 @@ cc.Class({
             }
             var summary = this.findNode(seat, "bbSummary");
             if (zhuang) zhuang.active = false;
+            // 场景里为了让编辑器能看到/调整, 这一排默认是勾上的; 运行时先统一关掉, 只在免摆亮牌时打开
+            var rowCards = this.findNode(seat, "bbRowCards");
+            if (rowCards) rowCards.active = false;
 
             this._seatNodes[i] = {
                 root: seat,
@@ -356,6 +360,13 @@ cc.Class({
                 okSprite: this.findNode(seat, "okSprite"),   // 坐下标记: 有人坐下显示, 开局隐藏
                 cardsNode: this.findNode(seat, "bbCards"),   // 牌桌牌区: 摆牌弹窗打开时整块隐藏
                 slots: slots,
+                // 免摆整手展示用的一排六个牌位(场景里新增, 缺失时退化为原来的三排)
+                rowCards: rowCards,
+                rowSlots: (function () {
+                    var rs = [];
+                    for (var rk = 0; rk < 6; ++rk) { rs.push(this.findNode(seat, "bbRowCard" + rk)); }
+                    return rs;
+                }).call(this),
                 daoLabels: labels,
                 summary: summary,
                 bubble: this.findNode(seat, "bbBubble"),
@@ -373,6 +384,7 @@ cc.Class({
             var sn = this._seatNodes[i];
             if (!sn) continue;
             if (sn.cardsNode) sn.cardsNode.active = !!visible;
+            if (!visible && sn.rowCards) sn.rowCards.active = false;
             // 容器缺失时直接关单卡, 保证不会残留在桌面上
             if (!visible && sn.slots) {
                 for (var j = 0; j < sn.slots.length; ++j) { if (sn.slots[j]) sn.slots[j].active = false; }
@@ -1155,6 +1167,7 @@ cc.Class({
             for (var k = 0; k < 6; ++k) {
                 if (sn.slots[k]) { sn.slots[k].active = false; sn.slots[k].color = cc.Color.WHITE; }
             }
+            if (sn.rowCards) sn.rowCards.active = false;
             for (var d = 0; d < 3; ++d) this.setStr(sn.daoLabels[d], "");
             this.setStr(sn.summary, "");
         }
@@ -1464,6 +1477,16 @@ cc.Class({
         // 进度: 已打第几局/总局
         if (nm.maxNumOfGames > 0) txt += "  第" + nm.numOfGames + "/" + nm.maxNumOfGames + "局";
         this.setStr(this._n.titleLabel, txt);
+        // 左上角水印: 显示本房间的牌桌名称(俱乐部牌桌用玩家录入的名称, 普通房间沿用"宝宝")
+        var wmName = conf.club_table_name || conf.table_name || conf.name || "宝宝";
+        if (this._n.bbWatermark) {
+            var wmLb = this._n.bbWatermark.getComponent(cc.Label);
+            if (wmLb) {
+                wmLb.string = wmName;
+                wmLb.enableWrapText = false;                     // 牌桌名可能较长, 不换行
+                wmLb.overflow = cc.Label.Overflow.NONE;          // 超出也不裁剪, 保持水印完整
+            }
+        }
     },
 
     // 右上角设置按钮: 打开场景内popups/settings面板(音效/音乐开关由setting组件处理,btn_close自行关闭)
@@ -1551,13 +1574,15 @@ cc.Class({
             var sn = this._seatNodes[o];
             if (!sn) continue;
             for (var k = 0; k < 6; ++k) { if (sn.slots[k]) { sn.slots[k].active = false; } }
+            if (sn.rowCards) sn.rowCards.active = false;
             for (var d = 0; d < 3; ++d) this.setStr(sn.daoLabels[d], "");
             this.setStr(sn.summary, "");
         }
         if (!this._started) { this._renderArrange(); return; }
 
         for (var off = 0; off < total; ++off) {
-            var seat = this._seatNodes[this._layoutOf(total)[off]];
+            var seatIdx = this._layoutOf(total)[off];
+            var seat = this._seatNodes[seatIdx];
             if (!seat || !seat.root.active) continue;
             var gs = this._watching ? off : (this._mySeat + off) % total;
             // 牌区被收起(还没确认出牌/摆牌弹窗开着)时不能重绘, 否则会把别人的牌背也摆回桌面
@@ -1604,9 +1629,16 @@ cc.Class({
                 backs = true;
             }
 
+            // 免摆牌型: 六张牌在场景里预留的一排牌位上一起展示(手摆里的免摆玩家 / 纯免摆局), 不再三排两列
+            var rowMode = !!(p && shown >= 6 && (p.mianFree || (p.groups && !p.daos)));
+            if (rowMode) { labels = ["", "", ""]; summary = ""; }   // 一排展示时不再显示三道点数文字和 bbSummary(牌型名由 bbMb 横幅显示)
+            this._setMianRow(seat, rowMode, faces);
+            // 一排亮牌和牌型横幅(bbMb 里的 bbMianType)始终同步: 重连恢复亮牌状态时也要补上
+            if (rowMode && p && p.typeName && p.typeKey > 0) this._showMianTypeAtSeat(seatIdx, p.typeName);
             for (var s = 0; s < 6; ++s) {
                 var cardNode = seat.slots[s];
                 if (!cardNode) continue;
+                if (rowMode) { cardNode.active = false; continue; }
                 var sp = cardNode.getComponent(cc.Sprite);
                 cardNode.active = true;
                 if (backs || (p && s >= shown)) {
@@ -1625,6 +1657,24 @@ cc.Class({
             this.setStr(seat.summary, this._gameType == "baobao_mian" ? "" : summary);
         }
         this._renderArrange();
+    },
+
+    // 免摆整手展示: 场景里每个座位预留了一排六个牌位(bbRowCards/bbRowCard0~5)
+    // 六张牌直接横向排开, 不再按三道两列叠放
+    _setMianRow: function (seat, on, faces) {
+        if (!seat || !seat.rowCards) return;   // 场景没配就保持原三排布局
+        seat.rowCards.active = !!on;
+        if (!on) return;
+        for (var k = 0; k < 6; ++k) {
+            var c = seat.rowSlots[k];
+            if (!c) continue;
+            var face = faces ? faces[k] : null;
+            if (face == null) { c.active = false; continue; }
+            c.active = true;
+            c.color = cc.Color.WHITE;
+            var sp = c.getComponent(cc.Sprite);
+            if (sp) sp.spriteFrame = this.frameOf(face) || this._cardBack || null;
+        }
     },
 
     // 服务端给的三道(每道 2 张数组)转成固定 2 槽位: 缺的位置用 null 占位
@@ -2145,6 +2195,46 @@ cc.Class({
         var layout = this._layoutOf(total);
         var banker = (data.bankerSeat != null && data.bankerSeat >= 0) ? data.bankerSeat : 0;
         var STEP = 1.5;   // 每家每道 1.5 秒: 翻2张 + 播一条报牌语音, 语音还没播完不能翻下一家
+        // 本局实际玩法(以亮牌推送里的 gameType 为准, 避免重连时 _gameType 还是旧值)
+        var revealType = (data && data.gameType) || this._gameType;
+        // 手摆局: 拿到免摆牌型的玩家开局一次性亮完6张, 之后不再参与逐道亮牌
+        var autoSeats = {};
+        if (revealType == "baobao_shou") {
+            for (var ai = 0; ai < data.players.length; ++ai) {
+                var ap = data.players[ai];
+                if (ap.seat == null || !ap.mianFree) continue;
+                var aoff = this._watching ? ap.seat : ((ap.seat - this._mySeat + total) % total);
+                var aidx = layout[aoff];
+                autoSeats[ap.seat] = true;
+                this._revealCounts[aoff] = 6;
+                if (aidx != null) {
+                    for (var ak = 0; ak < 6; ++ak) self._flipOne(aidx, ak);
+                    if (ap.typeName && ap.typeKey > 0) self._showMianTypeAtSeat(aidx, ap.typeName);
+                }
+            }
+            if (Object.keys(autoSeats).length) this.renderCards();
+        }
+        // 纯免摆局(baobao_mian): 每家都是免摆牌型, 开局直接亮整手最优三道(一排),
+        // 不再按道一对一对翻牌
+        if (revealType == "baobao_mian") {
+            var mianCount = 0;
+            for (var mi = 0; mi < data.players.length; ++mi) {
+                var mp = data.players[mi];
+                if (mp.seat == null) continue;
+                var moff = this._watching ? mp.seat : ((mp.seat - this._mySeat + total) % total);
+                var midx = layout[moff];
+                autoSeats[mp.seat] = true;
+                this._revealCounts[moff] = 6;
+                if (midx == null) continue;
+                for (var mk = 0; mk < 6; ++mk) self._flipOne(midx, mk);
+                if (mp.typeName && mp.typeKey > 0) self._showMianTypeAtSeat(midx, mp.typeName);
+                mianCount++;
+            }
+            if (mianCount > 0) {
+                this.renderCards();
+                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("fanpai.mp3");
+            }
+        }
         this._revealOrder = [];
         for (var t = 0; t < total && this._revealOrder.length < ORDER; ++t) {
             var g2 = (banker + t) % total;
@@ -2157,6 +2247,7 @@ cc.Class({
         var stepIdx = 0;
         for (var s3 = 0; s3 < 3; ++s3) {          // 先按道轮
             for (var o = 0; o < this._revealOrder.length; ++o) {   // 每道内所有玩家各亮2张
+                if (autoSeats[this._revealOrder[o]]) continue;      // 免摆玩家已整手亮完, 不参与逐道亮牌
                 (function (ss, oo, idx) {
                     self.scheduleOnce(function () {
                         if (!cc.isValid(self.node)) return;
@@ -2172,7 +2263,7 @@ cc.Class({
                         if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("fanpai.mp3");
                         if (p) self._reportDaoVoice(p, ss);
                         // 免摆玩家三道全亮后: 牌旁显示牌型名(逆向 Pk_Lb_Player ShowOutCard outListType)
-                        if (p && ss == 2 && (p.mianFree || (p.groups && !p.daos)) && p.typeName && seatIdx != null) self._showMianTypeAtSeat(seatIdx, p.typeName);
+                        if (p && ss == 2 && (p.mianFree || (p.groups && !p.daos)) && p.typeName && p.typeKey > 0 && seatIdx != null) self._showMianTypeAtSeat(seatIdx, p.typeName);
                     }, idx * STEP);
                 })(s3, o, stepIdx);
                 stepIdx++;
@@ -2183,7 +2274,7 @@ cc.Class({
             if (!cc.isValid(self.node)) return;
             try { self._playDaqiangFx(finish); }
             catch (e) { console.log("[BB] 打枪特效异常:", e && e.message); finish(); }
-        }, stepIdx * STEP);
+        }, Math.max(stepIdx, 1) * STEP);
     },
 
     // 逐道报牌: 每翻开一道按 desc 报牌型(宝→bao, N点→dianN);

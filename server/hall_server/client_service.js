@@ -274,14 +274,29 @@ app.get('/enter_private_room',function(req,res){
 				doEnterRoom();
 				return;
 			}
-			//俱乐部房间:校验用户是否为该俱乐部成员(未加入任何俱乐部 isMember=false)
-			db.club_is_member(clubId,userId,function(isMember){
-				if(!isMember){
-					console.log('[enter_private_room] reject: userId=' + userId + ' not member of club ' + clubId + ' for room ' + roomId);
-					http.send(res,3333,"该房间属于其他俱乐部，无法进入");
+			//俱乐部房间:玩家所属一级俱乐部开了大厅模式时,只允许进同一一级俱乐部体系内的桌;
+			//未开启时仍按原逻辑,必须是该桌所属俱乐部成员
+			db.club_hall_context(userId,function(ctx){
+				if(ctx && ctx.hallMode === 1){
+					db.club_parent_chain(clubId,function(chain){
+						var root = chain && chain.length ? chain[chain.length - 1] : null;
+						if(!root || (Number(root.id) || 0) !== ctx.rootId){
+							console.log('[enter_private_room] reject: userId=' + userId + ' root=' + ctx.rootId + ' not match table root for room ' + roomId);
+							http.send(res,3333,"该房间不属于您所在的大厅");
+							return;
+						}
+						doEnterRoom();
+					});
 					return;
 				}
-				doEnterRoom();
+				db.club_is_member(clubId,userId,function(isMember){
+					if(!isMember){
+						console.log('[enter_private_room] reject: userId=' + userId + ' not member of club ' + clubId + ' for room ' + roomId);
+						http.send(res,3333,"该房间属于其他俱乐部，无法进入");
+						return;
+					}
+					doEnterRoom();
+				});
 			});
 		});
 	});
@@ -481,7 +496,11 @@ app.get('/club_list',function(req,res){
 		var userId = data.userid;
 		db.is_agent(userId,function(isAgent){
 			db.club_list_of_user(userId,function(clubs){
-				http.send(res,0,"ok",{is_agent:isAgent,clubs:clubs});
+				//hall_mode=1:玩家所属一级俱乐部开了大厅,客户端只保留一个入口,点进去是该一级俱乐部体系的总大厅
+				db.club_hall_context(userId,function(ctx){
+					var hallMode = (ctx && ctx.hallMode === 1) ? 1 : 0;
+					http.send(res,0,"ok",{is_agent:isAgent,clubs:clubs,hall_mode:hallMode,hall_rootid:ctx?ctx.rootId:0});
+				});
 			});
 		});
 	});
@@ -603,13 +622,27 @@ app.get('/club_join',function(req,res){
 					http.send(res,4,"已在该俱乐部中");
 					return;
 				}
-				db.club_join(clubId,data.userid,function(ok){
-					if(!ok){
-						http.send(res,1,"join failed.");
-						return;
-					}
-					http.send(res,0,"ok",{clubid:clubId,name:club.name});
+				//大厅模式:目标俱乐部所属一级俱乐部开了大厅时,一人只能加入一个俱乐部
+				db.club_parent_chain(clubId,function(chain){
+					var root = chain && chain.length ? chain[chain.length - 1] : null;
+					if(!root || Number(root.hall_mode) !== 1){ doJoin(); return; }
+					db.club_member_clubid(data.userid,function(otherClub){
+						if(otherClub > 0){
+							http.send(res,7,"您已加入其他俱乐部，无法重复加入");
+							return;
+						}
+						doJoin();
+					});
 				});
+				function doJoin(){
+					db.club_join(clubId,data.userid,function(ok){
+						if(!ok){
+							http.send(res,1,"join failed.");
+							return;
+						}
+						http.send(res,0,"ok",{clubid:clubId,name:club.name});
+					});
+				}
 			});
 		});
 	});
@@ -650,9 +683,23 @@ app.get('/club_pull',function(req,res){
 						http.send(res,6,"该玩家已加入俱乐部");
 						return;
 					}
-					db.club_join(clubId,targetId,function(ok){
-						http.send(res,ok?0:1,ok?"ok":"pull failed.");
+					//大厅模式:目标俱乐部所属一级俱乐部开了大厅时,一人只能加入一个俱乐部
+					db.club_parent_chain(clubId,function(chain){
+						var root = chain && chain.length ? chain[chain.length - 1] : null;
+						if(!root || Number(root.hall_mode) !== 1){ doPull(); return; }
+						db.club_member_clubid(targetId,function(otherClub){
+							if(otherClub > 0){
+								http.send(res,6,"该玩家已加入其他俱乐部");
+								return;
+							}
+							doPull();
+						});
 					});
+					function doPull(){
+						db.club_join(clubId,targetId,function(ok){
+							http.send(res,ok?0:1,ok?"ok":"pull failed.");
+						});
+					}
 				});
 			});
 		});
@@ -1056,6 +1103,64 @@ app.get('/club_tables',function(req,res){
 	});
 });
 
+//统一牌桌大厅:玩法列表(该玩家所属一级俱乐部后台开通的全部玩法,没桌也列出);必须先加入俱乐部
+app.get('/club_hall_games',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){
+			http.send(res,-1,"system error");
+			return;
+		}
+		db.club_hall_context(data.userid,function(ctx){
+			if(!ctx || !(ctx.rootId > 0)){
+				http.send(res,2,"not club member.");
+				return;
+			}
+			db.club_hall_games(ctx.rootId,function(rows){
+				var games = (rows || []).map(function(r){
+					return {
+						game_type:r.game_type,
+						name:r.name || r.game_type,
+						table_count:Number(r.table_count) || 0,
+						difen_options:[],
+						jushu_options:[]
+					};
+				});
+				http.send(res,0,"ok",{games:games,my_clubid:ctx.clubId,root_clubid:ctx.rootId});
+			});
+		});
+	});
+});
+
+//统一牌桌大厅:汇总该玩家所属一级俱乐部体系(含所有下级)的牌桌(game_type为空=全部)
+app.get('/club_tables_hall',function(req,res){
+	if(!check_account(req,res)){
+		return;
+	}
+	var gameType = req.query.game_type || "";
+	db.get_user_data(req.query.account,function(data){
+		if(data == null){
+			http.send(res,-1,"system error");
+			return;
+		}
+		db.club_hall_context(data.userid,function(ctx){
+			if(!ctx || !(ctx.rootId > 0)){
+				http.send(res,2,"not club member.");
+				return;
+			}
+			db.club_tables_hall(gameType,ctx.rootId,ctx.clubId,function(tables){
+				var rows = (tables || []).map(function(t){
+					t.can_clear = 0; //大厅只玩不管理,加桌/清桌走管理后台
+					return t;
+				});
+				http.send(res,0,"ok",{tables:rows,my_clubid:ctx.clubId,root_clubid:ctx.rootId});
+			});
+		});
+	});
+});
+
 //俱乐部后台清空牌桌:仅俱乐部创建者可操作;解散牌桌绑定房间、踢出所有玩家并彻底释放占用,
 //清空后被占用的玩家可自由进入其它房间
 app.get('/club_clear_table',function(req,res){
@@ -1376,11 +1481,31 @@ app.get('/club_enter_table',function(req,res){
 				http.send(res,2222,"宝宝豆不足" + minBean + "，无法进入桌面");
 				return;
 			}
-			db.club_is_member(table.club_id,userId,function(isMember){
-				if(!isMember){
-					http.send(res,2,"not club member.");
-					return;
-				}
+			//大厅模式:玩家所属一级俱乐部开了大厅时,可进同一一级俱乐部体系内任意俱乐部的桌;
+			//未开启时仍按原逻辑,要求是该桌所属俱乐部成员
+			var checkMember = function(proceed){
+				db.club_hall_context(userId,function(ctx){
+					if(ctx && ctx.hallMode === 1){
+						db.club_parent_chain(table.club_id,function(chain){
+							var root = chain && chain.length ? chain[chain.length - 1] : null;
+							if(!root || (Number(root.id) || 0) !== ctx.rootId){
+								http.send(res,2,"该牌桌不属于您所在的大厅");
+								return;
+							}
+							proceed();
+						});
+						return;
+					}
+					db.club_is_member(table.club_id,userId,function(isMember){
+						if(!isMember){
+							http.send(res,2,"not club member.");
+							return;
+						}
+						proceed();
+					});
+				});
+			};
+			checkMember(function(){
 				db.get_room_id_of_user(userId,function(myRoomId){
 					//仅当记录的房间正是本次点击桌面绑定的房间时才直接引导回去;
 					//否则(如上一局残留的其它玩法房间,2人/4人场景前后端完全独立)必须先清除映射再按本桌面进桌,避免进错场景

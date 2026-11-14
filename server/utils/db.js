@@ -98,6 +98,13 @@ exports.init = function(config){
         });
     }, 1400);
 
+    //一级俱乐部"统一牌桌大厅"开关: 每个一级俱乐部独立配置,只对它自己及其所有下级生效
+    setTimeout(function(){
+        query('ALTER TABLE `t_clubs` ADD COLUMN `hall_mode` TINYINT(1) NOT NULL DEFAULT 0 COMMENT "1=开启统一牌桌大厅(仅一级俱乐部)"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_clubs.hall_mode failed:" + err.message); }
+        });
+    }, 1600);
+
     //乐豆(宝宝豆)变动流水,用于俱乐部"我的乐豆详情"记录页
     var sql3 = 'CREATE TABLE IF NOT EXISTS `t_bean_logs` (' +
         '`id` int(11) unsigned NOT NULL AUTO_INCREMENT,' +
@@ -331,6 +338,18 @@ exports.init = function(config){
             if(err){ console.log("alter t_reward_logs.amount failed:" + err.message); }
         });
     }, 6900);
+
+    //全局配置表(键值对): club_hall_mode=1 时开启"统一牌桌大厅"模式
+    var sqlSettings = 'CREATE TABLE IF NOT EXISTS `t_settings` (' +
+        '`k` varchar(64) NOT NULL,' +
+        '`v` text NULL,' +
+        'PRIMARY KEY (`k`)' +
+        ') ENGINE=InnoDB DEFAULT CHARSET=utf8';
+    setTimeout(function(){
+        query(sqlSettings, function(err){
+            if(err){ console.log("create t_settings failed:" + err.message); }
+        });
+    }, 7200);
 };
 
 //写入一条乐豆流水(对局结算/保险柜存取等),失败不影响主流程
@@ -1504,6 +1523,94 @@ exports.club_is_member = function(clubId,userid,callback){
     });
 };
 
+//全局配置读写(t_settings 键值表)
+exports.setting_get = function(key,callback){
+    callback = callback == null? nop:callback;
+    if(!key){ callback(null); return; }
+    queryP('SELECT v FROM t_settings WHERE k = ?',[String(key)],function(err,rows){
+        if(err || !rows || rows.length == 0){ callback(null); return; }
+        callback(rows[0].v);
+    });
+};
+
+exports.setting_set = function(key,value,callback){
+    callback = callback == null? nop:callback;
+    if(!key){ callback(false); return; }
+    queryP('INSERT INTO t_settings(k,v) VALUES(?,?) ON DUPLICATE KEY UPDATE v = VALUES(v)',[String(key),String(value == null ? "" : value)],function(err){
+        callback(!err);
+    });
+};
+
+//俱乐部自身到根的父链: [自己, 上级, ..., 一级俱乐部](含 hall_mode)
+exports.club_parent_chain = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    var list = [];
+    var visited = {};
+    var walk = function(id){
+        if(!(id > 0) || visited[id] || list.length > 20){ callback(list); return; }
+        visited[id] = 1;
+        queryP('SELECT id,parent_clubid,owner_userid,is_top_level,hall_mode FROM t_clubs WHERE id = ?',[id],function(err,rows){
+            if(err || !rows || rows.length == 0){ callback(list); return; }
+            list.push(rows[0]);
+            walk(Number(rows[0].parent_clubid) || 0);
+        });
+    };
+    walk(parseInt(clubId) || 0);
+};
+
+//某俱乐部及其所有下级的ID集合(含自己)
+exports.club_subtree_ids = function(rootId,callback){
+    callback = callback == null? nop:callback;
+    var root = parseInt(rootId) || 0;
+    if(!(root > 0)){ callback([]); return; }
+    var ids = [root];
+    var frontier = [root];
+    var depth = 0;
+    var step = function(){
+        if(frontier.length == 0 || depth > 20){ callback(ids); return; }
+        query('SELECT id FROM t_clubs WHERE parent_clubid IN (' + frontier.join(',') + ')', function(err, rows){
+            if(err || !rows || rows.length == 0){ callback(ids); return; }
+            var next = [];
+            rows.forEach(function(r){
+                var id = Number(r.id) || 0;
+                if(id > 0 && ids.indexOf(id) < 0){ ids.push(id); next.push(id); }
+            });
+            frontier = next;
+            depth++;
+            step();
+        });
+    };
+    step();
+};
+
+//玩家所属俱乐部 + 所属一级俱乐部(根)的开关状态
+//hallMode=1 表示该玩家看到的统一牌桌大厅已开启
+exports.club_hall_context = function(userid,callback){
+    callback = callback == null? nop:callback;
+    exports.club_member_clubid(userid,function(clubId){
+        if(!(clubId > 0)){ callback(null); return; }
+        exports.club_parent_chain(clubId,function(chain){
+            if(!chain || chain.length == 0){ callback(null); return; }
+            var root = chain[chain.length - 1];
+            callback({
+                clubId: clubId,
+                rootId: Number(root.id) || 0,
+                hallMode: Number(root.hall_mode) === 1 ? 1 : 0
+            });
+        });
+    });
+};
+
+//用户所属俱乐部ID(一人只能加入一个俱乐部;兼容历史多俱乐部取最早加入的一个)
+exports.club_member_clubid = function(userid,callback){
+    callback = callback == null? nop:callback;
+    if(userid == null){ callback(0); return; }
+    query('SELECT club_id FROM t_club_members WHERE userid = ' + parseInt(userid) + ' ORDER BY join_time,club_id LIMIT 1', function(err, rows){
+        if(err || !rows || rows.length == 0){ callback(0); return; }
+        callback(Number(rows[0].club_id) || 0);
+    });
+};
+
 //加入俱乐部
 exports.club_join = function(clubId,userid,callback){
     callback = callback == null? nop:callback;
@@ -1776,6 +1883,86 @@ exports.club_tables = function(clubId,gameType,callback,includeDisabled){
             }
         });
         callback(rows);
+    });
+};
+
+//统一牌桌大厅:汇总某个一级俱乐部体系(它自己及所有下级)的牌桌(gameType为空=全部玩法)
+//玩法/牌桌仍按各俱乐部自己配置,这里只是把可玩的桌子集合到一起;mineClubId用于标出自己的桌子
+exports.club_tables_hall = function(gameType,rootClubId,mineClubId,callback){
+    callback = callback == null? nop:callback;
+    var mine = parseInt(mineClubId) || 0;
+    exports.club_subtree_ids(rootClubId,function(ids){
+        if(!ids || ids.length == 0){ callback([]); return; }
+        var where = 'WHERE t.club_id IN (' + ids.join(',') + ') AND ('
+            + '  (t.game_config_id > 0 AND EXISTS(SELECT 1 FROM t_club_games g1 WHERE g1.id = t.game_config_id AND g1.enabled = 1))'
+            + '  OR (t.game_config_id = 0 AND EXISTS(SELECT 1 FROM t_club_games g2 WHERE g2.club_id = t.club_id AND g2.game_type = t.game_type AND g2.enabled = 1))'
+            + '  OR (t.game_config_id = 0 AND NOT EXISTS(SELECT 1 FROM t_club_games g3 WHERE g3.club_id = t.club_id AND g3.game_type = t.game_type))'
+            + ')';
+        if(gameType && /^[A-Za-z0-9_]+$/.test(String(gameType))){
+            where += ' AND t.game_type = "' + gameType + '"';
+        }
+        var sql = 'SELECT t.id,t.club_id,cl.name AS club_name,t.name,t.game_type,t.roomid,t.conf,t.game_config_id,'
+            + 'c.max_players AS max_players,'
+            + 'IF(r.id IS NULL,0,(r.user_id0 > 0) + (r.user_id1 > 0) + (r.user_id2 > 0) + (r.user_id3 > 0)'
+            + ' + (r.user_id4 > 0) + (r.user_id5 > 0)) AS player_count,'
+            + 'r.num_of_turns,r.user_id0,r.user_id1,r.user_id2,r.user_id3,r.user_id4,r.user_id5,'
+            + 'u0.name AS user_name0,u1.name AS user_name1,u2.name AS user_name2,'
+            + 'u3.name AS user_name3,u4.name AS user_name4,u5.name AS user_name5 '
+            + 'FROM t_club_tables t '
+            + 'LEFT JOIN t_clubs cl ON cl.id = t.club_id '
+            + 'LEFT JOIN t_rooms r ON r.id = t.roomid '
+            + 'LEFT JOIN t_game_config c ON c.type = t.game_type '
+            + 'LEFT JOIN t_users u0 ON u0.userid = r.user_id0 '
+            + 'LEFT JOIN t_users u1 ON u1.userid = r.user_id1 '
+            + 'LEFT JOIN t_users u2 ON u2.userid = r.user_id2 '
+            + 'LEFT JOIN t_users u3 ON u3.userid = r.user_id3 '
+            + 'LEFT JOIN t_users u4 ON u4.userid = r.user_id4 '
+            + 'LEFT JOIN t_users u5 ON u5.userid = r.user_id5 '
+            + where + ' ORDER BY t.create_time DESC,t.id DESC';
+        query(sql, function(err, rows){
+            if(err){
+                console.log(err);
+                callback([]);
+                return;
+            }
+            (rows || []).forEach(function(r){
+                r.is_mine = (mine > 0 && Number(r.club_id) === mine) ? 1 : 0;
+                for(var i = 0; i <= 5; ++i){
+                    var k = "user_name" + i;
+                    if(r[k]){ try{ r[k] = crypto.fromBase64(r[k]); }catch(e){} }
+                }
+            });
+            callback(rows);
+        });
+    });
+};
+
+//统一牌桌大厅的玩法列表: 取该一级俱乐部后台开通的全部玩法(不按有没有桌过滤),带体系内桌数
+exports.club_hall_games = function(rootClubId,callback){
+    callback = callback == null? nop:callback;
+    var root = parseInt(rootClubId) || 0;
+    if(!(root > 0)){ callback([]); return; }
+    exports.club_subtree_ids(root,function(ids){
+        var inSql = (ids && ids.length) ? ids.join(',') : '0';
+        var sql = 'SELECT g.game_type,g.sort,g.id,'
+            + 'IFNULL(NULLIF(g.name,""),g.game_type) AS name,'
+            + '(SELECT COUNT(*) FROM t_club_tables t WHERE t.club_id IN (' + inSql + ') AND t.game_type = g.game_type AND ('
+            + '  (t.game_config_id > 0 AND EXISTS(SELECT 1 FROM t_club_games g1 WHERE g1.id = t.game_config_id AND g1.enabled = 1))'
+            + '  OR (t.game_config_id = 0 AND EXISTS(SELECT 1 FROM t_club_games g2 WHERE g2.club_id = t.club_id AND g2.game_type = t.game_type AND g2.enabled = 1))'
+            + '  OR (t.game_config_id = 0 AND NOT EXISTS(SELECT 1 FROM t_club_games g3 WHERE g3.club_id = t.club_id AND g3.game_type = t.game_type))'
+            + ')) AS table_count '
+            + 'FROM t_club_games g WHERE g.club_id = ' + root + ' AND g.enabled = 1 ORDER BY g.sort,g.id';
+        query(sql, function(err, rows){
+            if(err){
+                console.log(err);
+                callback([]);
+                return;
+            }
+            (rows || []).forEach(function(r){
+                if(!r.name){ r.name = r.game_type; }
+            });
+            callback(rows || []);
+        });
     });
 };
 
@@ -2772,7 +2959,7 @@ exports.club_member_gems = function(clubId,userid,gems,callback){
 //后台:俱乐部列表(含社长信息/成员数/玩法数/牌桌数)
 exports.admin_club_list = function(callback){
     callback = callback == null? nop:callback;
-    var sql = 'SELECT c.id,c.name,c.owner_userid,c.is_top_level,c.create_time,u.account AS owner_account,u.name AS owner_name,'
+    var sql = 'SELECT c.id,c.name,c.owner_userid,c.parent_clubid,c.is_top_level,c.hall_mode,c.create_time,u.account AS owner_account,u.name AS owner_name,'
         + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count,'
         + '(SELECT COUNT(*) FROM t_club_games g WHERE g.club_id = c.id) AS game_count,'
         + '(SELECT COUNT(*) FROM t_club_tables t WHERE t.club_id = c.id) AS table_count,'

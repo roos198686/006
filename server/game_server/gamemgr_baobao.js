@@ -954,6 +954,24 @@ function doGameOver(game){
         userIdOfSeat: game.gameSeats.map(function(s){ return s.userId; })
     } : null;
 
+    //抽水按玩家自己所属俱乐部算: 结算前把赢家所属俱乐部查出来(没有俱乐部的回退牌桌俱乐部)
+    var fillSeatClubs = function(seatIdxs, cb){
+        if(!chargeRoomInfo){ cb(); return; }
+        var map = chargeRoomInfo.clubIdOfSeat || {};
+        chargeRoomInfo.clubIdOfSeat = map;
+        var list = (seatIdxs || []).filter(function(s){ return !(Number(map[s]) > 0); });
+        if(list.length === 0){ cb(); return; }
+        var pending = list.length;
+        list.forEach(function(si){
+            var uid = Number((chargeRoomInfo.userIdOfSeat || [])[si]) || 0;
+            if(!(uid > 0)){ if(--pending === 0){ cb(); } return; }
+            db.club_member_clubid(uid, function(cid){
+                if(Number(cid) > 0){ map[si] = Number(cid); }
+                if(--pending === 0){ cb(); }
+            });
+        });
+    };
+
     // 单局结算抽水/暗水(每小局抽模式)
     // 每张牌桌的参数相互独立: 优先按 club_table_id 实时读牌桌conf(馆主改牌桌立即生效),
     // 牌桌conf没有的字段才用牌桌绑定的玩法配置兜底
@@ -1019,8 +1037,10 @@ function doGameOver(game){
         refreshClubConfig(function(){
             if(!clubConfig){ cb(); return; }
             var charge = require("./charge");
-            charge.chargeRake(deltas, winners, chargeRoomInfo, clubConfig, function(){
-                cb();
+            fillSeatClubs(winners, function(){
+                charge.chargeRake(deltas, winners, chargeRoomInfo, clubConfig, function(){
+                    cb();
+                });
             });
         });
     };
@@ -1121,16 +1141,18 @@ function doGameOver(game){
         // 整场结束: 整场抽水模式(rake_per_round=0)与房费在这里结算(不阻塞结算流程)
         if(isFinalRound && clubConfig && chargeRoomInfo){
             var chargeMod = require("./charge");
-            if(!clubConfig.rakePerRound){
-                var totalDeltas = {};
-                var totalWinners = [];
-                for(var td = 0; td < game.gameSeats.length; ++td){
-                    totalDeltas[td] = game.gameSeats[td].roomWin || 0;
-                    if(totalDeltas[td] > 0) totalWinners.push(td);
-                }
-                chargeMod.chargeRakeTotal(totalDeltas, totalWinners, chargeRoomInfo, clubConfig, function(){});
+            //整场抽水: 每个赢家按自己俱乐部的模式决定(每局模式在该俱乐部内部跳过, 整场模式在此结算)
+            var totalDeltas = {};
+            var totalWinners = [];
+            for(var td = 0; td < game.gameSeats.length; ++td){
+                totalDeltas[td] = game.gameSeats[td].roomWin || 0;
+                if(totalDeltas[td] > 0) totalWinners.push(td);
             }
-            if(clubConfig.roomFee > 0 && clubConfig.roomFeePayer !== 0){
+            fillSeatClubs(totalWinners, function(){
+                chargeMod.chargeRakeTotal(totalDeltas, totalWinners, chargeRoomInfo, clubConfig, function(){});
+            });
+            //房费: 由大赢家出, 按大赢家自己俱乐部的配置判断(比赛场出则不扣)
+            if(clubConfig){
                 var bigSeat = -1, bigWin = -1;
                 for(var bs = 0; bs < game.gameSeats.length; ++bs){
                     var rw = game.gameSeats[bs].roomWin || 0;

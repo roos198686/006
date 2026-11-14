@@ -76,6 +76,15 @@ cc.Class({
         this._clubTables = [];
         this._rewards = [];
         this._overview = {};
+        // 列表分页: 每个列表各自记住当前页码
+        this._pagers = {};
+        this._memberPageNo = 1;
+        this._partnerPageNo = 1;
+        this._partnerStatsPageNo = 1;
+        this._rewardPageNo = 1;
+        this._incomePageNo = 1;
+        this._tablePageNo = 1;
+        this._pagerSeq = 0;
 
         // 收入统计筛选状态(默认本月)
         this._statMonth = this._fmtYM(new Date());
@@ -284,6 +293,7 @@ cc.Class({
         var fromTs = Math.floor(from.getTime() / 1000);
         var toTs = Math.floor(to.getTime() / 1000);
         var pid = this._statPartnerId || 0;
+        this._incomePageNo = 1;
         clubReq("/income_stats", { club_id: this._clubId, from: fromTs, to: toTs, partner_club_id: pid }, function (ret) {
             if (ret && ret.errcode === 0) {
                 self._renderIncomeStats(ret);
@@ -446,6 +456,7 @@ cc.Class({
     },
 
     _renderIncomeStats: function (data) {
+        this._incomeStatsData = data || { total: 0, list: [] };
         var total = Number(data && data.total) || 0;
         if (this._statTotalLabel) { this._statTotalLabel.string = "总收入：" + total; }
         var content = this._statListContent;
@@ -457,8 +468,12 @@ cc.Class({
         }
         var list = (data && data.list) || [];
         var rowH = 80;
-        for (var j = 0; j < list.length; j++) {
-            var r = list[j];
+        // 只渲染当前页
+        var pageSize = 15;
+        var sl = this._pageSlice(list, this._incomePageNo, pageSize);
+        this._incomePageNo = sl.page;
+        for (var j = 0; j < sl.rows.length; j++) {
+            var r = sl.rows[j];
             var row = cc.instantiate(rowTpl);
             row.active = true;
             row.parent = content;
@@ -471,8 +486,16 @@ cc.Class({
         // content 锚点(0.5,1): y 取视口顶部高度, 让列表贴住顶部而不是留空
         var svNode = content.parent;
         var viewH = svNode ? svNode.height : 600;
-        content.setContentSize(1020, Math.max(viewH, list.length * rowH + 10));
+        content.setContentSize(1020, Math.max(viewH, sl.rows.length * rowH + 10));
         content.setPosition(0, viewH / 2);
+        if (this._incomeStatsContent) {
+            var self = this;
+            var pager = this._getPager("incomeStats", this._incomeStatsContent, -this._incomeStatsContent.height / 2 + 60);
+            this._updatePager(pager, sl.total, sl.page, pageSize, function (p) {
+                self._incomePageNo = p;
+                self._renderIncomeStats(self._incomeStatsData);
+            });
+        }
     },
 
     // ============ 成员页 ============
@@ -493,12 +516,13 @@ cc.Class({
         var searchBtn = page.getChildByName("searchBtn");
         if (searchBtn) {
             searchBtn.on(cc.Node.EventType.TOUCH_END, function () {
+                self._memberPageNo = 1;
                 self._renderMembers();
             });
         }
 
         var scroll = page.getChildByName("memberScroll");
-        if (scroll) this._memberContent = scroll.getChildByName("content");
+        if (scroll) { this._memberContent = scroll.getChildByName("content"); }
     },
 
     // 清空列表内容: 只删克隆行和场景示例行, 保留 rowTpl 模板本身
@@ -509,6 +533,84 @@ cc.Class({
             n.removeFromParent();
             n.destroy();
         }
+    },
+
+    // ============ 通用分页条(外观在场景 memberPage/pagerBar, JS 只克隆填字) ============
+    // key: 每张列表唯一; parent: 分页条挂载的节点(页面或弹窗 content)
+    _getPager: function (key, parent, bottomY) {
+        if (!parent) { return null; }
+        if (!this._pagers) { this._pagers = {}; }
+        var old = this._pagers[key];
+        if (old && cc.isValid(old.node)) { return old; }
+        // 分页条直接取场景里摆好的节点, JS 不改位置/尺寸/对齐
+        var bar = parent.getChildByName("pagerBar");
+        if (!bar) { return null; }
+
+        var prev = bar.getChildByName("prevBtn");
+        var next = bar.getChildByName("nextBtn");
+        var jump = bar.getChildByName("jumpBtn");
+        var labelNode = bar.getChildByName("pageLabel");
+        var inputBox = bar.getChildByName("pageInput");
+        var lbl = labelNode ? labelNode.getComponent(cc.Label) : null;
+        var eb = inputBox ? inputBox.getComponent(cc.EditBox) : null;
+        if (eb) {
+            eb.string = "";
+            eb.maxLength = 4;
+        }
+
+        var pager = {
+            node: bar, prev: prev, next: next, jump: jump, label: lbl, input: eb,
+            page: 1, pages: 1, total: 0, pageSize: 20, onGo: null
+        };
+        if (prev) {
+            prev.on(cc.Node.EventType.TOUCH_END, function () {
+                if (pager.page > 1 && pager.onGo) { pager.onGo(pager.page - 1); }
+            });
+        }
+        if (next) {
+            next.on(cc.Node.EventType.TOUCH_END, function () {
+                if (pager.page < pager.pages && pager.onGo) { pager.onGo(pager.page + 1); }
+            });
+        }
+        var doJump = function () {
+            if (!pager.input || !pager.onGo) { return; }
+            var v = parseInt(pager.input.string, 10);
+            if (!(v > 0)) { pager.input.string = ""; return; }
+            if (v > pager.pages) { v = pager.pages; }
+            pager.onGo(v);
+            pager.input.string = "";
+        };
+        if (jump) { jump.on(cc.Node.EventType.TOUCH_END, doJump); }
+        if (inputBox) { inputBox.on("editing-did-ended", doJump); }
+
+        this._pagers[key] = pager;
+        return pager;
+    },
+
+    // total 为当前筛选后的总条数; 只有超过一页才显示分页条
+    _updatePager: function (pager, total, page, pageSize, onGo) {
+        if (!pager) { return; }
+        var size = Math.max(1, pageSize || 20);
+        var pages = Math.max(1, Math.ceil(total / size));
+        pager.total = total;
+        pager.pageSize = size;
+        pager.pages = pages;
+        pager.page = Math.min(Math.max(1, page), pages);
+        pager.onGo = onGo;
+        // 分页条常显: 不足一页/没有数据时也显示, 只把上下页按钮置灰
+        pager.node.active = true;
+        if (pager.label) { pager.label.string = "第 " + pager.page + "/" + pages + " 页  共 " + total + " 条"; }
+        if (pager.prev) { pager.prev.opacity = pager.page <= 1 ? 110 : 255; }
+        if (pager.next) { pager.next.opacity = pager.page >= pages ? 110 : 255; }
+        if (pager.input) { pager.input.string = ""; }
+    },
+
+    _pageSlice: function (list, pageNo, pageSize) {
+        var total = list.length;
+        var pages = Math.max(1, Math.ceil(total / pageSize));
+        var p = Math.min(Math.max(1, pageNo || 1), pages);
+        var start = (p - 1) * pageSize;
+        return { page: p, total: total, rows: list.slice(start, start + pageSize) };
     },
 
     _renderMembers: function () {
@@ -528,12 +630,22 @@ cc.Class({
             });
         }
 
-        for (var i = 0; i < filtered.length; i++) {
-            var m = filtered[i];
+        // 只渲染当前页, 避免成员过多时一次创建大量节点卡死
+        var pageSize = 20;
+        var sl = this._pageSlice(filtered, this._memberPageNo, pageSize);
+        this._memberPageNo = sl.page;
+        for (var i = 0; i < sl.rows.length; i++) {
+            var m = sl.rows[i];
             // 行位置由 content 上的 cc.Layout 排列, JS 不参与布局
             var row = this._createMemberRow(tpl, m);
             if (row) { row.parent = content; row.active = true; }
         }
+        var pager = this._getPager("member", this._pages.member, -this._pages.member.height / 2 + 46);
+        var self2 = this;
+        this._updatePager(pager, sl.total, sl.page, pageSize, function (p) {
+            self2._memberPageNo = p;
+            self2._renderMembers();
+        });
     },
 
     _createMemberRow: function (tpl, member) {
@@ -662,6 +774,16 @@ cc.Class({
             });
         }
 
+        // 合伙人搜索: 支持按钮点击和输入框回车, 搜索后回到第 1 页
+        this._partnerSearch = page.getChildByName("searchBox");
+        var doPartnerSearch = function () {
+            self._partnerPageNo = 1;
+            self._renderPartners();
+        };
+        var searchBtn = page.getChildByName("searchBtn");
+        if (searchBtn) { searchBtn.on(cc.Node.EventType.TOUCH_END, doPartnerSearch); }
+        if (this._partnerSearch) { this._partnerSearch.on("editing-did-ended", doPartnerSearch); }
+
         var scroll = page.getChildByName("partnerScroll");
         if (scroll) {
             this._partnerScroll = scroll;
@@ -681,7 +803,6 @@ cc.Class({
             if (!lay.spacingY) { lay.spacingY = 16; }
             if (!lay.paddingTop) { lay.paddingTop = 10; }
             this._partnerLayout = lay;
-            this._partnerContent.anchorX = 0.5;
             this._partnerContent.anchorY = 1;
         }
     },
@@ -691,7 +812,7 @@ cc.Class({
         if (!this._partnerContent || !this._partnerScroll) return;
         if (this._partnerLayout) { this._partnerLayout.updateLayout(); }
         // content anchorY=1 顶对齐 ScrollView 顶部
-        this._partnerContent.setPosition(0, this._partnerScroll.height / 2);
+        this._partnerContent.y = this._partnerScroll.height / 2;
         if (this._partnerSv && this._partnerSv.node.activeInHierarchy) {
             this._partnerSv.scrollToTop(0.01);
         }
@@ -703,7 +824,7 @@ cc.Class({
             if (!this._partnerStatsSv) this._partnerStatsSv = ps.getComponent(cc.ScrollView);
             this._partnerStatsScroll = ps;
             if (this._partnerStatsLayout) this._partnerStatsLayout.updateLayout();
-            pc.setPosition(0, ps.height / 2);
+            pc.y = ps.height / 2;
             if (this._partnerStatsSv && this._partnerStatsSv.node.activeInHierarchy) {
                 this._partnerStatsSv.scrollToTop(0.01);
             }
@@ -722,17 +843,37 @@ cc.Class({
 
         // 只渲染直接下级(level=1, 归属当前顶级俱乐部的)
         var direct = this._partners.filter(function(p){ return (p.level || 1) === 1; });
-        console.log('[partnerPage render] direct children count=', direct.length, 'of total=', this._partners.length);
-        for (var i = 0; i < direct.length; i++) {
-            var p = direct[i];
+        // 搜索过滤: 合伙人名称 / 社长昵称 / 社长ID / 合伙人ID
+        var eb = this._partnerSearch ? this._partnerSearch.getComponent(cc.EditBox) : null;
+        var kw = eb ? String(eb.string || "").replace(/^\s+|\s+$/g, "") : "";
+        if (kw) {
+            direct = direct.filter(function (p) {
+                return String(p.id).indexOf(kw) >= 0
+                    || (p.name && p.name.indexOf(kw) >= 0)
+                    || (p.owner_name && p.owner_name.indexOf(kw) >= 0)
+                    || (p.owner_userid && String(p.owner_userid).indexOf(kw) >= 0);
+            });
+        }
+        console.log('[partnerPage render] direct children count=', direct.length, 'of total=', this._partners.length, 'kw=', kw);
+        var pageSize = 20;
+        var sl = this._pageSlice(direct, this._partnerPageNo, pageSize);
+        this._partnerPageNo = sl.page;
+        for (var i = 0; i < sl.rows.length; i++) {
+            var p = sl.rows[i];
             var row = this._createPartnerRow(tpl, p);
             if (row) { row.parent = content; row.active = true; }
         }
+        var self2 = this;
+        var pager = this._getPager("partner", this._pages.partner, -this._pages.partner.height / 2 + 46);
+        this._updatePager(pager, sl.total, sl.page, pageSize, function (p) {
+            self2._partnerPageNo = p;
+            self2._renderPartners();
+        });
         // 强制重排一次,避免行添加时机导致的布局未刷新
         var lay = content.getComponent(cc.Layout);
         if (lay) { lay.updateLayout(); }
         // 位置设对 + 滚到顶
-        this._partnerContent.setPosition(0, this._partnerScroll.height / 2);
+        this._partnerContent.y = this._partnerScroll.height / 2;
         if (this._partnerSv) { this._partnerSv.scrollToTop(0.01); }
         var contentPos = content.getPosition();
         console.log('[partnerPage render] done, content.children=' + content.children.length + ' contentSize=' + content.width + 'x' + content.height);
@@ -820,8 +961,8 @@ _bindPartnerStatsPage: function () {
     if (!lay.spacingY) { lay.spacingY = 16; }
     if (!lay.paddingTop) { lay.paddingTop = 10; }
     this._partnerStatsLayout = lay;
-    content.anchorX = 0.5; content.anchorY = 1;
-    content.setPosition(0, scroll.height / 2);
+    content.anchorY = 1;
+    content.y = scroll.height / 2;
     var sv = scroll.getComponent(cc.ScrollView);
     if (sv) { sv.content = content; }
 },
@@ -836,8 +977,11 @@ _renderPartnerStats: function () {
     var self = this;
     // 只显示直接下级(level=1)
     var direct = this._partners.filter(function(p){ return (p.level || 1) === 1; });
-    for (var i = 0; i < direct.length; i++) {
-        var p = direct[i];
+    var pageSize = 20;
+    var sl = this._pageSlice(direct, this._partnerStatsPageNo, pageSize);
+    this._partnerStatsPageNo = sl.page;
+    for (var i = 0; i < sl.rows.length; i++) {
+        var p = sl.rows[i];
         var row = cc.instantiate(tpl);
         row.name = 'stats_' + p.id; row.active = true; row.parent = content;
         this._setAvatar(row, 'avatar', p.headimg, p.owner_userid);
@@ -869,6 +1013,11 @@ _renderPartnerStats: function () {
             })(p);
         }
     }
+    var pager = this._getPager("partnerStats", this._pages.partnerStats, -this._pages.partnerStats.height / 2 + 46);
+    this._updatePager(pager, sl.total, sl.page, pageSize, function (p) {
+        self._partnerStatsPageNo = p;
+        self._renderPartnerStats();
+    });
     var lay = content.getComponent(cc.Layout);
     if (lay) { lay.updateLayout(); }
 },
@@ -895,9 +1044,8 @@ _bindRewardPage: function () {
         }
         layout.resizeMode = cc.Layout.ResizeMode.CONTAINER;
         layout.verticalDirection = cc.Layout.VerticalDirection.TOP_TO_BOTTOM;
-        content.anchorX = 0.5;
         content.anchorY = 1;
-        content.setPosition(0, scroll.height / 2);
+        content.y = scroll.height / 2;
         this._rewardLayout = layout;
         if (this._rewardSv) { this._rewardSv.content = content; }
 
@@ -911,6 +1059,7 @@ _bindRewardPage: function () {
             tabUn.on(cc.Node.EventType.TOUCH_END, function () {
                 if (self._rewardFilter === 0) return;
                 self._rewardFilter = 0;
+                self._rewardPageNo = 1;
                 self._renderRewards();
             });
         }
@@ -918,6 +1067,7 @@ _bindRewardPage: function () {
             tabCl.on(cc.Node.EventType.TOUCH_END, function () {
                 if (self._rewardFilter === 1) return;
                 self._rewardFilter = 1;
+                self._rewardPageNo = 1;
                 self._renderRewards();
             });
         }
@@ -1028,13 +1178,25 @@ _bindRewardPage: function () {
             else { unclaimed++; unAmt += amt; }
         }
         var filter = (this._rewardFilter === 1) ? 1 : 0;
-        for (var i = 0; i < all.length; i++) {
-            var r = all[i];
-            var cs = (Number(r.claim_status) === 1) ? 1 : 0;
-            if (cs !== filter) { continue; }
-            var row = this._createRewardRow(tpl, r);
+        var matched = [];
+        for (var n2 = 0; n2 < all.length; n2++) {
+            var rr = all[n2];
+            if (((Number(rr.claim_status) === 1) ? 1 : 0) === filter) { matched.push(rr); }
+        }
+        // 只渲染当前页
+        var pageSize = 20;
+        var sl = this._pageSlice(matched, this._rewardPageNo, pageSize);
+        this._rewardPageNo = sl.page;
+        for (var i = 0; i < sl.rows.length; i++) {
+            var row = this._createRewardRow(tpl, sl.rows[i]);
             if (row) { row.parent = content; row.active = true; }
         }
+        var self2 = this;
+        var pager = this._getPager("reward", this._pages.reward, -this._pages.reward.height / 2 + 46);
+        this._updatePager(pager, sl.total, sl.page, pageSize, function (p) {
+            self2._rewardPageNo = p;
+            self2._renderRewards();
+        });
         this._updateRewardTabs(unclaimed, claimed, unAmt, clAmt);
         // 行克隆完成后按实际行数重新计算 content 高度(可滚动), 并回到顶部
         this._refreshRewardScroll();
@@ -1044,7 +1206,7 @@ _bindRewardPage: function () {
     _refreshRewardScroll: function () {
         if (!this._rewardContent) return;
         if (this._rewardLayout) { this._rewardLayout.updateLayout(); }
-        if (this._rewardScroll) { this._rewardContent.setPosition(0, this._rewardScroll.height / 2); }
+        if (this._rewardScroll) { this._rewardContent.y = this._rewardScroll.height / 2; }
         if (this._rewardSv && this._rewardSv.node.activeInHierarchy && this._rewards.length > 0) {
             this._rewardSv.scrollToTop(0.01);
         }
@@ -1126,6 +1288,7 @@ _bindRewardPage: function () {
     },
 
     _renderGameConfigs: function () {
+        var self = this;
         var list = this._gameConfigList;
         if (!list) return;
         // 左侧: 本俱乐部已有玩法; 右侧: 当前玩法下已添加的牌桌
@@ -1136,12 +1299,22 @@ _bindRewardPage: function () {
         if (!tpl) return;
         tpl.active = false;
 
-        for (var i = 0; i < this._clubTables.length; i++) {
-            var table = this._clubTables[i];
-            if (String(table.game_type) !== String(this._selectedGameType)) continue;
-            var row = this._createTableRow(tpl, table);
+        // 当前玩法下的牌桌, 只渲染当前页
+        var tables = this._clubTables.filter(function (t) {
+            return String(t.game_type) === String(self._selectedGameType);
+        });
+        var pageSize = 4;
+        var sl = this._pageSlice(tables, this._tablePageNo, pageSize);
+        this._tablePageNo = sl.page;
+        for (var i = 0; i < sl.rows.length; i++) {
+            var row = this._createTableRow(tpl, sl.rows[i]);
             if (row) { row.parent = list; row.active = true; }
         }
+        var pager = this._getPager("gameTables", this._pages.gameConfig, -this._pages.gameConfig.height / 2 + 46);
+        this._updatePager(pager, sl.total, sl.page, pageSize, function (p) {
+            self._tablePageNo = p;
+            self._renderGameConfigs();
+        });
     },
 
     // 左侧玩法列表: 本俱乐部已有的玩法(含一级俱乐部继承下来的), 点击切换右侧牌桌列表
@@ -1482,6 +1655,7 @@ _bindRewardPage: function () {
             return;
         }
         var self = this;
+        this._tablePageNo = 1;
         clubReq("/club_tables", { clubid: this._clubId, game_type: this._selectedGameType, all: 1 }, function (ret) {
             self._clubTables = (ret && ret.errcode === 0 && ret.tables) ? ret.tables : [];
             self._renderGameConfigs();
@@ -1716,6 +1890,7 @@ _bindRewardPage: function () {
                         pb.on(cc.Node.EventType.TOUCH_END, function () { self._toggleStatDrop("partner"); });
                     }
                     self._statDrop = content.getChildByName("filterDrop");
+                    self._incomeStatsContent = content;
                     var scNode = content.getChildByName("statScroll");
                     if (scNode) {
                         self._statListContent = scNode.getChildByName("content");
@@ -1829,7 +2004,13 @@ _bindRewardPage: function () {
             }
         }
         var topY = headerBottom === null ? (ch / 2 - 60) : (headerBottom - 6);
+        // 列表底部停在场景里摆好的分页条上方(位置由场景决定, JS 不移动分页条)
+        var pagerBar = content.getChildByName("pagerBar");
         var bottomY = -ch / 2 + 20;
+        if (pagerBar) {
+            var pagerTop = pagerBar.y + pagerBar.height / 2;
+            if (pagerTop > bottomY) { bottomY = pagerTop + 6; }
+        }
         var viewH = topY - bottomY;
         if (viewH < 120) {
             viewH = Math.max(120, ch - 140);
@@ -1865,12 +2046,16 @@ _bindRewardPage: function () {
         sv.enabled = false;
         sv.enabled = true;
 
+        // 分页条是场景里的节点, 提前创建列表后要把它提到最上层
+        if (pagerBar) { pagerBar.setSiblingIndex(content.childrenCount - 1); }
+
         content._popupScroll = { view: view, sv: sv, list: list, viewW: viewW, viewH: viewH };
         return content._popupScroll;
     },
 
     // 用 content 下的 rowTpl 克隆表格行; rows 为二维数组, 每行按列顺序填文字
-    _fillPopupList: function (content, rows) {
+    // keepPage=true 时保持当前页码(翻页用), 否则回到第 1 页
+    _fillPopupList: function (content, rows, keepPage) {
         if (!content) { return; }
         var tpl = content.getChildByName("rowTpl");
         var sc = this._ensurePopupScroll(content);
@@ -1886,12 +2071,23 @@ _bindRewardPage: function () {
         }
         if (!tpl || !rows) { return; }
         tpl.active = false;
+
+        // 只渲染当前页, 明细记录很多时也不会一次创建几百行
+        var all = rows || [];
+        var pageSize = 15;
+        if (!keepPage) { content._popupPage = 1; }
+        var pages = Math.max(1, Math.ceil(all.length / pageSize));
+        var pageNo = Math.min(Math.max(1, content._popupPage || 1), pages);
+        content._popupPage = pageNo;
+        content._popupRows = all;
+        var showRows = all.slice((pageNo - 1) * pageSize, pageNo * pageSize);
+
         var step = tpl.height + 8;
         var rowH = tpl.height;
         // 内容高度按行数撑开, 行从列表顶部往下排(不再依赖模板在场景里的 y)
-        sc.list.setContentSize(sc.viewW, Math.max(sc.viewH, rows.length * step + 6));
+        sc.list.setContentSize(sc.viewW, Math.max(sc.viewH, showRows.length * step + 6));
         sc.list.setPosition(0, sc.viewH / 2);
-        for (var i = 0; i < rows.length; i++) {
+        for (var i = 0; i < showRows.length; i++) {
             var row = cc.instantiate(tpl);
             row.name = "rowClone";
             row.active = true;
@@ -1899,7 +2095,7 @@ _bindRewardPage: function () {
             row.parent = sc.list;
             row.x = 0;
             row.y = -(rowH / 2 + i * step);
-            var cols = rows[i] || [];
+            var cols = showRows[i] || [];
             for (var j = 0; j < row.children.length; j++) {
                 var cell = row.children[j];
                 // 模板子标签可能在场景里被误设为未激活, 克隆行统一激活才能显示文字
@@ -1909,7 +2105,15 @@ _bindRewardPage: function () {
                 if (lbl) { lbl.string = String(cols[j]); }
             }
         }
-        if (rows.length > 0) { sc.sv.scrollToTop(0.01); }
+        if (showRows.length > 0) { sc.sv.scrollToTop(0.01); }
+
+        var self = this;
+        if (!content._pagerKey) { content._pagerKey = "popup_" + (++this._pagerSeq); }
+        var pager = this._getPager(content._pagerKey, content, -content.height / 2 + 64);
+        this._updatePager(pager, all.length, pageNo, pageSize, function (p) {
+            content._popupPage = p;
+            self._fillPopupList(content, content._popupRows, true);
+        });
     },
 
     _getInput: function (content, nodeName) {
