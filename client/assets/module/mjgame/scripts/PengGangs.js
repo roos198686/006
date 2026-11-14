@@ -91,12 +91,16 @@ cc.Class({
         this.hideSide("left");
     },
 
-    //带财神的玩法判定:赖倒胡(zjlao)/翻财神(ldh)/自选财神(zjzx)的副露里出现财神时要变色+角标,
+    //带财神的玩法判定:包麻将/赖倒胡(zjlao)/翻财神(ldh)/自选财神(zjzx)的副露里出现财神时要变色+角标,
     //其他不带财神的玩法不受影响
     _isCaishenMeld:function(){
-        return this.node.getComponent("MJGameZJLAO") != null
+        return this.node.getComponent("MJGameBMJ") != null
+            || this.node.getComponent("MJGameZJLAO") != null
             || this.node.getComponent("MJGameLDH") != null
-            || this.node.getComponent("MJGameZJZX") != null;
+            || this.node.getComponent("MJGameZJZX") != null
+            || this.node.getComponent("MJGameWujin") != null
+            || this.node.getComponent("MJGameZP") != null
+            || this.node.getComponent("MJGameZP4") != null;
     },
 
     //副露财神角标: 角标节点已做进预制体PengGangMyself(或场景csCornerMeld),位置/大小在编辑器里直接调,

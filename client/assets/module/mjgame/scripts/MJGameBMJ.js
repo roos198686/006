@@ -2016,6 +2016,10 @@ cc.Class({
 
         if(pai == null){
             nc.active = false;
+            if(localIndex == 0){
+                var c0 = nc.getChildByName("csCorner");
+                if(c0){ c0.active = false; }
+            }
         }
         else if(pai >= 0){
             nc.active = true;
@@ -2026,12 +2030,19 @@ cc.Class({
                 var conf = cc.vv.gameNetMgr.conf || {};
                 var isCs = (conf.caishen >= 0 && pai == conf.caishen) || (conf.caishen2 != null && conf.caishen2 >= 0 && pai == conf.caishen2);
                 tintHandCard(nc, isCs);
+                //摸牌位的角标跟随这张牌: 只改当前槽位的csCorner, 否则自摸时角标会留在旁边那张牌上
+                var corner = nc.getChildByName("csCorner");
+                if(corner){ corner.active = isCs; }
             }
         }
         else if(pai != null){
             nc.active = true;
             var sprite = nc.getComponent(cc.Sprite);
             sprite.spriteFrame = cc.vv.mahjongmgr.getHoldsEmptySpriteFrame(side);
+            if(localIndex == 0){
+                var ce = nc.getChildByName("csCorner");
+                if(ce){ ce.active = false; }
+            }
         }
     },
 

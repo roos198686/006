@@ -4,6 +4,22 @@ if (cc.loader && !cc.loader.loadResAll && cc.resources) {
     cc.loader.loadResAll = cc.resources.loadDir.bind(cc.resources);
 }
 
+//版本号按数字逐段比较("1.0.10" > "1.0.9")
+//引擎不传比较函数时是按字符串比较的, 会把 1.0.10 判定成小于 1.0.9,
+//导致装了1.0.10的新包后每次启动都认为远端(1.0.9)有新版本, 反复下载/重启 -> 卡在检查更新且页面闪烁
+function compareVersion(v1, v2){
+    var a = String(v1 == null ? "" : v1).split(".");
+    var b = String(v2 == null ? "" : v2).split(".");
+    var n = Math.max(a.length, b.length);
+    for(var i = 0; i < n; ++i){
+        var x = parseInt(a[i], 10); if(isNaN(x)) x = 0;
+        var y = parseInt(b[i], 10); if(isNaN(y)) y = 0;
+        if(x > y) return 1;
+        if(x < y) return -1;
+    }
+    return 0;
+}
+
 
 cc.Class({
     extends: cc.Component,
@@ -98,14 +114,53 @@ cc.Class({
         //扁平化比较(忽略嵌套结构差异), 相同说明本会话已应用过, 不再重启防止死循环
         var cur = null;
         try { cur = jsb.fileUtils.getSearchPaths(); } catch(e){ cur = null; }
-        if(cur && this._flattenPaths(cur) === this._flattenPaths(paths)){
+        var curFlat = cur ? this._flattenPaths(cur) : "";
+        //装过新APK(包内版本 >= 热更目录里的版本)时, 旧热更资源已经失效:
+        //引擎初始化资产管理器时会清空热更目录, 这里必须丢弃保存的路径,
+        //否则会先按旧热更代码启动、再反复重启报错
+        if(curFlat.indexOf(this._flattenPaths([this._hotStoragePath()])) < 0){
+            var apkVer = this._readManifestVersion("project.manifest");
+            var hotVer = this._readManifestVersion(this._hotStoragePath() + "project.manifest");
+            if(apkVer && hotVer && compareVersion(apkVer, hotVer) >= 0){
+                console.log("[HotUpdate] 包内版本" + apkVer + " >= 热更版本" + hotVer + ", 丢弃旧热更路径");
+                cc.sys.localStorage.removeItem("HotUpdateSearchPaths");
+                return false;
+            }
+        }
+        if(cur && curFlat === this._flattenPaths(paths)){
             return false;
         }
         jsb.fileUtils.setSearchPaths(paths);
+        //一次进程只允许因恢复搜索路径重启一次: 万一重启后引擎重置了搜索路径,
+        //也不能无限重启(真机上表现为loading页一直闪)
+        if(window.__huRestarted){
+            console.log("[HotUpdate] 本次启动已重启过, 跳过重复重启");
+            return false;
+        }
+        window.__huRestarted = true;
         console.log("[HotUpdate] 已恢复热更搜索路径, 重启生效");
         cc.game.restart();
         return true;
     },
+
+    //热更资源存放目录(必须与 checkHotUpdate 里的 storagePath 保持一致)
+    _hotStoragePath:function(){
+        return (jsb.fileUtils ? jsb.fileUtils.getWritablePath() : "/") + "baobao_hotupdate/";
+    },
+
+    //读取清单文件里的 version 字段(读不到返回null)
+    _readManifestVersion:function(path){
+        try {
+            if(!jsb.fileUtils || !jsb.fileUtils.isFileExist(path)){ return null; }
+            var str = jsb.fileUtils.getStringFromFile(path);
+            if(!str){ return null; }
+            var obj = JSON.parse(str);
+            return obj && obj.version ? String(obj.version) : null;
+        } catch(e) {
+            return null;
+        }
+    },
+
 
     _flattenPaths:function(arr){
         var out = [];
@@ -125,7 +180,7 @@ cc.Class({
         //第一个参数必须是"本地清单路径": AssetsManagerEx 内部用它对本地清单做 parseFile,
         //远端清单/资源地址由本地清单里的 remoteManifestUrl / packageUrl 决定。传远端URL必然报 ERROR_NO_LOCAL_MANIFEST
         var manifestUrl = "project.manifest";
-        var storagePath = (jsb.fileUtils ? jsb.fileUtils.getWritablePath() : "/") + "baobao_hotupdate";
+        var storagePath = this._hotStoragePath().replace(/\/$/, "");
         //release 包会剥离 console.log, 这里统一用 console.error 保证日志可见
         var manifestExist = jsb.fileUtils ? jsb.fileUtils.isFileExist(manifestUrl) : "?";
         console.error("[HotUpdate] 本地清单:" + manifestUrl + " 存在:" + manifestExist + " 服务器:" + base);
@@ -133,7 +188,8 @@ cc.Class({
         this._stateStr = "正在检查更新";
         var am = null;
         try {
-            am = new jsb.AssetsManager(manifestUrl, storagePath);
+            //第三个参数是版本比较函数: 必须按数字比较, 否则 1.0.10 会被当成小于 1.0.9
+            am = new jsb.AssetsManager(manifestUrl, storagePath, compareVersion);
         } catch(e) {
             console.error("[HotUpdate] 创建管理器失败:" + e);
             this.checkVersion();
@@ -164,6 +220,7 @@ cc.Class({
                     self.checkVersion();
                     break;
                 case EV.NEW_VERSION_FOUND:
+                    self._hotCheckDone = true; //检查阶段结束, 进入下载, 不再受检查超时限制
                     self.showHotTip("发现新版本, 正在更新");
                     self.scheduleOnce(function(){
                         if(self._hotAm === am) am.update();
@@ -213,11 +270,23 @@ cc.Class({
                     break;
             }
         });
+        //看门狗: 检查阶段服务器不可达/清单拉不下来时不能永远停在"检查更新", 超时后跳过热更继续启动
+        this._hotCheckDone = false;
+        if(this._hotWatchdog){ clearTimeout(this._hotWatchdog); }
+        this._hotWatchdog = setTimeout(function(){
+            if(self._hotCheckDone || self._hotAm !== am){ return; }
+            console.error("[HotUpdate] 检查更新超时, 跳过热更");
+            self.showHotTip("检查更新超时, 跳过");
+            self._finishHot();
+            self.checkVersion();
+        }, 15000);
         am.checkUpdate();
     },
 
     //热更结束(成功重启前/跳过热更)清理事件回调; 管理器引用留到 onDestroy 统一释放
     _finishHot:function(){
+        this._hotCheckDone = true;
+        if(this._hotWatchdog){ clearTimeout(this._hotWatchdog); this._hotWatchdog = null; }
         if(this._hotAm){
             try { this._hotAm.setEventCallback(null); } catch(e){}
             this._hotAm = null;
@@ -232,6 +301,7 @@ cc.Class({
     },
 
     onDestroy:function(){
+        if(this._hotWatchdog){ clearTimeout(this._hotWatchdog); this._hotWatchdog = null; }
         if(this._hotAm){
             try { this._hotAm.setEventCallback(null); this._hotAm.release(); } catch(e){}
             this._hotAm = null;
