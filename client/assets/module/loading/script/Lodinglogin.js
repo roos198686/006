@@ -20,6 +20,11 @@ function compareVersion(v1, v2){
     return 0;
 }
 
+//APP热更总开关: 开启。
+//启动时先判断设备上热更目录里的清单版本: 只有比包内版本更高才恢复热更并重启一次, 否则清掉,
+//避免旧包的热更资源盖住新包代码(旧代码按字符串比较版本, 会把1.0.9当成比1.0.10新, 无限下载重启)
+var HOT_UPDATE_ENABLED = true;
+
 
 cc.Class({
     extends: cc.Component,
@@ -48,10 +53,13 @@ cc.Class({
         console.log("[Lodinglogin] onLoad enter");
         //标记本次启动已跑过热更检查(login 场景据此判断是否需要补跑)
         window.__huChecked = true;
-        //热更搜索路径恢复:上次热更下载的新资源存放在可写目录, 必须先把该目录加进搜索路径再重启一次,
-        //否则冷启动时仍按包内旧资源启动(热更对"杀掉APP后重开"不生效)
-        if(this.applyHotUpdateSearchPaths()){
-            return; //已发起重启, 本场景生命周期到此为止
+        if(HOT_UPDATE_ENABLED){
+            //恢复热更搜索路径: 只有热更版本真的比包内高才恢复并重启一次
+            if(this.applyHotUpdateSearchPaths()){
+                return; //已发起重启, 本场景生命周期到此为止
+            }
+        } else {
+            this.clearHotUpdate();
         }
         //判断是否原生，是否为手机
         if(!cc.sys.isNative ){   //&& cc.sys.isMobile
@@ -89,7 +97,7 @@ cc.Class({
         if(this._bootStarted){ return; } //只跑一次, 防止场景重进时重复检查热更
         this._bootStarted = true;
         //原生环境先做APP热更新检查(服务器未发布热更清单时自动跳过), 完成后走 checkVersion
-        if(cc.sys.isNative && typeof jsb !== "undefined" && jsb.AssetsManager){
+        if(HOT_UPDATE_ENABLED && cc.sys.isNative && typeof jsb !== "undefined" && jsb.AssetsManager){
             this.checkHotUpdate();
         } else {
             this.checkVersion();
@@ -97,6 +105,22 @@ cc.Class({
     },
 
     //==================== APP热更新 ====================
+    //删除设备上残留的热更路径和热更资源(热更版本过期时调用)
+    clearHotUpdate:function(){
+        try { cc.sys.localStorage.removeItem("HotUpdateSearchPaths"); } catch(e){}
+        try { cc.sys.localStorage.removeItem("HotUpdateAppliedPaths"); } catch(e){}
+        if(!cc.sys.isNative || typeof jsb === "undefined" || !jsb.fileUtils){
+            return;
+        }
+        try {
+            var p = this._hotStoragePath();
+            if(jsb.fileUtils.isDirectoryExist && jsb.fileUtils.isDirectoryExist(p)){
+                jsb.fileUtils.removeDirectory(p);
+                console.error("[HotUpdate] 已清除旧热更目录:" + p);
+            }
+        } catch(e) {}
+    },
+
     //恢复上次热更写入的资源搜索路径, 返回true表示已发起重启
     applyHotUpdateSearchPaths:function(){
         if(!cc.sys.isNative || typeof jsb === "undefined" || !jsb.fileUtils){
@@ -113,21 +137,27 @@ cc.Class({
             cc.sys.localStorage.removeItem("HotUpdateSearchPaths");
             return false;
         }
-        var apkVer = this._readManifestVersion("project.manifest");
-        var hotVer = this._readManifestVersion(this._hotStoragePath() + "project.manifest");
-        //热更目录里没有清单(被覆盖安装/清理清空), 或包内版本已不低于热更版本: 保存的路径都没用了。
-        //此时若还 setSearchPaths+重启, 重启后搜索路径被引擎重置又会判断不一致, 就无限重启(loading/login一直闪)
-        if(!hotVer || (apkVer && compareVersion(apkVer, hotVer) >= 0)){
-            console.error("[HotUpdate] 热更资源无效(包内" + (apkVer || "?") + " 热更" + (hotVer || "无") + "), 丢弃旧热更路径");
-            cc.sys.localStorage.removeItem("HotUpdateSearchPaths");
-            cc.sys.localStorage.removeItem("HotUpdateAppliedPaths");
-            return false;
-        }
         var flat = this._flattenPaths(paths);
         var cur = null;
         try { cur = jsb.fileUtils.getSearchPaths(); } catch(e){ cur = null; }
         if(cur && this._flattenPaths(cur) === flat){
-            return false; //已经生效, 不需要重启
+            return false; //已经生效, 不需要重启(此时读到的包内清单可能也是热更目录里的, 不能做版本判断)
+        }
+        //包指纹变化(打了新包)时, 旧热更资源一律作废。
+        //指纹用构建时烘焙进包的 bundleVers, 每个构建都不同, 不依赖读APK里的清单/版本号
+        var stamp = this._buildStamp();
+        var savedStamp = cc.sys.localStorage.getItem("HotUpdateBuildStamp");
+        if(!stamp || savedStamp !== stamp){
+            console.error("[HotUpdate] 包指纹变化或旧热更无指纹, 丢弃: 记录=" + savedStamp + " 当前=" + stamp);
+            this.clearHotUpdate();
+            return false;
+        }
+        //热更目录实际不存在(被清理/系统回收): 直接作废, 避免带着无效路径重启
+        var hotDir = this._hotStoragePath();
+        if(jsb.fileUtils.isDirectoryExist && !jsb.fileUtils.isDirectoryExist(hotDir)){
+            console.error("[HotUpdate] 热更目录不存在, 丢弃记录:" + hotDir);
+            this.clearHotUpdate();
+            return false;
         }
         jsb.fileUtils.setSearchPaths(paths);
         //重启会把JS上下文整个重来(window上的标记也一起丢), "是否已为这组路径重启过"必须存localStorage:
@@ -148,19 +178,18 @@ cc.Class({
         return (jsb.fileUtils ? jsb.fileUtils.getWritablePath() : "/") + "baobao_hotupdate/";
     },
 
-    //读取清单文件里的 version 字段(读不到返回null)
-    _readManifestVersion:function(path){
-        try {
-            if(!jsb.fileUtils || !jsb.fileUtils.isFileExist(path)){ return null; }
-            var str = jsb.fileUtils.getStringFromFile(path);
-            if(!str){ return null; }
-            var obj = JSON.parse(str);
-            return obj && obj.version ? String(obj.version) : null;
-        } catch(e) {
-            return null;
-        }
+    //当前包的构建指纹: bundleVers 是构建时烘焙进包的各 bundle 版本号(换包必变)。
+    //main.js 里 _CCSettings 会被清空, 运行时从 cc.assetManager.bundleVers 取
+    _buildStamp:function(){
+        var s = null;
+        try { s = cc.assetManager && cc.assetManager.bundleVers; } catch(e){ s = null; }
+        if(!s){ try { s = window._CCSettings && window._CCSettings.bundleVers; } catch(e){ s = null; } }
+        if(!s){ return null; }
+        var keys = [];
+        for(var k in s){ if(Object.prototype.hasOwnProperty.call(s, k)){ keys.push(k + ":" + s[k]); } }
+        keys.sort();
+        return keys.join("|");
     },
-
 
     _flattenPaths:function(arr){
         var out = [];
@@ -182,8 +211,7 @@ cc.Class({
         var manifestUrl = "project.manifest";
         var storagePath = this._hotStoragePath().replace(/\/$/, "");
         //release 包会剥离 console.log, 这里统一用 console.error 保证日志可见
-        var manifestExist = jsb.fileUtils ? jsb.fileUtils.isFileExist(manifestUrl) : "?";
-        console.error("[HotUpdate] 本地清单:" + manifestUrl + " 存在:" + manifestExist + " 服务器:" + base);
+        console.error("[HotUpdate] 本地清单:" + manifestUrl + " 服务器:" + base);
         this.showHotTip("检查更新");
         this._stateStr = "正在检查更新";
         var am = null;
@@ -244,6 +272,8 @@ cc.Class({
                             Array.prototype.unshift.apply(searchPaths, newPaths);
                         }
                         cc.sys.localStorage.setItem("HotUpdateSearchPaths", JSON.stringify({paths: searchPaths}));
+                        //记录当前包指纹: 下次冷启动据此判断这份热更资源是否属于当前APK
+                        cc.sys.localStorage.setItem("HotUpdateBuildStamp", self._buildStamp() || "");
                         //新下载的资源路径必须重新应用并重启一次才会加载到新JS, 清掉"已重启"标记
                         cc.sys.localStorage.removeItem("HotUpdateAppliedPaths");
                     } catch(e) {

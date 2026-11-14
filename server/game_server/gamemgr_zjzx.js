@@ -2439,6 +2439,7 @@ exports.start = function(roomInfo){
 
     var data = {
         button: game.button,
+        laozhuang: roomInfo.laozhuangCount || 0, //连庄次数,客户端庄标下方显示"老庄X"
         caishen: game.caishen,
         caishen2: game.caishen2,
         fanPai: game.fanPai,
@@ -2519,6 +2520,7 @@ exports.resendGameState = function(roomId, userId){
     var mySeatData = game.gameSeats[seatIndex];
     var data = {
         button: game.button,
+        laozhuang: roomInfo.laozhuangCount || 0, //连庄次数,客户端庄标下方显示"老庄X"
         turn: game.turn,
         selectingCaishen: !!(mySeatData && mySeatData.selectingCaishen),
         caishen: game.caishen,
