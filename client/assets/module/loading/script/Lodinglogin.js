@@ -98,7 +98,13 @@ cc.Class({
         this._bootStarted = true;
         //原生环境先做APP热更新检查(服务器未发布热更清单时自动跳过), 完成后走 checkVersion
         if(HOT_UPDATE_ENABLED && cc.sys.isNative && typeof jsb !== "undefined" && jsb.AssetsManager){
-            this.checkHotUpdate();
+            //热更入口整段兜底: 这里抛异常会导致 start() 未完成, 引擎每帧重入 start -> 页面一直闪
+            try {
+                this.checkHotUpdate();
+            } catch(e) {
+                console.error("[HotUpdate] 启动热更异常, 跳过热更:" + e);
+                this.checkVersion();
+            }
         } else {
             this.checkVersion();
         }
@@ -223,7 +229,8 @@ cc.Class({
             this.checkVersion();
             return;
         }
-        am.retain();
+        //注意: jsb.AssetsManager(AssetsManagerEx) 在本版本没有导出 retain/release,
+        //调用 retain() 会抛 TypeError; start() 抛异常后引擎每帧重入 start, 表现为页面一直闪
         this._hotAm = am;
         this._hotFailCount = 0;
         am.setVerifyCallback(function(path, asset){
@@ -341,7 +348,8 @@ cc.Class({
     onDestroy:function(){
         if(this._hotWatchdog){ clearTimeout(this._hotWatchdog); this._hotWatchdog = null; }
         if(this._hotAm){
-            try { this._hotAm.setEventCallback(null); this._hotAm.release(); } catch(e){}
+            //AssetsManagerEx 未导出 release, 这里只解绑回调
+            try { this._hotAm.setEventCallback(null); } catch(e){}
             this._hotAm = null;
         }
         if(cc.loader){ cc.loader.onProgress = null; }
