@@ -145,7 +145,7 @@ if (window.jsb) {
 if (window.jsb) {
     var isRuntime = (typeof loadRuntime === 'function');
     if (isRuntime) {
-        require(__bbResolveSrc('settings', 'src/settings.90a8f.js'));
+        require(__bbResolveSrc('settings', 'src/settings.44e50.js'));
         require('src/cocos2d-runtime.js');
         if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
             require(__bbResolveSrc('physics', 'src/physics.10dc9.js'));
@@ -153,7 +153,7 @@ if (window.jsb) {
         require('jsb-adapter/engine/index.js');
     }
     else {
-        require(__bbResolveSrc('settings', 'src/settings.90a8f.js'));
+        require(__bbResolveSrc('settings', 'src/settings.44e50.js'));
         require(__bbResolveSrc('cocos2d-jsb', 'src/cocos2d-jsb.8491d.js'));
         if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
             require(__bbResolveSrc('physics', 'src/physics.10dc9.js'));
@@ -162,5 +162,13 @@ if (window.jsb) {
     }
 
     cc.macro.CLEANUP_IMAGE_CACHE = true;
+/* bobao_build_stamp */
+try {
+    var __bv = (window._CCSettings || {}).bundleVers || {};
+    var __ks = [];
+    for (var __k in __bv) { if (Object.prototype.hasOwnProperty.call(__bv, __k)) { __ks.push(__k + ":" + __bv[__k]); } }
+    __ks.sort();
+    window.__bbBuildStamp = __ks.join("|");
+} catch (e) { window.__bbBuildStamp = ""; }
     window.boot();
 }

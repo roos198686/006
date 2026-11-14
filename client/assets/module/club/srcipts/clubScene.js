@@ -1427,7 +1427,9 @@ cc.Class({
         for(var k = 0; k < this._clubGameRows.length; ++k){
             this._clubPaintRow(this._clubGameRows[k],this._clubGameRows[k] === row);
         }
-        this._clubTableList = []; //清空旧玩法数据,避免下方牌桌列表短暂显示上一个玩法的桌
+        //不清空 _clubTableList: 弹窗和右侧都按当前玩法过滤, 保留缓存能立即渲染出该玩法的牌桌;
+        //清空会导致第一次点击展开时列表是空的(要等接口回来才有数据)
+        this._clubTablesSig = null; //换玩法后强制重建右侧卡片
         this._clubRenderTableChips();
         this._clubLoadTables();
     },
@@ -2233,6 +2235,8 @@ cc.Class({
                     + (viewTables[i].user_id4 || 0) + "," + (viewTables[i].user_id5 || 0) + ",";
             }
             if(sig === self._clubTablesSig && self._clubTablesNode && self._clubTablesNode.childrenCount > 0){
+                //数据没变,右侧不重建;但弹窗要按当前玩法/筛选重新渲染,否则刚展开的列表会停留在空状态
+                self._clubRenderTableChips();
                 return;
             }
             self._clubTablesSig = sig;

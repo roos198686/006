@@ -1,5 +1,5 @@
 // 关牌（扑克）客户端主脚本
-// 2人局/3人局各用一个独立场景(mjgame_gp2 / mjgame_gp3)，共用本脚本，maxPlayers 由场景序列化决定。
+// 关牌场景(mjgame_gp2)，maxPlayers 由场景序列化决定。
 // 牌面：场景 cardTemplates 节点下预置 48 个牌面模板(Spade3..DiamondA)，运行时按 key 克隆使用。
 cc.Class({
     extends: cc.Component,

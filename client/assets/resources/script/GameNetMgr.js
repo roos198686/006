@@ -212,7 +212,6 @@ cc.Class({
         if(t == "wujin") return "mjgame_wujin";
         if(t == "wujin4") return "mjgame_wujin4";
         if(t == "guanpai2") return "mjgame_gp2";
-        if(t == "guanpai3") return "mjgame_gp3";
         if(t == "sss2" || t == "sss4" || t == "sss6") return "mjgame_sss";
         if(t == "zj" || t == "zj4" || t == "zj4_bt") return "mjgame_ldh";
         return "mjgame_bb_mian";

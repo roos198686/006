@@ -41,6 +41,8 @@ cc.Class({
         // },
         _splash:null,    //启动页引导图
         tipLabel:cc.Label,  //加载标签
+        barNode:cc.Node,      //进度条轨道(位置/宽高/底色都在场景里调, 脚本按这里取尺寸)
+        barFillNode:cc.Node,  //进度条填充(左端对齐, 脚本按进度改宽度)
         _stateStr:'',        //标签文字
         _progress:0.0,      //进度条(显示值,单调递增)
         _targetProgress:0.0,//进度条(真实目标值)
@@ -53,6 +55,7 @@ cc.Class({
         console.log("[Lodinglogin] onLoad enter");
         //标记本次启动已跑过热更检查(login 场景据此判断是否需要补跑)
         window.__huChecked = true;
+        this._initProgressBar();
         if(HOT_UPDATE_ENABLED){
             //恢复热更搜索路径: 只有热更版本真的比包内高才恢复并重启一次
             if(this.applyHotUpdateSearchPaths()){
@@ -185,10 +188,15 @@ cc.Class({
     },
 
     //当前包的构建指纹: bundleVers 是构建时烘焙进包的各 bundle 版本号(换包必变)。
-    //main.js 里 _CCSettings 会被清空, 运行时从 cc.assetManager.bundleVers 取
+    //main.js 会把 _CCSettings 清空, 所以优先取 main.js 提前存下的 window.__bbBuildStamp;
+    //2.4 的 assetManager 字段是私有的 _bundleVers(没有公开的 bundleVers), 必须两个都试
     _buildStamp:function(){
+        try {
+            if(window.__bbBuildStamp){ return window.__bbBuildStamp; }
+        } catch(e) {}
+        //2.4 的 AssetManager 上没有 bundleVers/_bundleVers, init 时只把它传给了 downloader
         var s = null;
-        try { s = cc.assetManager && cc.assetManager.bundleVers; } catch(e){ s = null; }
+        try { s = cc.assetManager && cc.assetManager.downloader && cc.assetManager.downloader.bundleVers; } catch(e){ s = null; }
         if(!s){ try { s = window._CCSettings && window._CCSettings.bundleVers; } catch(e){ s = null; } }
         if(!s){ return null; }
         var keys = [];
@@ -264,9 +272,18 @@ cc.Class({
                 case EV.UPDATE_PROGRESSION:
                     self._stateStr = "正在更新资源";
                     self._isLoading = true;
-                    var pct = event.getPercent();
-                    if(pct <= 1) pct *= 100;   //部分引擎版本返回0~1, 统一成百分比
-                    if(pct > 100) pct = 100;
+                    //百分比的坑: getPercent() 是"当前这批任务"的字节比例, 每批都会从0重算,
+                    //所以显示会在 0~11% 之间来回跳。改用 已下载文件数/总文件数, 单调递增。
+                    var doneFiles = event.getDownloadedFiles ? event.getDownloadedFiles() : 0;
+                    var totalFiles = event.getTotalFiles ? event.getTotalFiles() : 0;
+                    var pct;
+                    if(totalFiles > 0){
+                        pct = doneFiles / totalFiles * 100;
+                    } else {
+                        pct = event.getPercent();
+                        if(pct <= 1) pct *= 100;   //部分引擎版本返回0~1, 统一成百分比
+                    }
+                    if(pct > 99) pct = 99;         //下载阶段最多99%, 真正完成才补满
                     if(pct / 100 > self._targetProgress){
                         self._targetProgress = pct / 100; //只增不减, 复用 update() 的进度显示
                     }
@@ -523,6 +540,7 @@ cc.Class({
         this._loginLaunched = true;
         this._isLoading = false;
         this._progress = 1;
+        this._setBar(1);
         this._stateStr = "准备登陆";
         // 用 SceneMgr 带过渡切到登录页(loading 自己在 SceneMgr 里标记为 bypass,所以不会闪)
         if(cc.vv && cc.vv.sceneMgr){
@@ -531,6 +549,30 @@ cc.Class({
             cc.director.loadScene("login");
         }
         cc.loader.onComplete = null;
+    },
+
+    //加载进度条: 轨道/填充节点绑在上面两个属性上, 位置、宽高、颜色、底图全在 loading 场景里调,
+    //脚本只按进度改填充节点的宽度(填充节点左端对齐, 锚点 x=0)
+    _initProgressBar:function(){
+        var bgN = this.barNode, fillN = this.barFillNode;
+        if(this._barNode || !bgN || !fillN || !cc.isValid(bgN) || !cc.isValid(fillN)){ return; }
+        this._barNode = bgN;
+        this._barFillNode = fillN;
+        this._barW = bgN.width;
+        this._barPx = -1;
+        bgN.active = false;
+    },
+
+    //按进度改填充宽度(整数像素变化才写节点属性, 避免每帧无谓刷新)
+    _setBar:function(p){
+        if(!this._barNode || !this._barFillNode){ return; }
+        if(p < 0){ p = 0; }
+        if(p > 1){ p = 1; }
+        this._barNode.active = (p > 0);
+        var w = Math.round(p * this._barW);
+        if(w === this._barPx){ return; }
+        this._barPx = w;
+        this._barFillNode.width = w;
     },
 
     // called every frame, uncomment this function to activate update callback
@@ -545,6 +587,7 @@ cc.Class({
                 this._progress = Math.min(this._targetProgress, this._progress + dt * 0.5);
             }
             this.tipLabel.string += Math.floor(this._progress * 100) + "%";   
+            this._setBar(this._progress);
         }
         else{
             var t = Math.floor(Date.now() / 1000) % 4;
