@@ -352,6 +352,10 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							conf.baoSeatIndex = roomConf.baoSeatIndex != null ? roomConf.baoSeatIndex : -1;
 							conf.baoTai = roomConf.baoTai || 2;
 							conf.baoTaiFee = roomConf.baoTaiFee || 0;
+							// 定财神倒计时(秒,包财神专用):后台玩法配置可改,缺省60秒
+							conf.caishen_seconds = (cfg.caishen_seconds != null && Number(cfg.caishen_seconds) > 0) ? Number(cfg.caishen_seconds) : 60;
+							// 叫台倒计时(秒,包财神专用):后台玩法配置可改,缺省15秒,超时自动不包
+							conf.bao_seconds = (cfg.bao_seconds != null && Number(cfg.bao_seconds) > 0) ? Number(cfg.bao_seconds) : 15;
 							// 后台全局开关:财吃/财碰/财杠/点炮胡(赖倒胡与翻财神共用)
 							conf.cai_chi = cfg.cai_chi != null ? cfg.cai_chi : 1;
 							conf.cai_peng = cfg.cai_peng != null ? cfg.cai_peng : 1;

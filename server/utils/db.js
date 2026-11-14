@@ -266,7 +266,9 @@ exports.init = function(config){
         '`room_uuid` char(20) NOT NULL DEFAULT "",' +
         '`game_index` smallint(6) NOT NULL DEFAULT 0,' +
         '`create_time` int(11) NOT NULL DEFAULT 0,' +
-        'PRIMARY KEY (`id`),KEY `club_time` (`club_id`,`create_time`),KEY `partner_time` (`partner_club_id`,`create_time`)' +
+        '`claim_status` tinyint(4) NOT NULL DEFAULT 0 COMMENT "0未领取 1已领取",' +
+        '`claim_time` int(11) NOT NULL DEFAULT 0 COMMENT "领取时间",' +
+        'PRIMARY KEY (`id`),KEY `club_time` (`club_id`,`create_time`),KEY `partner_time` (`partner_club_id`,`create_time`),KEY `claim` (`claim_status`,`create_time`)' +
         ') ENGINE=InnoDB DEFAULT CHARSET=utf8';
     setTimeout(function(){
         query(sqlReward, function(err){
@@ -279,6 +281,20 @@ exports.init = function(config){
             if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_reward_logs.table_name failed:" + err.message); }
         });
     }, 6300);
+    //老库补列:奖励明细改为手动领取;新加列的库把历史奖励标成已领取(当时已自动到账,避免重复领取)
+    setTimeout(function(){
+        query('ALTER TABLE `t_reward_logs` ADD COLUMN `claim_status` TINYINT(4) NOT NULL DEFAULT 0 COMMENT "0未领取 1已领取" AFTER `create_time`', function(err){
+            var fresh = !err;
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_reward_logs.claim_status failed:" + err.message); }
+            query('ALTER TABLE `t_reward_logs` ADD COLUMN `claim_time` INT(11) NOT NULL DEFAULT 0 COMMENT "领取时间" AFTER `claim_status`', function(e2){
+                if(e2 && !/Duplicate column/i.test(e2.message)){ console.log("alter t_reward_logs.claim_time failed:" + e2.message); }
+                if(!fresh){ return; }
+                query('UPDATE `t_reward_logs` SET `claim_status`=1, `claim_time`=`create_time`', function(e3){
+                    if(e3){ console.log("mark old rewards claimed failed:" + e3.message); }
+                });
+            });
+        });
+    }, 6600);
 
     //乐豆流水关联俱乐部和合伙人
     setTimeout(function(){
@@ -2395,6 +2411,67 @@ exports.add_reward_log = function(clubId,partnerClubId,rewardType,amount,gameTyp
             if(err){ console.log(err); callback(false); return; }
             callback(true);
         });
+};
+
+//手动领取一条奖励: 先抢占(claim_status 0->1), 抢到才给俱乐部社长到账, 重复点只到账一次
+exports.reward_claim = function(clubId,id,callback){
+    callback = callback == null? nop:callback;
+    var cid = parseInt(clubId) || 0;
+    var rid = parseInt(id) || 0;
+    if(!(cid > 0) || !(rid > 0)){ callback(false,0); return; }
+    var t = Math.ceil(Date.now()/1000);
+    queryP('UPDATE t_reward_logs SET claim_status=1, claim_time=? WHERE id=? AND club_id=? AND claim_status=0',[t,rid,cid],function(err,ret){
+        if(err){ console.log('reward_claim update failed:' + err.message); callback(false,0); return; }
+        if(!ret || ret.affectedRows !== 1){ callback(false,0); return; }
+        queryP('SELECT * FROM t_reward_logs WHERE id=? LIMIT 1',[rid],function(e2,rows){
+            if(e2 || !rows || rows.length === 0){ callback(true,0); return; }
+            var r = rows[0];
+            var amount = Number(r.amount) || 0;
+            exports.club_get(cid,function(club){
+                if(club == null || !(amount > 0)){ callback(true,0); return; }
+                //到账写流水时沿用原奖励类型, 总览/收入统计按到账时间口径统计
+                exports.add_user_gems(club.owner_userid, amount, null, {
+                    roomid: r.roomid, gameType: r.game_type, changeType: r.reward_type, clubId: cid,
+                    partnerClubId: r.partner_club_id || 0, tableName: r.table_name || ""
+                });
+                callback(true,amount);
+            });
+        });
+    });
+};
+
+//一键领取: 领取该俱乐部全部未领取奖励
+exports.reward_claim_all = function(clubId,callback){
+    callback = callback == null? nop:callback;
+    var cid = parseInt(clubId) || 0;
+    if(!(cid > 0)){ callback(0,0); return; }
+    queryP('SELECT id FROM t_reward_logs WHERE club_id=? AND claim_status=0 ORDER BY id ASC LIMIT 500',[cid],function(err,rows){
+        if(err || !rows || rows.length === 0){ callback(0,0); return; }
+        var count = 0, amount = 0;
+        (function next(i){
+            if(i >= rows.length){ callback(count,amount); return; }
+            exports.reward_claim(cid,rows[i].id,function(ok,amt){
+                if(ok){ count++; amount += Number(amt) || 0; }
+                next(i + 1);
+            });
+        })(0);
+    });
+};
+
+//七天内未手动领取的奖励自动到账(服务端定时调用)
+exports.reward_auto_claim = function(cutoff,callback){
+    callback = callback == null? nop:callback;
+    queryP('SELECT id,club_id FROM t_reward_logs WHERE claim_status=0 AND create_time<=? ORDER BY id ASC LIMIT 200',[parseInt(cutoff) || 0],function(err,rows){
+        if(err || !rows || rows.length === 0){ callback(0); return; }
+        var total = 0;
+        (function next(i){
+            if(i >= rows.length){ callback(total); return; }
+            exports.reward_claim(rows[i].club_id,rows[i].id,function(ok){
+                if(ok){ total++; }
+                next(i + 1);
+            });
+        })(0);
+    });
 };
 
 //俱乐部总览数据

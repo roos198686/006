@@ -105,15 +105,10 @@ cc.Class({
         var gameChild = this.node.getChildByName("game");
         //mj剩余数和剩余局数
         this._mjcount = gameChild.getChildByName('mjcount').getComponent(cc.Label);
-        this._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
+        this._updateMjCount();
         this._gamecount = gameChild.getChildByName('gamecount').getComponent(cc.Label);
         this._gamecount.string = "" + cc.vv.gameNetMgr.numOfGames + "/" + cc.vv.gameNetMgr.maxNumOfGames + "局";
-        //剩余牌数放到中间局数的左侧(下一拍等Label宽度更新后再对齐)
-        var mjcountNode = this._mjcount.node, gamecountNode = this._gamecount.node;
-        this.scheduleOnce(function(){
-            if(!cc.isValid(mjcountNode) || !cc.isValid(gamecountNode)){ return; }
-            mjcountNode.setPosition(gamecountNode.x - gamecountNode.width/2 - mjcountNode.width/2 - 12, gamecountNode.y);
-        }, 0);
+        //剩余牌数/局数的位置全部按场景里摆好的来, 代码不再改写
         //取到手牌节点
         var myselfChild = gameChild.getChildByName("myself");
         var myholds = myselfChild.getChildByName("holds");
@@ -140,9 +135,7 @@ cc.Class({
             if(sideChild == null){ continue; }
             this._hupaiTips.push(sideChild.getChildByName("HuPai"));
             this._hupaiLists.push(sideChild.getChildByName("hupailist"));
-            this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
-            //出牌数组将出牌节点获取进来
-            this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
+
             //获取胡后显示节点
             var opt = sideChild.getChildByName("opt");
             opt.active = false;
@@ -152,6 +145,10 @@ cc.Class({
                 sprite:sprite
             };
             this._opts.push(data);
+            this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
+            //出牌数组将出牌节点获取进来
+            this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
+
         }
         //获取到ops节点
         var opts = gameChild.getChildByName("ops");
@@ -199,18 +196,141 @@ cc.Class({
             }
             // 不包
             this._bindBaoButton(this._baoPanel.getChildByName("btnNoBao"), 0, "onBaoNoBaoClicked");
+            // 模式按钮选中态底图(场景默认"按钮-圆-1", 选中的换成"按钮-圆-3")
+            this._loadBaoModeFrames();
+            //叫台倒计时数字: baoPanel/djsSprite/New Label
+            this._baoDjs = this._getDjs(this._baoPanel);
         }
 
         // 定财神面板(场景固化)
         this._csPanel = opts ? opts.getChildByName("csPanel") : null;
         if(this._csPanel){
             this._csPanel.active = false;
-            var csBtn = this._csPanel.getChildByName("btnSetCaishen");
-            if(csBtn){ cc.vv.utils.addClickEvent(csBtn, this.node, "MJGameBMJ", "onSetCaishenClicked"); }
+            //面板顶部"请在手牌中选择财神"提示, 选中手牌后隐藏
+            //(csPanel 下多套了一层外层节点, 用递归查找, 编辑器再包一层也不用改代码)
+            this._csTip = this._findChildByName(this._csPanel, "lblTip", "btnSetCaishen");
+            var csBtn = this._findChildByName(this._csPanel, "btnSetCaishen");
+            if(csBtn){
+                cc.vv.utils.addClickEvent(csBtn, this.node, "MJGameBMJ", "onSetCaishenClicked");
+            }
+            //"已选择：独财（三万）"提示(跳过倒计时节点下的同名 New Label)
+            this._csSelLabel = this._findChildByName(this._csPanel, "New Label", "djsSprite");
+            //财神牌面节点(与caishenTip同样摆法: 左位显示文字, 右位/双财显示牌), 位置在场景里配
+            this._csPaiNodes = [
+                this._findChildByName(this._csPanel, "csPai1"),
+                this._findChildByName(this._csPanel, "csPai2")
+            ];
+            //独财/无财时左位显示的文字节点
+            this._csWu = this._findChildByName(this._csPanel, "wu");
+            //定财神倒计时数字: csPanel/djsSprite/New Label
+            this._csDjs = this._getDjs(this._csPanel);
         }
+        //tip_notice(等待对家决策提示)上的同一个倒计时
+        var tipNotice = cc.find("Canvas/tip_notice");
+        this._tipDjs = tipNotice ? this._getDjs(tipNotice) : null;
 
         this.hideOptions();
         this.hideChupai();
+    },
+
+    //递归按名字找子节点(skipName:跳过该名字的整棵子树,避免取到同名的按钮内提示)
+    _findChildByName:function(node, name, skipName){
+        if(node == null){ return null; }
+        var children = node.children || [];
+        for(var i = 0; i < children.length; ++i){
+            var c = children[i];
+            if(c.name === skipName){ continue; }
+            if(c.name === name){ return c; }
+            var r = this._findChildByName(c, name, skipName);
+            if(r){ return r; }
+        }
+        return null;
+    },
+
+    //取面板下 djsSprite(定财神倒计时)及其 New Label, 默认隐藏, 只有倒计时运行中才显示
+    _getDjs:function(root){
+        if(root == null){ return null; }
+        var djs = this._findChildByName(root, "djsSprite");
+        if(djs == null){ return null; }
+        var nl = djs.getChildByName("New Label");
+        djs.active = false;
+        return { node: djs, label: nl ? nl.getComponent(cc.Label) : null };
+    },
+
+    //定财神倒计时: csPanel 与 tip_notice 上是同一个数字,由服务端 caishen_secs(后台配置,缺省60)驱动
+    _startCaishenCountdown:function(sec){
+        this._stopCaishenCountdown();
+        var left = parseInt(sec);
+        if(!(left > 0)){ left = 60; }
+        this._csDjsLeft = left;
+        this._refreshCaishenDjs();
+        var self = this;
+        this._csDjsTimer = setInterval(function(){
+            if(!cc.isValid(self.node)){ self._stopCaishenCountdown(); return; }
+            self._csDjsLeft = (self._csDjsLeft > 0) ? (self._csDjsLeft - 1) : 0;
+            self._refreshCaishenDjs();
+            if(self._csDjsLeft <= 0){ self._stopCaishenCountdown(); }
+        }, 1000);
+    },
+    _stopCaishenCountdown:function(){
+        if(this._csDjsTimer){ clearInterval(this._csDjsTimer); this._csDjsTimer = null; }
+        if(this._csDjs && cc.isValid(this._csDjs.node)){ this._csDjs.node.active = false; }
+        if(this._tipDjs && cc.isValid(this._tipDjs.node)){ this._tipDjs.node.active = false; }
+    },
+    _refreshCaishenDjs:function(){
+        var n = "" + (this._csDjsLeft != null ? this._csDjsLeft : 0);
+        if(this._csDjs && cc.isValid(this._csDjs.node)){
+            this._csDjs.node.active = true;
+            if(this._csDjs.label){ this._csDjs.label.string = n; }
+        }
+        if(this._tipDjs && cc.isValid(this._tipDjs.node)){
+            this._tipDjs.node.active = true;
+            if(this._tipDjs.label){ this._tipDjs.label.string = n; }
+        }
+    },
+
+    //叫台倒计时: baoPanel 上的数字, 由服务端 bao_secs(后台配置, 缺省15)驱动;
+    //到时间由服务端自动按"不包"处理, 客户端只做显示
+    _startBaoCountdown:function(sec){
+        this._stopBaoCountdown();
+        var left = parseInt(sec);
+        if(!(left > 0)){ left = 15; }
+        this._baoDjsLeft = left;
+        this._refreshBaoDjs();
+        var self = this;
+        this._baoDjsTimer = setInterval(function(){
+            if(!cc.isValid(self.node)){ self._stopBaoCountdown(); return; }
+            self._baoDjsLeft = (self._baoDjsLeft > 0) ? (self._baoDjsLeft - 1) : 0;
+            self._refreshBaoDjs();
+            if(self._baoDjsLeft <= 0){
+                self._stopBaoCountdown();
+                //倒计时结束与服务端一致: 自动按"不包"处理, 客户端走与点不包完全相同的界面流程
+                //(服务端超时会自行提交, 这里只关面板+显示等待提示, 不重复发协议)
+                if(self._baoPanel && self._baoPanel.active){
+                    self._hideBaoPanel();
+                    self._showWaitCaishenTip("你已放弃包，等待对家决策");
+                }
+            }
+        }, 1000);
+    },
+    _stopBaoCountdown:function(){
+        if(this._baoDjsTimer){ clearInterval(this._baoDjsTimer); this._baoDjsTimer = null; }
+        if(this._baoDjs && cc.isValid(this._baoDjs.node)){ this._baoDjs.node.active = false; }
+    },
+    _refreshBaoDjs:function(){
+        if(this._baoDjs && cc.isValid(this._baoDjs.node)){
+            this._baoDjs.node.active = true;
+            if(this._baoDjs.label){ this._baoDjs.label.string = "" + (this._baoDjsLeft != null ? this._baoDjsLeft : 0); }
+        }
+    },
+
+    //剩余张数 = 牌墙上还亮着的牌减掉置灰不可摸的死墙(即还能摸几张),由MJRoom刷新牌墙时算好
+    _updateMjCount:function(){
+        if(!this._mjcount){ return; }
+        var room = this.getComponent("MJRoom") || this.node.getComponent("MJRoom");
+        if(room && room._brickBuilt){ room.refreshBrickWall(); }
+        var n = (room && room._brickRemainCount != null) ? room._brickRemainCount : cc.vv.gameNetMgr.numOfMJ;
+        this._mjcount.string = "剩余" + n + "张";
     },
 
     //隐藏出牌
@@ -382,15 +502,14 @@ cc.Class({
             var seatIndex = data.si != null ? data.si : data.seatindex;
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
             var hupai = self._hupaiTips[localIndex];
-            hupai.active = true;
+            //座位旁的"胡/自摸"大字图片去掉(只保留spine特效那一套), 参考自选
+            if(hupai){ hupai.active = false; }
 
             if(localIndex == 0){
                 self.hideOptions();
             }
             var seatData = cc.vv.gameNetMgr.seats[seatIndex];
             seatData.hued = true;
-            hupai.getChildByName("sprHu").active = !data.zimo;
-            hupai.getChildByName("sprZimo").active = !!data.zimo;
 
             self.initMopai(seatIndex,data.pai);
             //对家胡牌亮明牌:把上下翻转的牌背(scaleY=-1)翻回正向并显示真实牌面
@@ -407,7 +526,7 @@ cc.Class({
         });
 
         this.node.on('mj_count',function(data){
-            self._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
+            self._updateMjCount();
         });
 
         this.node.on('game_num',function(data){
@@ -492,6 +611,7 @@ cc.Class({
         });
         //吃
         this.node.on('chi_notify',function(data){
+            self._chiJustSent = false; //吃牌成功,清掉超时/拒绝侦测标记
             self.hideChupai();
             var seatData = data.detail;
             console.log('[chi_notify] seatData.userid=',seatData.userid,'holds=',typeof seatData.holds === 'object' ? seatData.holds.length+':'+JSON.stringify(seatData.holds) : seatData.holds);
@@ -1023,6 +1143,8 @@ cc.Class({
         }
         this._refreshBaoButtons();
         this._highlightBaoMode(this._baoPanel.getChildByName("btnShuangCai"));
+        //叫台倒计时(超时服务端自动不包)
+        this._startBaoCountdown(data && data.bao_secs);
     },
 
     // 按"当前最高叫台 + 已选财神模式"刷新台数按钮: 只显示能压过的
@@ -1038,6 +1160,23 @@ cc.Class({
         }
     },
 
+    // 无财/独财/双财按钮的选中态底图:场景里是"按钮-圆-1", 选中时换成同图集的"按钮-圆-3"
+    _loadBaoModeFrames:function(){
+        if(this._baoModeFramesLoading || this._baoBtnActiveFrame){ return; }
+        this._baoModeFramesLoading = true;
+        var self = this;
+        cc.resources.load("images/atlas/baoqei_b", cc.SpriteAtlas, function(err, atlas){
+            self._baoModeFramesLoading = false;
+            if(err || !atlas || !cc.isValid(self)){ return; }
+            self._baoBtnNormalFrame = atlas.getSpriteFrame("按钮-圆-1");
+            self._baoBtnActiveFrame = atlas.getSpriteFrame("按钮-圆-3");
+            if(self._baoPanel && self._baoPanel.active){
+                var names = ["btnNoCai", "btnDuCai", "btnShuangCai"];
+                self._highlightBaoMode(self._baoPanel.getChildByName(names[self._baoMode] || "btnShuangCai"));
+            }
+        });
+    },
+
     // 选中的模式高亮, 其余变暗(按钮文字已隐藏, 同步设置内部图片子节点的透明度)
     _highlightBaoMode:function(sel){
         var names = ["btnNoCai", "btnDuCai", "btnShuangCai"];
@@ -1046,6 +1185,11 @@ cc.Class({
             if(!b){ continue; }
             var op = (b === sel) ? 255 : 150;
             b.opacity = op;
+            var sp = b.getComponent(cc.Sprite);
+            if(sp && this._baoBtnActiveFrame){
+                var f = (b === sel) ? this._baoBtnActiveFrame : this._baoBtnNormalFrame;
+                if(f){ sp.spriteFrame = f; }
+            }
             var kids = b.children || [];
             for(var k = 0; k < kids.length; ++k){
                 if(kids[k].getComponent(cc.Sprite)){ kids[k].opacity = op; }
@@ -1093,6 +1237,7 @@ cc.Class({
     },
 
     _hideBaoPanel:function(){
+        this._stopBaoCountdown();
         if(this._baoPanel){ this._baoPanel.active = false; }
         var guo = this._options ? this._options.getChildByName("btnGuo") : null;
         if(guo){ guo.active = true; }
@@ -1116,6 +1261,7 @@ cc.Class({
         this._showBaoInfo(data);
         // 无财: 无 caishen 可定, 直接开打, 跳过定财神
         if(data.caishen != null){
+            this._stopCaishenCountdown();
             this._hideWaitCaishenTip();
             this._caishen = parseInt(data.caishen);
             this._caishen2 = (data.caishen2 != null) ? parseInt(data.caishen2) : null;
@@ -1129,6 +1275,8 @@ cc.Class({
             if(bSeat != mySeat){
                 var cmName = ["无财","独财","双财"][parseInt(data.baoMode)] || "";
                 this._showWaitCaishenTip("对家已包" + cmName + parseInt(data.baoTai) + "台，等待对家定财神");
+                //tip_notice 上的定财神倒计时(与包家 csPanel 上是同一个)
+                this._startCaishenCountdown(data.caishen_secs);
             }else{
                 //自己是包家, 马上要选财神, 清掉"等待对家决策"的旧提示
                 this._hideWaitCaishenTip();
@@ -1156,6 +1304,8 @@ cc.Class({
         if(!data){ return; }
         this._csMode = (data.mode != null) ? parseInt(data.mode) : 2;
         this._csPai = null;
+        //包家侧: csPanel 上的定财神倒计时
+        this._startCaishenCountdown(data.caishen_secs);
         if(this._csPaiNode){ this._csPaiNode.y = 0; this._csPaiNode = null; }
         var self = this;
         this.scheduleOnce(function(){
@@ -1172,8 +1322,9 @@ cc.Class({
         var op = this._options.getChildByName("op"); if(op) op.active = false;
         var guo = this._options.getChildByName("btnGuo"); if(guo) guo.active = false;
         // "定为财神"按钮初始隐藏, 选中牌后才亮
-        var csBtn = this._csPanel.getChildByName("btnSetCaishen");
+        var csBtn = this._findChildByName(this._csPanel, "btnSetCaishen");
         if(csBtn){ csBtn.active = false; }
+        this._updateCsSelLabel();
     },
 
     _hideCsPanel:function(){
@@ -1184,15 +1335,117 @@ cc.Class({
 
     onSetCaishenClicked:function(){
         if(this._csPai == null || this._csPai < 0){ return; }
+        this._stopCaishenCountdown();
         cc.vv.net.send("caishen_select", {pai: this._csPai});
         this._hideCsPanel();
+    },
+
+    //牌id → 中文名(0-8筒 9-17条 18-26万 27中28发29白30东31西32南33北)
+    _mjIdToName:function(id){
+        if(id == null || id < 0 || id > 33){ return "?"; }
+        var nums = ["一","二","三","四","五","六","七","八","九"];
+        if(id < 9){ return nums[id] + "筒"; }
+        if(id < 18){ return nums[id - 9] + "条"; }
+        if(id < 27){ return nums[id - 18] + "万"; }
+        return ["中","发","白","东","西","南","北"][id - 27];
+    },
+
+    //"定为财神"按钮上的已选择提示: 已选择：独财（三万）; 双财显示两张财神牌: 已选择：双财（三万、四万）
+    _updateCsSelLabel:function(){
+        var hasPai = (this._csPai != null && this._csPai >= 0);
+        //选中手牌后隐藏面板顶部的"请在手牌中选择财神"提示, 取消选中/重新打开时恢复
+        if(this._csTip != null && cc.isValid(this._csTip)){
+            this._csTip.active = !hasPai;
+        }
+        var modes = ["无财","独财","双财"];
+        var mode = this._csMode;
+        if(mode == null || mode < 0 || mode > 2){ mode = 2; }
+        var m = modes[mode];
+        //双财第二张由选中的牌按同花色/字牌循环推出, 与服务端 nextCaishenOf 一致
+        var csIds = [];
+        if(hasPai && mode > 0){
+            csIds.push(this._csPai);
+            if(mode === 2){ csIds.push(this._nextCaishenOf(this._csPai)); }
+        }
+        //牌位摆法与caishenTip一致: 无财/独财时左位隐藏改显示文字(wu), 独财只有右位放财神牌, 双财两位都放牌
+        var slotIds = [null, null];
+        if(mode === 2){
+            slotIds[0] = csIds[0] != null ? csIds[0] : null;
+            slotIds[1] = csIds[1] != null ? csIds[1] : null;
+        }
+        else if(mode === 1){
+            slotIds[1] = csIds[0] != null ? csIds[0] : null;
+        }
+        var paiNodes = this._csPaiNodes || [];
+        for(var i = 0; i < paiNodes.length; ++i){
+            var pn = paiNodes[i];
+            if(pn == null || !cc.isValid(pn)){ continue; }
+            var id = slotIds[i];
+            pn.active = (id != null);
+            if(id != null){
+                var sp = pn.getComponent(cc.Sprite);
+                if(sp){
+                    var sf = cc.vv.mahjongmgr.getSpriteFrameByMJID("M_", id);
+                    if(sf){ sp.spriteFrame = sf; }
+                }
+            }
+        }
+        //左位文字: 选中手牌后无财/独财显示对应文字, 双财隐藏
+        if(this._csWu != null && cc.isValid(this._csWu)){
+            var wuLb = this._csWu.getComponent(cc.Label);
+            if(hasPai && (mode === 0 || mode === 1)){
+                if(wuLb){ wuLb.string = m; }
+                this._csWu.active = true;
+            }
+            else{
+                this._csWu.active = false;
+            }
+        }
+        if(this._csSelLabel == null || !cc.isValid(this._csSelLabel)){ return; }
+        //面板刚弹出(未选牌)只显示顶部lblTip, 选中手牌后再显示"已选择"提示
+        this._csSelLabel.active = hasPai;
+        var lb = this._csSelLabel.getComponent(cc.Label);
+        if(lb == null){ return; }
+        if(csIds.length === 0){
+            lb.string = "已选择：" + m;
+        }
+        else{
+            var names = [];
+            for(var k = 0; k < csIds.length; ++k){ names.push(this._mjIdToName(csIds[k])); }
+            lb.string = "已选择：" + m + "（" + names.join("、") + "）";
+        }
+    },
+
+    //双财第二张: 数牌同花色内循环(9万→1万); 中发白3循环; 东南西北按牌面顺序循环
+    _nextCaishenOf:function(p){
+        if(p < 27){ return Math.floor(p / 9) * 9 + (p % 9 + 1) % 9; }
+        if(p <= 29){ return 27 + (p - 27 + 1) % 3; }
+        var windIds = [30, 32, 31, 33];
+        for(var i = 0; i < 4; ++i){
+            if(windIds[i] === p){ return windIds[(i + 1) % 4]; }
+        }
+        return p;
     },
 
     //碰杠胡行为实现
     playEfx:function(index,name){
         var efx = this._playEfxs[index];
-        efx.node.active = true;
-        efx.play(name);
+        var efxNode = efx ? efx.node : null;
+        if(efxNode == null){
+            //进场景时座位数据还没同步会取不到play_efx,这里按方位名现取一次并缓存,
+            //否则吃/碰/杠/胡会在这里抛异常,整个座位spine动画直接没有
+            var gameChild = this.node.getChildByName("game");
+            var sideName = cc.vv.mahjongmgr.getSide(index);
+            var sideChild = gameChild ? gameChild.getChildByName(sideName) : null;
+            efxNode = sideChild ? sideChild.getChildByName("play_efx") : null;
+            if(efxNode){
+                efx = efxNode.getComponent(cc.Animation);
+                this._playEfxs[index] = efx;
+            }
+        }
+        if(efxNode == null){ return; }
+        efxNode.active = true;
+        if(efx){ efx.play(name); }
         //吃/碰/杠/胡/自摸叠加逆向包 spine 动画(资源未导入时静默跳过)
         if(cc.vv && cc.vv.mahjongmgr){
             var spKey = null;
@@ -1201,7 +1454,7 @@ cc.Class({
             else if(name == "play_chi"){ spKey = "mj_chi"; }
             else if(name == "play_peng"){ spKey = "mj_peng"; }
             else if(name == "play_guafeng" || name == "play_xiayu" || name == "play_gang"){ spKey = "mj_gang"; }
-            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efx.node, spKey); }
+            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efxNode, spKey); }
         }
     },
     //游戏开始
@@ -1209,10 +1462,11 @@ cc.Class({
         //新一局开始,取消上一局结算遗留的"延时切等待界面"
         if(this._overHideCb){ this.unschedule(this._overHideCb); this._overHideCb = null; }
         this._pendingShowPrepare = false; //新一局开始,清掉上局"弹窗关闭才切等待界面"的标记
+        this._stopCaishenCountdown(); //新一局:清掉上局定财神倒计时
         this._hideWaitCaishenTip(); //新一局: 先清上一局残留的"等待定财神"提示条(否则 tip_notice 默认字符串"过胡"会常驻显示)
 
         for(var i = 0; i < this._playEfxs.length; ++i){
-            this._playEfxs[i].node.active = false;
+            if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
         for(var i = 0; i < this._hupaiLists.length; ++i){
@@ -1226,11 +1480,8 @@ cc.Class({
             var seatData = cc.vv.gameNetMgr.seats[i];
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
             var hupai = this._hupaiTips[localIndex];
-            hupai.active = seatData.hued;
-            if(seatData.hued){
-                hupai.getChildByName("sprHu").active = !seatData.iszimo;
-                hupai.getChildByName("sprZimo").active = seatData.iszimo;
-            }
+            //胡牌座位不再显示"胡/自摸"大字图片(只保留spine特效)
+            if(hupai){ hupai.active = false; }
         }
         }
 
@@ -1632,7 +1883,7 @@ cc.Class({
         }
         //定财神选牌模式：点自己的手牌选中/取消，选中后显示"定为财神"按钮（必须先于轮次拦截）
         if(this._csPanel != null && this._csPanel.active){
-            var csBtn = this._csPanel.getChildByName("btnSetCaishen");
+            var csBtn = this._findChildByName(this._csPanel, "btnSetCaishen");
             var csNode = this._findMJNode(event);
             if(csNode == null || csNode.mjId == null){ return; }
             for(var csi = 0; csi < this._myMJArr.length; ++csi){
@@ -1642,6 +1893,7 @@ cc.Class({
                         this._csPaiNode = null;
                         this._csPai = null;
                         if(csBtn){ csBtn.active = false; }
+                        this._updateCsSelLabel();
                         return;
                     }
                     if(this._csPaiNode){ this._csPaiNode.y = 0; }
@@ -1649,6 +1901,7 @@ cc.Class({
                     this._csPaiNode = csNode;
                     this._csPai = csNode.mjId;
                     if(csBtn){ csBtn.active = true; }
+                    this._updateCsSelLabel();
                     return;
                 }
             }
@@ -2244,6 +2497,8 @@ cc.Class({
 
     onDestroy:function(){
         console.log("onDestroy");
+        this._stopCaishenCountdown();
+        this._stopBaoCountdown();
         this._hideWaitCaishenTip(); //离开场景时清掉中央提示条, 防止残留到下一场/大厅
         if(cc.vv){
             cc.vv.gameNetMgr.clear();

@@ -30,6 +30,8 @@ cc.Class({
     // use this for initialization
     onLoad: function () {
         console.log("[Lodinglogin] onLoad enter");
+        //标记本次启动已跑过热更检查(login 场景据此判断是否需要补跑)
+        window.__huChecked = true;
         //热更搜索路径恢复:上次热更下载的新资源存放在可写目录, 必须先把该目录加进搜索路径再重启一次,
         //否则冷启动时仍按包内旧资源启动(热更对"杀掉APP后重开"不生效)
         if(this.applyHotUpdateSearchPaths()){
@@ -124,10 +126,19 @@ cc.Class({
         //远端清单/资源地址由本地清单里的 remoteManifestUrl / packageUrl 决定。传远端URL必然报 ERROR_NO_LOCAL_MANIFEST
         var manifestUrl = "project.manifest";
         var storagePath = (jsb.fileUtils ? jsb.fileUtils.getWritablePath() : "/") + "baobao_hotupdate";
-        console.log("[HotUpdate] 本地清单:", manifestUrl, "是否打进包:", jsb.fileUtils ? jsb.fileUtils.isFileExist(manifestUrl) : "?");
-        console.log("[HotUpdate] 远端服务器:", base, "存储目录:", storagePath);
+        //release 包会剥离 console.log, 这里统一用 console.error 保证日志可见
+        var manifestExist = jsb.fileUtils ? jsb.fileUtils.isFileExist(manifestUrl) : "?";
+        console.error("[HotUpdate] 本地清单:" + manifestUrl + " 存在:" + manifestExist + " 服务器:" + base);
+        this.showHotTip("检查更新");
         this._stateStr = "正在检查更新";
-        var am = new jsb.AssetsManager(manifestUrl, storagePath);
+        var am = null;
+        try {
+            am = new jsb.AssetsManager(manifestUrl, storagePath);
+        } catch(e) {
+            console.error("[HotUpdate] 创建管理器失败:" + e);
+            this.checkVersion();
+            return;
+        }
         am.retain();
         this._hotAm = am;
         this._hotFailCount = 0;
@@ -136,7 +147,7 @@ cc.Class({
         });
         am.setEventCallback(function(event){
             var code = event.getEventCode();
-            console.log("[HotUpdate] event:", code);
+            console.error("[HotUpdate] event:" + code + " " + (event.getMessage ? (event.getMessage() || "") : ""));
             var EV = jsb.EventAssetsManager;
             switch(code){
                 case EV.ERROR_NO_LOCAL_MANIFEST:
@@ -215,7 +226,9 @@ cc.Class({
 
     //热更阶段提示(不打断进度条显示)
     showHotTip:function(msg){
-        console.log("[HotUpdate]", msg);
+        console.error("[HotUpdate] " + msg);
+        //同时写到加载页文字上, 真机/release 包也能直接看到热更走到哪一步
+        if(this.tipLabel && cc.isValid(this.tipLabel.node)){ this.tipLabel.string = msg; }
     },
 
     onDestroy:function(){

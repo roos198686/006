@@ -135,6 +135,24 @@ cc.Class({
         return "nv/" + realId + ".mp3";
     },
 
+    //花牌图片(id 34~41: 梅兰竹菊春夏秋冬), 资源放在 resources/images/MJ/hua/hua_<name>,首次加载后缓存
+    getHuaSpriteFrame:function(idx, cb){
+        var names = ["mei","lan","zhu","ju","chun","xia","qiu","dong"];
+        if(idx < 0 || idx >= names.length){ if(cb){ cb(null); } return; }
+        var cache = this._huaSpriteFrames || (this._huaSpriteFrames = {});
+        var key = names[idx];
+        if(cache[key]){ if(cb){ cb(cache[key]); } return; }
+        var waitKey = "wait_" + key;
+        if(cache[waitKey]){ if(cb){ cache[waitKey].push(cb); } return; }
+        cache[waitKey] = cb ? [cb] : [];
+        cc.resources.load("images/MJ/hua/hua_" + key, cc.SpriteFrame, function(err, sf){
+            var list = cache[waitKey] || [];
+            delete cache[waitKey];
+            if(!err && sf){ cache[key] = sf; }
+            for(var i = 0; i < list.length; ++i){ if(list[i]){ list[i](cache[key] || null); } }
+        });
+    },
+
     //随机播放同一动作的多条语音(如 peng1~5、chi1~4、hu1~3、zimo1~2)
     playRandSFX:function(prefix, count){
         var idx = 1 + Math.floor(Math.random() * count);

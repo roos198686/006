@@ -108,15 +108,10 @@ cc.Class({
         var gameChild = this.node.getChildByName("game");
         //mj剩余数和剩余局数
         this._mjcount = gameChild.getChildByName('mjcount').getComponent(cc.Label);
-        this._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
+        this._updateMjCount();
         this._gamecount = gameChild.getChildByName('gamecount').getComponent(cc.Label);
         this._gamecount.string = "" + cc.vv.gameNetMgr.numOfGames + "/" + cc.vv.gameNetMgr.maxNumOfGames + "局";
-        //剩余牌数放到中间局数的左侧(下一拍等Label宽度更新后再对齐)
-        var mjcountNode = this._mjcount.node, gamecountNode = this._gamecount.node;
-        this.scheduleOnce(function(){
-            if(!cc.isValid(mjcountNode) || !cc.isValid(gamecountNode)){ return; }
-            mjcountNode.setPosition(gamecountNode.x - gamecountNode.width/2 - mjcountNode.width/2 - 12, gamecountNode.y);
-        }, 0);
+        //剩余牌数/局数的位置全部按场景里摆好的来, 代码不再改写
         //取到手牌节点
         var myselfChild = gameChild.getChildByName("myself");
         var myholds = myselfChild.getChildByName("holds");
@@ -143,9 +138,7 @@ cc.Class({
             if(sideChild == null){ continue; }
             this._hupaiTips.push(sideChild.getChildByName("HuPai"));
             this._hupaiLists.push(sideChild.getChildByName("hupailist"));
-            this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
-            //出牌数组将出牌节点获取进来
-            this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
+
             //获取胡后显示节点
             var opt = sideChild.getChildByName("opt");
             opt.active = false;
@@ -155,6 +148,9 @@ cc.Class({
                 sprite:sprite
             };
             this._opts.push(data);
+            this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
+            //出牌数组将出牌节点获取进来
+            this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
         }
         //获取到ops节点
         var opts = gameChild.getChildByName("ops");
@@ -182,6 +178,15 @@ cc.Class({
         }
         this.hideOptions();
         this.hideChupai();
+    },
+
+    //剩余张数 = 牌墙上还亮着的牌减掉置灰不可摸的死墙(即还能摸几张),由MJRoom刷新牌墙时算好
+    _updateMjCount:function(){
+        if(!this._mjcount){ return; }
+        var room = this.getComponent("MJRoom") || this.node.getComponent("MJRoom");
+        if(room && room._brickBuilt){ room.refreshBrickWall(); }
+        var n = (room && room._brickRemainCount != null) ? room._brickRemainCount : cc.vv.gameNetMgr.numOfMJ;
+        this._mjcount.string = "剩余" + n + "张";
     },
 
     //隐藏出牌
@@ -292,7 +297,7 @@ cc.Class({
             var seatIndex = data.si != null ? data.si : data.seatindex;
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
             var hupai = self._hupaiTips[localIndex];
-            hupai.active = true;
+            if(hupai){ hupai.active = true; }
 
             if(localIndex == 0){
                 self.hideOptions();
@@ -317,7 +322,7 @@ cc.Class({
         });
 
         this.node.on('mj_count',function(data){
-            self._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
+            self._updateMjCount();
         });
 
         this.node.on('game_num',function(data){
@@ -340,7 +345,7 @@ cc.Class({
             var d = data.detail;
             if(!d){ return; }
             self.initHuaArea(d.si);
-            self._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
+            self._updateMjCount();
         });
 
         //漳浦:游金等级通知 {si,level}
@@ -428,6 +433,7 @@ cc.Class({
         });
         //吃
         this.node.on('chi_notify',function(data){
+            self._chiJustSent = false; //吃牌成功,清掉超时/拒绝侦测标记
             self.hideChupai();
             var seatData = data.detail;
             console.log('[chi_notify] seatData.userid=',seatData.userid,'holds=',typeof seatData.holds === 'object' ? seatData.holds.length+':'+JSON.stringify(seatData.holds) : seatData.holds);
@@ -808,75 +814,71 @@ cc.Class({
         }
     },
 
-    // ===== 漳浦:花牌区（使用图集中真实花牌图片,34-41 → 梅兰竹菊春夏秋冬） =====
-    //花牌在 Z_my/Z_left/Z_right 图集中的英文名（M_ 前缀，bottomAtlas 含全部8张）
+    // ===== 漳浦:花牌区（花牌 34-41 → 梅兰竹菊春夏秋冬, 美术在 resources/images/MJ/hua/hua_<name>.png） =====
 
-    //花牌区各方位锚点(相对game节点)
-    _huaAreaPos:function(side){
-        if(side == "myself"){ return cc.v2(-540, -230); }
-        if(side == "up"){ return cc.v2(430, 210); }
-        if(side == "right"){ return cc.v2(540, 40); }
-        return cc.v2(-540, 40);
-    },
-
-    //取某座位的花牌区容器(按座位index,首次用时创建,挂在game节点下)
+    //取某座位的花牌区容器:直接用场景里摆好的 game/hua_<方位>,代码不做任何定位
     getHuaArea:function(seatIndex){
         var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
-        if(this._huaAreas[localIndex] && cc.isValid(this._huaAreas[localIndex])){
-            return this._huaAreas[localIndex];
-        }
+        var cached = this._huaAreas[localIndex];
+        if(cached && cc.isValid(cached)){ return cached; }
         var side = cc.vv.mahjongmgr.getSide(localIndex);
         var gameChild = this.node.getChildByName("game") || this.node;
-        var area = new cc.Node("huaArea_" + side);
-        var pos = this._huaAreaPos(side);
-        area.setPosition(pos.x, pos.y);
-        gameChild.addChild(area);
+        var area = gameChild.getChildByName("hua_" + side);
+        if(area == null){
+            if(!this._huaAreaWarned){
+                this._huaAreaWarned = true;
+                console.warn("[ZP] 场景缺少花牌区节点 game/hua_" + side);
+            }
+            return null;
+        }
         this._huaAreas[localIndex] = area;
         return area;
     },
 
-    //按座位当前 hua 数组重绘花牌区（使用真实花牌图片）
+    //按座位当前 hua 数组重绘花牌区(花牌美术来自 resources/images/MJ/hua,加载中先占位)
     initHuaArea:function(seatIndex){
         var seat = cc.vv.gameNetMgr.seats ? cc.vv.gameNetMgr.seats[seatIndex] : null;
         if(seat == null){ return; }
         var area = this.getHuaArea(seatIndex);
+        if(area == null){ return; }
         area.removeAllChildren();
         var hua = seat.hua || [];
         if(hua.length == 0){ return; }
-        var atlas = cc.vv.mahjongmgr.bottomAtlas; // Z_my.plist 含全部8张花牌
-        var TW = 44, TH = 64, GAP = 4;
+        var TW = 55, TH = 66, GAP = 2;
         for(var i = 0; i < hua.length; ++i){
-            var pai = hua[i];
+            var idx = hua[i] - 34;
             var tn = new cc.Node("hua" + i);
             tn.setContentSize(TW, TH);
             tn.setPosition(i * (TW + GAP) + TW / 2, 0);
             area.addChild(tn);
             var sp = tn.addComponent(cc.Sprite);
             sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-            var idx = pai - 34;
-            var huaNames = ["plum","orchid","bamboo","chrysanthemum","spring","summer","autumn","winter"];
-            var frameName = (idx >= 0 && idx < 8) ? ("M_" + huaNames[idx]) : null;
-            var sf = frameName ? atlas.getSpriteFrame(frameName) : null;
-            if(sf != null){
-                sp.spriteFrame = sf;
-            } else {
-                //兜底:牌底+花名
-                var baseFrame = cc.vv.mahjongmgr.getEmptySpriteFrame("myself");
-                sp.spriteFrame = baseFrame;
-                var ln = new cc.Node("name");
-                tn.addChild(ln);
-                var lb = ln.addComponent(cc.Label);
-                lb.string = (idx >= 0 && idx < 8) ? ["梅","兰","竹","菊","春","夏","秋","冬"][idx] : "花";
-                lb.fontSize = 26;
-                lb.lineHeight = 28;
-                lb.overflow = cc.Label.Overflow.NONE;
-                lb.enableWrapText = false;
-                lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-                lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
-                ln.color = cc.color(220, 40, 40);
-                ln.setPosition(0, 0);
-            }
+            this._fillHuaSprite(tn, sp, idx);
         }
+    },
+
+    //花牌贴图异步填充;资源缺失时兜底显示牌底+花名
+    _fillHuaSprite:function(node, sprite, idx){
+        cc.vv.mahjongmgr.getHuaSpriteFrame(idx, function(sf){
+            if(!cc.isValid(node) || !cc.isValid(sprite)){ return; }
+            if(sf != null){
+                sprite.spriteFrame = sf;
+                return;
+            }
+            sprite.spriteFrame = cc.vv.mahjongmgr.getEmptySpriteFrame("myself");
+            var ln = new cc.Node("name");
+            node.addChild(ln);
+            var lb = ln.addComponent(cc.Label);
+            lb.string = (idx >= 0 && idx < 8) ? ["梅","兰","竹","菊","春","夏","秋","冬"][idx] : "花";
+            lb.fontSize = 26;
+            lb.lineHeight = 28;
+            lb.overflow = cc.Label.Overflow.NONE;
+            lb.enableWrapText = false;
+            lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+            lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
+            ln.color = cc.color(220, 40, 40);
+            ln.setPosition(0, 0);
+        });
     },
 
     //开局/重连时全量重绘所有座位花牌区与游金等级
@@ -892,12 +894,13 @@ cc.Class({
     //漳浦:游金等级显示(座位旁"单游/双游/三游"),level=0时隐藏
     showYoujinLevel:function(seatIndex, level){
         var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
+        var area2 = this.getHuaArea(seatIndex);
+        if(area2 == null){ return; }
         var lblNode = this._youjinLabels[localIndex];
         if(!lblNode || !cc.isValid(lblNode)){
             var side = cc.vv.mahjongmgr.getSide(localIndex);
-            var area = this.getHuaArea(seatIndex);
             lblNode = new cc.Node("youjin_" + side);
-            area.parent.addChild(lblNode);
+            area2.parent.addChild(lblNode);
             var lb = lblNode.addComponent(cc.Label);
             lb.fontSize = 30;
             lb.lineHeight = 34;
@@ -910,8 +913,7 @@ cc.Class({
             ol.width = 2;
             this._youjinLabels[localIndex] = lblNode;
         }
-        //挂在花牌区上方,花牌区为空时也按固定锚点显示
-        var area2 = this.getHuaArea(seatIndex);
+        //挂在花牌区上方
         lblNode.setPosition(area2.x, area2.y + 80);
         var names = ["", "单游", "双游", "三游"];
         if(level > 0){
@@ -992,8 +994,22 @@ cc.Class({
     //碰杠胡行为实现
     playEfx:function(index,name){
         var efx = this._playEfxs[index];
-        efx.node.active = true;
-        efx.play(name);
+        var efxNode = efx ? efx.node : null;
+        if(efxNode == null){
+            //进场景时座位数据还没同步会取不到play_efx,这里按方位名现取一次并缓存,
+            //否则吃/碰/杠/胡会在这里抛异常,整个座位spine动画直接没有
+            var gameChild = this.node.getChildByName("game");
+            var sideName = cc.vv.mahjongmgr.getSide(index);
+            var sideChild = gameChild ? gameChild.getChildByName(sideName) : null;
+            efxNode = sideChild ? sideChild.getChildByName("play_efx") : null;
+            if(efxNode){
+                efx = efxNode.getComponent(cc.Animation);
+                this._playEfxs[index] = efx;
+            }
+        }
+        if(efxNode == null){ return; }
+        efxNode.active = true;
+        if(efx){ efx.play(name); }
         //吃/碰/杠/胡/自摸叠加逆向包 spine 动画(资源未导入时静默跳过)
         if(cc.vv && cc.vv.mahjongmgr){
             var spKey = null;
@@ -1002,7 +1018,7 @@ cc.Class({
             else if(name == "play_chi"){ spKey = "mj_chi"; }
             else if(name == "play_peng"){ spKey = "mj_peng"; }
             else if(name == "play_guafeng" || name == "play_xiayu" || name == "play_gang"){ spKey = "mj_gang"; }
-            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efx.node, spKey); }
+            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efxNode, spKey); }
         }
     },
     //游戏开始
@@ -1012,7 +1028,7 @@ cc.Class({
         this._pendingShowPrepare = false; //新一局开始,清掉上局"弹窗关闭才切等待界面"的标记
 
         for(var i = 0; i < this._playEfxs.length; ++i){
-            this._playEfxs[i].node.active = false;
+            if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
         for(var i = 0; i < this._hupaiLists.length; ++i){
@@ -1026,10 +1042,11 @@ cc.Class({
             var seatData = cc.vv.gameNetMgr.seats[i];
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
             var hupai = this._hupaiTips[localIndex];
-            hupai.active = seatData.hued;
-            if(seatData.hued){
-                hupai.getChildByName("sprHu").active = !seatData.iszimo;
-                hupai.getChildByName("sprZimo").active = seatData.iszimo;
+            if(hupai){ hupai.active = seatData.hued;
+                if(seatData.hued){
+                    hupai.getChildByName("sprHu").active = !seatData.iszimo;
+                    hupai.getChildByName("sprZimo").active = seatData.iszimo;
+                }
             }
         }
         }

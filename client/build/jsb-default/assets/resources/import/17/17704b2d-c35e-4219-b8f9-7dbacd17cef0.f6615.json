@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "3cBR+FrUtEco6Wmw6h5orm"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "加入房间",
+      "rect": [
+        0,
+        1,
+        400,
+        340
+      ],
+      "offset": [
+        0,
+        -0.5
+      ],
+      "originalSize": [
+        400,
+        341
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

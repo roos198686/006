@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "525ZaB+55EFJwixGdOV9aV"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "button_tongyong_huang_off1",
+      "rect": [
+        0,
+        0,
+        140,
+        58
+      ],
+      "offset": [
+        0,
+        0.5
+      ],
+      "originalSize": [
+        140,
+        59
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

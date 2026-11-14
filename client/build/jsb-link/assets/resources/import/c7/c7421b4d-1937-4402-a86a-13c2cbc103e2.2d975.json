@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "56MltUfK5OT6RcmqVcUdjD"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "bg_changeHead",
+      "rect": [
+        1185,
+        0,
+        742,
+        484
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "originalSize": [
+        742,
+        484
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

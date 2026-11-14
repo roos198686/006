@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "57qcdwptdHKq0LQrw8q38c"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "sandaier",
+      "rect": [
+        2,
+        5,
+        912,
+        483
+      ],
+      "offset": [
+        -54,
+        9.5
+      ],
+      "originalSize": [
+        1024,
+        512
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

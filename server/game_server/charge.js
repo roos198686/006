@@ -115,26 +115,6 @@ function deduct(userId, amount, roomId, gameType, changeType, agentRate, done, e
     }, {roomid: roomId, gameType: gameType, changeType: changeType, clubId: extra.clubId, partnerClubId: extra.partnerClubId, tableName: extra.tableName});
 }
 
-//给总俱乐部账号加豆(抽水/暗水/房费收入);tableName=牌桌真实名称,记录弹窗显示用
-function addToClubAccount(clubId, amount, roomId, gameType, changeType, done, tableName){
-    if(!(amount > 0) || !(clubId > 0)){
-        if(done) done();
-        return;
-    }
-    //总俱乐部账号 = 俱乐部社长
-    db.query('SELECT owner_userid FROM t_clubs WHERE id = ' + clubId, function(err, rows){
-        if(err || !rows || rows.length == 0){
-            if(done) done();
-            return;
-        }
-        var ownerId = rows[0].owner_userid;
-        db.add_user_gems(ownerId, amount, null, {
-            roomid: roomId, gameType: gameType, changeType: changeType, clubId: clubId, tableName: tableName || ""
-        });
-        if(done) done();
-    });
-}
-
 //合伙人分成(逐级上浮): 收入可能产生在任意一级俱乐部, 要从它往上逐级交给上级俱乐部
 //比例存于 t_partner_stats: club_id=上级, partner_club_id=直属下级, profit_ratio=上级抽成比例(%)
 //  一级对二级设10、二级对三级设10, 三级产生100分 => 三级留81, 二级得9, 一级得10
@@ -228,11 +208,8 @@ function splitPartnerShare(clubId, amount, roomId, gameType, roomUuid, gameIndex
                 }
                 db.partner_add_stats(s.clubId, s.childId, stats, function(){
                     if(!(s.pay > 0)){ tick(); return; }
-                    //分给上级俱乐部社长
-                    db.add_user_gems(s.ownerId, s.pay, null, {
-                        roomid: roomId, gameType: gameType, changeType: "合伙人分成", clubId: s.clubId, partnerClubId: s.childId, tableName: tableName || ""
-                    });
-                    //奖励明细: 也存 pay(净额), 和 partner_profit 保持一致
+                    //奖励明细: 存 pay(净额), 和 partner_profit 保持一致;
+                    //改为手动领取, 到账在 clubAdmin 奖励明细点"领取"(超过7天服务端自动领取)
                     db.add_reward_log(s.clubId, s.childId, "合伙人分成", s.pay, gameType, roomId, roomUuid, gameIndex, tableName, function(){ tick(); });
                 });
             });
@@ -288,10 +265,9 @@ exports.chargeClub = function(type, clubConfig, userId, kind, roomId, done){
                 return;
             }
             splitPartnerShare(clubId, share, roomId, type, "", 0, "", null, function(net){
-                addToClubAccount(clubId, net, roomId, type, label, function(){
-                    db.add_reward_log(clubId, 0, label, net, type, roomId, "", 0, "", function(){});
-                    if(done) done();
-                });
+                //奖励明细改为手动领取(超过7天自动到账), 这里不再直接加到俱乐部账号
+                db.add_reward_log(clubId, 0, label, net, type, roomId, "", 0, "", function(){});
+                if(done) done();
             }, 'fee_profit_ratio');
         }, {
             clubId: clubId
@@ -327,10 +303,9 @@ exports.chargeRoom = function(conf, userId, kind, roomId, done){
             }
             //抽取部分归俱乐部收入(下级俱乐部的收入要按比例分给上级), 并写入奖励明细
             splitPartnerShare(clubId, share, roomId, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", null, function(net){
-                addToClubAccount(clubId, net, roomId, conf.type, feeName, function(){
-                    db.add_reward_log(clubId, 0, feeName, net, conf.type, roomId, conf.room_uuid || "", 0, conf.club_table_name || "", function(){});
-                    if(done) done();
-                }, conf.club_table_name || "");
+                //奖励明细改为手动领取(超过7天自动到账)
+                db.add_reward_log(clubId, 0, feeName, net, conf.type, roomId, conf.room_uuid || "", 0, conf.club_table_name || "", function(){});
+                if(done) done();
             }, 'fee_profit_ratio');
         }, { clubId: clubId, tableName: conf.club_table_name || "" });
     };
@@ -443,17 +418,16 @@ exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
             splitPartnerShare(roomInfo.clubId, hiddenRakeTotal, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
                 {hidden_rake: hiddenRakeTotal}, function(hiddenNet){
                 var net = round4(rakeNet + hiddenNet);
-                addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "抽水", function(){
-                    //俱乐部自己的奖励明细: 抽水/暗水按"扣完上级后实得"记(与总览/到账一致)
-                    var factor = total > 0 ? net / total : 0;
-                    if(rakeTotal > 0){
-                        db.add_reward_log(roomInfo.clubId, 0, "抽水", round4(rakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                    }
-                    if(hiddenRakeTotal > 0){
-                        db.add_reward_log(roomInfo.clubId, 0, "暗水", round4(hiddenRakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                    }
-                    if(done) done();
-                }, roomInfo.tableName || "");
+                //俱乐部自己的奖励明细: 抽水/暗水按"扣完上级后实得"记(与总览一致);
+                //改为手动领取(超过7天自动到账), 这里不再直接加到俱乐部账号
+                var factor = total > 0 ? net / total : 0;
+                if(rakeTotal > 0){
+                    db.add_reward_log(roomInfo.clubId, 0, "抽水", round4(rakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                }
+                if(hiddenRakeTotal > 0){
+                    db.add_reward_log(roomInfo.clubId, 0, "暗水", round4(hiddenRakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                }
+                if(done) done();
             }, 'hidden_profit_ratio');
         }, 'profit_ratio');
     }
@@ -512,16 +486,15 @@ exports.chargeRakeTotal = function(totalDeltas, winners, roomInfo, rules, done){
             splitPartnerShare(roomInfo.clubId, hiddenRakeTotal, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "",
                 {hidden_rake: hiddenRakeTotal}, function(hiddenNet){
                 var net = round4(rakeNet + hiddenNet);
-                addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "抽水", function(){
-                    var factor = total > 0 ? net / total : 0;
-                    if(rakeTotal > 0){
-                        db.add_reward_log(roomInfo.clubId, 0, "抽水", round4(rakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                    }
-                    if(hiddenRakeTotal > 0){
-                        db.add_reward_log(roomInfo.clubId, 0, "暗水", round4(hiddenRakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                    }
-                    if(done) done();
-                }, roomInfo.tableName || "");
+                //奖励明细改为手动领取(超过7天自动到账)
+                var factor = total > 0 ? net / total : 0;
+                if(rakeTotal > 0){
+                    db.add_reward_log(roomInfo.clubId, 0, "抽水", round4(rakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                }
+                if(hiddenRakeTotal > 0){
+                    db.add_reward_log(roomInfo.clubId, 0, "暗水", round4(hiddenRakeTotal * factor), roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+                }
+                if(done) done();
             }, 'hidden_profit_ratio');
         }, 'profit_ratio');
     }
@@ -555,11 +528,9 @@ exports.chargeRoomFee = function(roomInfo, rules, payerSeatIndex, bigWinnerSeat,
     deduct(userId, rules.roomFee, roomInfo.roomId, roomInfo.gameType, "房费", 0, function(){
         //房费也属于俱乐部收入, 需要按比例逐级上缴给上级俱乐部
         splitPartnerShare(roomInfo.clubId, rules.roomFee, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", null, function(net){
-            addToClubAccount(roomInfo.clubId, net, roomInfo.roomId, roomInfo.gameType, "房费", function(){
-                //奖励明细: 房费按扣完上级后实得记
-                db.add_reward_log(roomInfo.clubId, 0, "房费", net, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
-                if(done) done();
-            }, roomInfo.tableName || "");
+            //奖励明细: 房费按扣完上级后实得记; 改为手动领取(超过7天自动到账)
+            db.add_reward_log(roomInfo.clubId, 0, "房费", net, roomInfo.gameType, roomInfo.roomId, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", function(){});
+            if(done) done();
         });
     }, {clubId: roomInfo.clubId, tableName: roomInfo.tableName || ""});
     });

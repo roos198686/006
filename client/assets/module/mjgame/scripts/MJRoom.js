@@ -63,6 +63,8 @@ cc.Class({
         //胡牌后桌面牌要保留到结算弹窗关闭,这里不能在game_over时就切等待界面;
         //弹窗关闭后延迟一拍(等玩法脚本隐藏牌桌)再显示座位/开始按钮
         this.node.on('game_over_popup_closed', function(){
+            //小局结算关闭后,才允许显示整场结算面板
+            self.flushTotalScorePanel();
             //2人房:必须等两名玩家都点关闭(服务端开新局)才隐藏牌桌,自己点关闭时桌面牌保持显示
             if(cc.vv.mahjongmgr && cc.vv.mahjongmgr.is2Player()){ return; }
             self.scheduleOnce(function(){ self.showSeatsInWaiting(true); }, 0);
@@ -392,10 +394,44 @@ cc.Class({
             if(lt){ lts.push(lt); }
         }
         var zjLao = this._brickZJLao;
+        //自选财神(自选麻将): 左侧牌墙从最下面一墩开始, 每墩先上层后下层, 摸完左侧再摸对家墙从左到右
+        //注意: 不能只看 conf.type/playStyle —— initBrickWall 在 onLoad 执行, 那时 playStyle 还没随
+        //game_start_push 下发(而且它是在 dispatch mj_count 之后才赋值), 分支会永远不命中, 场景名最可靠
+        var gmConf = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.conf) || {};
+        var gmType = gmConf.type || gmConf.game_type || "";
+        var sceneName = (cc.director.getScene() && cc.director.getScene().name) || "";
+        var zjZX = (sceneName.indexOf("zjzx") >= 0)
+                || (gmType == "zj_zx" || gmType == "zj4_zx")
+                || (gmConf.playStyle == "zixuancaishen");
         //每墩配对(U/LT 都是相邻两张一墩):场景里偶数编号在下层,奇数编号在上层(y更大=上层),
         //摸牌必须先从上层抽,再抽下层,否则视觉上就是从下层抽牌
         var out = this._brickDrawable;
-        if(zjLao){
+        if(zjZX){
+            //refreshBrickWall 里 active=(i>=hide): 数组下标越小越先被摸走, 所以直接按摸牌先后排放
+            var zxStacks = [];
+            for(var i = 0; i < lts.length; i += 2){
+                var zxst = [lts[i]];
+                if(lts[i + 1]){ zxst.push(lts[i + 1]); }
+                zxStacks.push(zxst);
+            }
+            zxStacks.reverse(); //左侧整面墙从下面一墩开始往上摸
+            for(var i = 0; i < zxStacks.length; ++i){
+                zxStacks[i].sort(function(a, b){ return b.y - a.y; }); //每墩先上层后下层
+                for(var k = 0; k < zxStacks[i].length; ++k){ out.push(zxStacks[i][k]); }
+            }
+            for(var i = 0; i < 16; i += 2){
+                var zxpair = [];
+                var zx0 = wall.getChildByName("U" + (i < 10 ? "0" : "") + i);
+                var zx1 = wall.getChildByName("U" + ((i + 1) < 10 ? "0" : "") + (i + 1));
+                if(zx0){ zxpair.push(zx0); }
+                if(zx1){ zxpair.push(zx1); }
+                zxpair.sort(function(a, b){ return b.y - a.y; }); //对家墙同样先上层
+                for(var k = 0; k < zxpair.length; ++k){ out.push(zxpair[k]); }
+            }
+            if(out.length){
+                console.log("[MJRoom] 自选麻将摸牌顺序(前8): " + out.slice(0, 8).map(function(x){ return x.name; }).join(" -> "));
+            }
+        } else if(zjLao){
             //诸暨赖倒胡:整面墙从下往上摸,每墩先上层后下层;再到对面从左到右摸
             var groups = [];
             for(var i = 0; i < lts.length; i += 2){
@@ -538,6 +574,54 @@ cc.Class({
         this._brickRemainCount = remain;
     },
 
+    //自选麻将专用: 左侧牌墙从最下面一墩(LT30)开始, 每墩先上层后下层, 摸完左侧再摸对家墙从左到右
+    //由自选麻将脚本 initView 显式调用, 不依赖 conf/场景名判断(initBrickWall 在 onLoad 跑, 那时配置还没下发)
+    reorderBrickForZJZX:function(){
+        var ds = this._brickDrawable;
+        if(!ds || !ds.length){ return; }
+        var map = {};
+        for(var i = 0; i < ds.length; ++i){
+            if(ds[i]){ map[ds[i].name] = ds[i]; }
+        }
+        var lts = [], us = [];
+        for(var i = 0; i < 31; ++i){
+            var ln = "LT" + (i < 10 ? "0" : "") + i;
+            if(map[ln]){ lts.push(map[ln]); }
+        }
+        for(var i = 0; i < 16; ++i){
+            var un = "U" + (i < 10 ? "0" : "") + i;
+            if(map[un]){ us.push(map[un]); }
+        }
+        if(lts.length < 30){ return; } //不是这套墙, 不动
+        function pairUp(list, step){
+            var groups = [];
+            for(var i = 0; i < list.length; i += step){
+                var g = [list[i]];
+                if(list[i + 1]){ g.push(list[i + 1]); }
+                g.sort(function(a, b){ return b.y - a.y; }); //每墩先上层后下层
+                groups.push(g);
+            }
+            return groups;
+        }
+        var ltGroups = pairUp(lts, 2);
+        ltGroups.reverse(); //从最下面一墩开始往上摸
+        var out = [];
+        for(var i = 0; i < ltGroups.length; ++i){
+            for(var k = 0; k < ltGroups[i].length; ++k){ out.push(ltGroups[i][k]); }
+        }
+        var uGroups = pairUp(us, 2); //对家墙从左到右
+        for(var i = 0; i < uGroups.length; ++i){
+            for(var k = 0; k < uGroups[i].length; ++k){ out.push(uGroups[i][k]); }
+        }
+        //极少见: 没覆盖到的牌保持原顺序追加, 保证不丢牌
+        for(var i = 0; i < ds.length; ++i){
+            if(out.indexOf(ds[i]) < 0){ out.push(ds[i]); }
+        }
+        this._brickDrawable = out;
+        console.log("[MJRoom] 自选麻将摸牌顺序(前8): " + out.slice(0, 8).map(function(x){ return x.name; }).join(" -> "));
+        this.refreshBrickWall();
+    },
+
     // ===== 需求1:notify入口打印服务端载荷,便于实机核对 =====
     _logSeatPayload:function(tag,seatData){
         if(seatData == null){ console.log("[notify]" + tag + " seatData=null"); return; }
@@ -574,13 +658,13 @@ cc.Class({
         //需求4:服务端"全部结束"标记。GameNetMgr只处理 game_over_push 且仅在带 endinfo 时派发 game_end,
         //未透传 final,也不认 game_all_over_push;这里在原生socket上追加监听做兼容(不改GameNetMgr)
         var onAllOver = function(){
-            console.log("[room] game_all_over_push:显示本次游戏总分数");
-            self.showTotalScorePanel(null);
+            console.log("[room] game_all_over_push:等小局结算关闭后显示本次游戏总分数");
+            self.queueTotalScorePanel(null);
         };
         var onGameOverFinal = function(data){
             if(data && (data.final == true || data.endinfo)){
-                console.log("[room] game_over_push(final):显示本次游戏总分数");
-                self.showTotalScorePanel(data);
+                console.log("[room] game_over_push(final):等小局结算关闭后显示本次游戏总分数");
+                self.queueTotalScorePanel(data);
             }
         };
         //本机点击"退出房间"后服务端回exit_result并断开socket。
@@ -596,6 +680,28 @@ cc.Class({
         sio.on('game_over_push', onGameOverFinal);
         sio.on('exit_result', onExitResult);
         this._sioHandlers = { sio:sio, listeners:[onDispress, onExit, onAllOver, onGameOverFinal, onExitResult] };
+    },
+
+    //整场结算延后显示:小局结算弹窗(延时中/显示中)未关闭时先挂起,关闭后再弹。
+    //原生socket监听和GameNetMgr谁先执行不确定,延后一帧再判断roundSettleAwait
+    queueTotalScorePanel:function(data){
+        if(data != null || this._pendingTotalPanel == null){
+            this._pendingTotalPanel = { data: data || null };
+        }
+        var self = this;
+        this.scheduleOnce(function(){
+            var nm = cc.vv ? cc.vv.gameNetMgr : null;
+            if(nm && nm.roundSettleAwait){ return; }
+            self.flushTotalScorePanel();
+        }, 0);
+    },
+
+    //小局结算已关闭:显示挂起的整场结算面板
+    flushTotalScorePanel:function(){
+        var p = this._pendingTotalPanel;
+        if(!p){ return; }
+        this._pendingTotalPanel = null;
+        this.showTotalScorePanel(p.data);
     },
 
     //需求4:显示"本次游戏总分数"面板(隐藏单局结算面板),并驱动 GameResult 填充列表
@@ -639,17 +745,11 @@ cc.Class({
         if(cc.vv.gameNetMgr){
             cc.vv.gameNetMgr._ignoreDisconnectOnce = true;
         }
-        //按进房时记录的来源场景返回来源页(俱乐部进桌回俱乐部详情,大厅进桌回大厅),不固定回大厅
+        //统一回牌桌大厅(该俱乐部玩法/牌桌列表页),不再按来源回系统大厅
         var nm = cc.vv.gameNetMgr;
-        var backClub = (nm && nm.roomBackScene === "club") || cc.vv.fromClubId;
-        if(backClub){
-            cc.vv.fromClub = true; //来自俱乐部:回独立俱乐部场景(club.fire),由clubScene根据fromClubId直达玩法详情页
-            if(nm && nm.roomBackClubId && !cc.vv.fromClubId){ cc.vv.fromClubId = nm.roomBackClubId; }
-            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
-        }
-        else{
-            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
-        }
+        if(nm && nm.exitToTableHall){ nm.exitToTableHall(); }
+        else if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); }
+        else{ cc.director.loadScene("club"); }
     },
 
     initEventHandlers:function(){

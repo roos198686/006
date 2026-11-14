@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "ccV1vV0t5Hj58bYBMadAdk"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "宝宝豆",
+      "rect": [
+        1,
+        8,
+        151,
+        135
+      ],
+      "offset": [
+        -1,
+        -2.5
+      ],
+      "originalSize": [
+        155,
+        146
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

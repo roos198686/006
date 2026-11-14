@@ -1345,7 +1345,8 @@ function doStartDeal(roomInfo, seatedPlayers, sexMap){
             ms.mian.rate = mianRate(ms.mian.level, taiRules(game));
             ms.mianFree = ms.mian.level > 0;   // 原版 value>0 才算免摆, 散牌(0)要手摆
             //牌型识别日志(排查免摆漏识别用): 座位 手牌 识别等级/名称 是否免摆
-            console.log('[bb_mian] room=' + game.roomId + ' seat=' + ms.userId + ' holds=' + JSON.stringify(ms.holds) + ' -> level=' + ms.mian.level + '(' + (MIAN_NAMES[ms.mian.level] || '?') + ') mianFree=' + ms.mianFree);   // 非散牌即免摆(散牌才手动摆)
+            console.log('[bb_mian] room=' + game.roomId + ' seat=' + ms.userId + ' holds=' + JSON.stringify(ms.holds) + ' -> level=' + ms.mian.level + '(' + (MIAN_NAMES[ms.mian.level] || '?') + ') mianFree=' + ms.mianFree);   // 非散牌即免摆(散牌才手动摆)
+
             try{ require('fs').appendFileSync(__dirname + '/../logs/bb_mian.log', '[' + new Date().toISOString() + '] room=' + game.roomId + ' seat=' + ms.userId + ' holds=' + JSON.stringify(ms.holds) + ' level=' + ms.mian.level + ' free=' + ms.mianFree + '\n'); }catch(e){}
             // 免摆也要点确认按钮: 不再自动 arranged, 和手摆一样进摆牌阶段等确认/超时自动补
         }

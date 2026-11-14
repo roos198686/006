@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "4eOu+0+zxD66SMoijRJYdd"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "吃",
+      "rect": [
+        22,
+        0,
+        159,
+        195
+      ],
+      "offset": [
+        1.5,
+        2.5
+      ],
+      "originalSize": [
+        200,
+        200
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

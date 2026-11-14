@@ -192,10 +192,10 @@ function canFormMelds(cm, wilds){
         if(canFormMelds(cm, wilds - 2)){ cm[t] += 1; return true; }
         cm[t] += 1;
     }
-    // 顺子（仅万筒条，t+1/t+2 缺几张用金补；v<=7 保证 t+2 不跨花色）
+    // 顺子（仅万筒条，t+1/t+2 缺几张用金补；v<=6 保证 t+2 不跨花色, v=7时t+2已是下一门）
     if(!isZi(t)){
         var v = t % 9;
-        if(v <= 7){
+        if(v <= 6){
             var c2 = cm[t+1] || 0;
             var c3 = cm[t+2] || 0;
             var need = (c2 > 0 ? 0 : 1) + (c3 > 0 ? 0 : 1);

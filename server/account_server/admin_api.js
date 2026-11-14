@@ -209,10 +209,10 @@ app.post('/admin/game_config', auth, function(req, res){
     var gpLastFourTwoThree = gpVal('gp_last_four_two_three', 0);
     var gpStraightA2 = gpVal('gp_straight_a2', 1);
     var gpCardHistory = gpVal('gp_card_history', 0);
-    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,auto_dissolve_seconds,unified_charge,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
+    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,caishen_seconds,bao_seconds,auto_dissolve_seconds,unified_charge,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
         + c.type + '","' + c.name + '","' + difen + '","' + jushu + '","' + cost + '","' + chips + '",'
         + (c.max_players || 2) + ',' + (c.max_tai || 10) + ',' + (c.caishen_cpg != null ? c.caishen_cpg : 1) + ','
-        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + caiPure + ',' + huGuoConfirm + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + autoDissolve + ',' + unifiedCharge + ','
+        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + caiPure + ',' + huGuoConfirm + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + ((parseInt(c.caishen_seconds) > 0) ? parseInt(c.caishen_seconds) : 60) + ',' + ((parseInt(c.bao_seconds) > 0) ? parseInt(c.bao_seconds) : 15) + ',' + autoDissolve + ',' + unifiedCharge + ','
         + (taiRules ? "'" + taiRules + "'" : 'NULL') + ','
         + gpBomb + ',' + gpBombFour + ',' + gpFourTwo + ',' + gpFourThree + ',' + gpThreeOne + ',' + gpLastThreeOne + ',' + gpLastFourTwoThree + ',' + gpStraightA2 + ',' + gpCardHistory + ','
         + (c.enabled ? 1 : 0) + ',' + (c.sort || 0) + ')';
@@ -248,6 +248,8 @@ app.put('/admin/game_config/:id', auth, function(req, res){
     if(c.tianhu_di != null) sets.push('tianhu_di=' + (c.tianhu_di ? 1 : 0));
     if(c.cai_diao != null) sets.push('cai_diao=' + (c.cai_diao ? 1 : 0));
     if(c.bao_tai_score != null) sets.push('bao_tai_score=' + (parseInt(c.bao_tai_score) || 0));
+    if(c.caishen_seconds != null) sets.push('caishen_seconds=' + ((parseInt(c.caishen_seconds) > 0) ? parseInt(c.caishen_seconds) : 60));
+    if(c.bao_seconds != null) sets.push('bao_seconds=' + ((parseInt(c.bao_seconds) > 0) ? parseInt(c.bao_seconds) : 15));
     // 关牌开关
     ['gp_bomb','gp_bomb_four','gp_four_two','gp_four_three','gp_three_one','gp_last_three_one','gp_last_four_two_three','gp_straight_a2','gp_card_history'].forEach(function(k){
         if(c[k] != null) sets.push(k + '=' + (c[k] ? 1 : 0));

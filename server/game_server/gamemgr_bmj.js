@@ -904,6 +904,50 @@ function clearTurnTimeout(game){
         game.turnTimeoutId = null;
     }
 }
+// 定财神倒计时(秒):后台玩法配置 t_game_config.caishen_seconds 可配,缺省60秒
+function getCaishenSeconds(game){
+    var n = parseInt(game && game.conf ? game.conf.caishen_seconds : 60);
+    if(!(n > 0)){ n = 60; }
+    return n;
+}
+function clearCaishenTimeout(game){
+    if(game && game.caishenTimer){
+        clearTimeout(game.caishenTimer);
+        game.caishenTimer = null;
+    }
+}
+// 叫台倒计时(秒):后台玩法配置 t_game_config.bao_seconds 可配,缺省15秒
+function getBaoSeconds(game){
+    var n = parseInt(game && game.conf ? game.conf.bao_seconds : 15);
+    if(!(n > 0)){ n = 15; }
+    return n;
+}
+function clearBaoTimeout(game){
+    if(game && game.baoTimer){
+        clearTimeout(game.baoTimer);
+        game.baoTimer = null;
+    }
+}
+// 当前叫台剩余秒数(重连补发时按截止时间算,避免倒计时重新从满秒开始)
+function getBaoLeftSeconds(game){
+    if(!game || game.baoDeadline == null){ return getBaoSeconds(game); }
+    var left = Math.ceil((game.baoDeadline - Date.now()) / 1000);
+    return left > 0 ? left : 1;
+}
+// 叫台超时:自动按"不包"处理(与玩家点 btnNoBao 同一条路径)
+function scheduleBaoTimeout(game, seatIndex){
+    clearBaoTimeout(game);
+    var sec = getBaoSeconds(game);
+    game.baoDeadline = Date.now() + sec * 1000;
+    game.baoTimer = setTimeout(function(){
+        game.baoTimer = null;
+        if(game.gameOver || !game.waitBao || game.baoTurnSeat !== seatIndex){ return; }
+        var sd = game.gameSeats[seatIndex];
+        if(sd == null || sd.userId <= 0){ return; }
+        console.log('[叫台] 超时自动不包 seat=', seatIndex, 'userId=', sd.userId);
+        exports.bao(sd.userId, false);
+    }, sec * 1000);
+}
 // 倒计时结束系统代打:出牌超时打最后一张手牌(摸到的牌在末尾);操作超时自动过
 function scheduleTurnTimeout(game, seatIndex, isAction){
     clearTurnTimeout(game);
@@ -1010,11 +1054,34 @@ function doUserMoPai(game){
 function doGameOver(game){
     game.gameOver = true;
     clearTurnTimeout(game);
+    clearCaishenTimeout(game);
+    clearBaoTimeout(game);
     clearMoPaiTimeout(game);
     var roomId = roomMgr.getRoomIdOfUser(game.gameSeats[0].userId);
     var roomInfo = roomMgr.getRoom(roomId);
     if(roomInfo == null){
         return;
+    }
+
+    // 荒庄(流局)惩罚:包财神有包家时,包家按所包台数赔付闲家
+    // 金额与胡牌时的包台分同算法:底分×2^(包台-起胡台),再乘老庄倍数与财神模式倍数(无财/独财×2)
+    var anyHued = false;
+    for(var i = 0; i < 2; ++i){
+        if(game.gameSeats[i].hued){ anyHued = true; break; }
+    }
+    var liujuBaoScore = 0;
+    if(!anyHued && game.playStyle == 'baocaishen' && game.baoSeatIndex >= 0 && game.baoSeatIndex < 2){
+        var ljBase = game.conf.baseScore || 1;
+        var ljMinTai = taiRule(game, 'min_tai', 1);
+        liujuBaoScore = ljBase * Math.pow(2, Math.max(0, (game.baoTai || 0) - ljMinTai));
+        var ljLzMul = (game.laozhuang_multiplier != null && game.laozhuang_multiplier > 0) ? Number(game.laozhuang_multiplier) : 2;
+        if(game.laozhuangCount > 0){ liujuBaoScore = liujuBaoScore * ljLzMul; }
+        if(game.baoMode === 0 || game.baoMode === 1){ liujuBaoScore = liujuBaoScore * 2; }
+        if(liujuBaoScore > 0){
+            game.gameSeats[game.baoSeatIndex].score -= liujuBaoScore;
+            game.gameSeats[1 - game.baoSeatIndex].score += liujuBaoScore;
+        }
+        console.log("[流局] 包家seat=" + game.baoSeatIndex + " 包台=" + game.baoTai + " 包法=" + game.baoMode + " 赔付=" + liujuBaoScore);
     }
 
     var results = [];
@@ -1085,7 +1152,7 @@ function doGameOver(game){
             totalscore: seat.score,
             // 包财神结算明细:胡牌分/包台分分开(赢方正、赔付方负)
             huBaseScore: winSeatData ? (seat.hued ? (winSeatData.huInfo.huScore != null ? winSeatData.huInfo.huScore : winSeatData.huInfo.score) : -(winSeatData.huInfo.huScore != null ? winSeatData.huInfo.huScore : winSeatData.huInfo.score)) : 0,
-            baoTaiScore: winSeatData ? (seat.hued ? (winSeatData.huInfo.baoScore || 0) : -(winSeatData.huInfo.baoScore || 0)) : 0,
+            baoTaiScore: winSeatData ? (seat.hued ? (winSeatData.huInfo.baoScore || 0) : -(winSeatData.huInfo.baoScore || 0)) : (liujuBaoScore > 0 ? (parseInt(game.baoSeatIndex) === i ? -liujuBaoScore : liujuBaoScore) : 0),
             //结算页展示:谁是本局包家、所包台数、包法(0无财/1独财/2双财)
             isBao: (game.playStyle == 'baocaishen' && game.baoSeatIndex != null && parseInt(game.baoSeatIndex) === i),
             baoTaiOfRound: (game.playStyle == 'baocaishen' && game.baoSeatIndex >= 0) ? (game.baoTai || 0) : 0,
@@ -2483,7 +2550,12 @@ exports.__calculateTai = calculateTai;
 
 exports.start = function(roomInfo){
     // 若同房间有残留旧局，先清掉其定时器避免污染
-    if(games[roomInfo.id]) clearMoPaiTimeout(games[roomInfo.id]);
+    if(games[roomInfo.id]){
+        clearMoPaiTimeout(games[roomInfo.id]);
+        clearTurnTimeout(games[roomInfo.id]);
+        clearCaishenTimeout(games[roomInfo.id]);
+        clearBaoTimeout(games[roomInfo.id]);
+    }
     var game = {
         mahjongs: new Array(136),
         currentIndex: 0,
@@ -2615,13 +2687,15 @@ exports.start = function(roomInfo){
     game.waitBao = true;
     game.waitCaishen = false;
     game.baoDecided = false;
-    // 庄家开始叫台
+    // 庄家开始叫台(带倒计时,超时自动不包)
     var zhuangSeat = game.gameSeats[game.button];
+    scheduleBaoTimeout(game, game.button);
     userMgr.sendMsg(zhuangSeat.userId, 'bao_select_push', {
         seatIndex: game.button,
         isFirst: true,
         currentRank: -1,
-        currentSeat: -1
+        currentSeat: -1,
+        bao_secs: getBaoLeftSeconds(game)
     });
 };
 
@@ -2651,6 +2725,14 @@ exports.caishenSelect = function(userId, pai){
     var seatIndex = roomMgr.getUserSeat(userId);
     if(seatIndex != game.baoSeatIndex){ return; }
     pai = parseInt(pai);
+    var seatData = game.gameSeats[seatIndex];
+    if(isNaN(pai) || seatData.holds.indexOf(pai) < 0){ return; }
+    clearCaishenTimeout(game);
+    applyCaishen(roomId, game, seatIndex, pai);
+};
+
+// 定财神(玩家选择/超时自动选择共用)
+function applyCaishen(roomId, game, seatIndex, pai){
     var seatData = game.gameSeats[seatIndex];
     if(isNaN(pai) || seatData.holds.indexOf(pai) < 0){ return; }
 
@@ -2693,7 +2775,7 @@ exports.caishenSelect = function(userId, pai){
     //庄家开局出牌(与翻财神一致,包家不一定是庄家,不能用手牌方发操作)
     sendOperations(game, zhuangSeat, zhuangSeat.holds[zhuangSeat.holds.length-1]);
     scheduleTurnTimeout(game, game.button, false);
-};
+}
 
 exports.hasOperations = hasOperations;
 
@@ -2769,7 +2851,8 @@ exports.resendGameState = function(roomId, userId){
             currentSeat: game.baoCurrentSeat,
             currentTai: game.baoTai,
             currentMode: game.baoMode,
-            forced: !!game.baoForced
+            forced: !!game.baoForced,
+            bao_secs: getBaoLeftSeconds(game)
         });
     }
     // 重连时若仍在定财神环节且本人是包家,补发定财神请求
@@ -2801,6 +2884,8 @@ function sendBaoTurn(game, nextSeat){
     var roomId = -1;
     for(var rid in games){ if(games[rid] === game){ roomId = rid; break; } }
     var target = game.gameSeats[nextSeat];
+    //轮到的座位重新起算叫台倒计时
+    scheduleBaoTimeout(game, nextSeat);
     userMgr.sendMsg(target.userId, 'bao_select_push', {
         seatIndex: nextSeat,
         isFirst: false,
@@ -2808,12 +2893,14 @@ function sendBaoTurn(game, nextSeat){
         currentSeat: game.baoCurrentSeat,
         currentTai: game.baoTai,
         currentMode: game.baoMode,
-        forced: !!game.baoForced
+        forced: !!game.baoForced,
+        bao_secs: getBaoLeftSeconds(game)
     });
 }
 
 // 确定包家: 设置 baoSeatIndex / baoTai / baoMode, 进入定财神环节(无财直接开打)
 function finalizeBao(game){
+    clearBaoTimeout(game);
     game.baoSeatIndex = game.baoCurrentSeat;
     game.baoDecided = true;
     game.waitBao = false;
@@ -2855,18 +2942,33 @@ function finalizeBao(game){
     }
 
     game.waitCaishen = true;
+    var csSecs = getCaishenSeconds(game);
+    game.caishenSecs = csSecs;
     userMgr.brocastInRoom(roomId, 'bao_result_push', {
         isBao: true,
         baoSeatIndex: game.baoSeatIndex,
         baoTai: game.baoTai,
-        baoMode: game.baoMode
+        baoMode: game.baoMode,
+        caishen_secs: csSecs
     });
     // 通知包家定财神
     var baoSeat = game.gameSeats[game.baoSeatIndex];
     userMgr.sendMsg(baoSeat.userId, 'caishen_select_push', {
         mode: game.baoMode,
-        seatIndex: game.baoSeatIndex
+        seatIndex: game.baoSeatIndex,
+        caishen_secs: csSecs
     });
+
+    // 超时未定财神:自动取包家手牌第一张(防止包家挂机把整局卡死)
+    clearCaishenTimeout(game);
+    game.caishenTimer = setTimeout(function(){
+        game.caishenTimer = null;
+        if(game.gameOver || !game.waitCaishen || games[roomId] !== game){ return; }
+        var sd = game.gameSeats[game.baoSeatIndex];
+        if(sd == null || !sd.holds || sd.holds.length == 0){ return; }
+        console.log('[包财神] 定财神超时自动选择 pai=', sd.holds[0]);
+        applyCaishen(roomId, game, game.baoSeatIndex, sd.holds[0]);
+    }, csSecs * 1000);
 }
 
 // 包麻将叫台
@@ -2876,6 +2978,8 @@ exports.bao = function(userId, isBao, baoTai, baoTaiFee, caishenMode){
     if(game == null || game.gameOver || !game.waitBao){ return; }
     var seatIndex = roomMgr.getUserSeat(userId);
     if(seatIndex != game.baoTurnSeat){ return; }
+    //本座位已操作, 停掉叫台倒计时(轮转会重新起算)
+    clearBaoTimeout(game);
 
     if(!isBao){
         // 放弃叫台: 上一个叫台的人成包家; 都没叫过时, 庄家不包先轮闲家, 闲家也不包才强制庄家硬包(双财最低)

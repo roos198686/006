@@ -46,6 +46,13 @@ cc.Class({
 
     // 初始化
     onLoad: function () {
+        // 兜底: 热更检查在 loading 场景; 若构建时起始场景被误设成 login, 这里先补跑一次热更检查
+        // (window.__huChecked 只在本次进程内有效, 不会影响下次冷启动)
+        if(cc.sys.isNative && typeof jsb !== "undefined" && jsb.AssetsManager && !window.__huChecked){
+            window.__huChecked = true;
+            cc.director.loadScene("loading");
+            return;
+        }
         // 合并 loading 场景职责: cc.vv 未初始化时在这里初始化所有管理器
         if(!cc.vv){
             this._initMgr();

@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "4flMxU3DhN8IKJO11Er0j8"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "chat_emojibg_lt",
+      "rect": [
+        18,
+        4,
+        314,
+        64
+      ],
+      "offset": [
+        0,
+        4
+      ],
+      "originalSize": [
+        350,
+        80
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

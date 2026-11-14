@@ -175,14 +175,12 @@ cc.Class({
         if(cc.vv && cc.vv.net && cc.vv.net.send){
             cc.vv.net.send("leave_room");
         }
-        //来自俱乐部→club场景(由clubScene根据fromClubId直达玩法详情页),否则回大厅
-        if(cc.vv.fromClubId){
-            cc.vv.fromClub = true;
-            cc.director.loadScene("club");
+        //统一回牌桌大厅(该俱乐部玩法/牌桌列表页),不再按来源回系统大厅
+        if(cc.vv.gameNetMgr && cc.vv.gameNetMgr.exitToTableHall){
+            cc.vv.gameNetMgr.exitToTableHall();
         }
-        else{
-            cc.director.loadScene("hall");
-        }
+        else if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); }
+        else{ cc.director.loadScene("club"); }
     },
 
     onBtnShareClicked:function(){

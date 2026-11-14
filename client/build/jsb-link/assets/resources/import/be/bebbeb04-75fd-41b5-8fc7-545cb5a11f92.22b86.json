@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "ddhRY/Q3VPJKlWkI9IPZOh"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "dice_action_3",
+      "rect": [
+        0,
+        4,
+        100,
+        96
+      ],
+      "offset": [
+        0,
+        -2
+      ],
+      "originalSize": [
+        100,
+        100
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

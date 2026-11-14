@@ -1015,8 +1015,22 @@ cc.Class({
     //碰杠胡行为实现
     playEfx:function(index,name){
         var efx = this._playEfxs[index];
-        efx.node.active = true;
-        efx.play(name);
+        var efxNode = efx ? efx.node : null;
+        if(efxNode == null){
+            //进场景时座位数据还没同步会取不到play_efx,这里按方位名现取一次并缓存,
+            //否则吃/碰/杠/胡会在这里抛异常,整个座位spine动画直接没有
+            var gameChild = this.node.getChildByName("game");
+            var sideName = cc.vv.mahjongmgr.getSide(index);
+            var sideChild = gameChild ? gameChild.getChildByName(sideName) : null;
+            efxNode = sideChild ? sideChild.getChildByName("play_efx") : null;
+            if(efxNode){
+                efx = efxNode.getComponent(cc.Animation);
+                this._playEfxs[index] = efx;
+            }
+        }
+        if(efxNode == null){ return; }
+        efxNode.active = true;
+        if(efx){ efx.play(name); }
         //吃/碰/杠/胡/自摸叠加逆向包 spine 动画(资源未导入时静默跳过)
         if(cc.vv && cc.vv.mahjongmgr){
             var spKey = null;
@@ -1025,7 +1039,7 @@ cc.Class({
             else if(name == "play_chi"){ spKey = "mj_chi"; }
             else if(name == "play_peng"){ spKey = "mj_peng"; }
             else if(name == "play_guafeng" || name == "play_xiayu" || name == "play_gang"){ spKey = "mj_gang"; }
-            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efx.node, spKey); }
+            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efxNode, spKey); }
         }
     },
     //游戏开始
@@ -1035,7 +1049,7 @@ cc.Class({
         this._pendingShowPrepare = false; //新一局开始,清掉上局"弹窗关闭才切等待界面"的标记
 
         for(var i = 0; i < this._playEfxs.length; ++i){
-            this._playEfxs[i].node.active = false;
+            if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
         this.hideChupai();

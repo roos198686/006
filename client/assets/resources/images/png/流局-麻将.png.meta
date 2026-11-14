@@ -1,0 +1,38 @@
+{
+  "ver": "2.3.7",
+  "uuid": "6c95feb6-0f62-4f20-b3c3-2a665cb21674",
+  "importer": "texture",
+  "type": "sprite",
+  "wrapMode": "clamp",
+  "filterMode": "bilinear",
+  "premultiplyAlpha": false,
+  "genMipmaps": false,
+  "packable": true,
+  "width": 670,
+  "height": 280,
+  "platformSettings": {},
+  "subMetas": {
+    "流局-麻将": {
+      "ver": "1.0.6",
+      "uuid": "411d8555-1b09-4fed-bb7b-f72be0c6aadc",
+      "importer": "sprite-frame",
+      "rawTextureUuid": "6c95feb6-0f62-4f20-b3c3-2a665cb21674",
+      "trimType": "auto",
+      "trimThreshold": 1,
+      "rotated": false,
+      "offsetX": 0,
+      "offsetY": -3.5,
+      "trimX": 0,
+      "trimY": 19,
+      "width": 670,
+      "height": 249,
+      "rawWidth": 670,
+      "rawHeight": 280,
+      "borderTop": 0,
+      "borderBottom": 0,
+      "borderLeft": 0,
+      "borderRight": 0,
+      "subMetas": {}
+    }
+  }
+}

@@ -26,22 +26,79 @@ cc.Class({
 
         //初始化网络事件监听器
         var self = this;
+        //赢家卡片背景: baoqei_f 图集里的"大赢家"
+        this._winBgFrame = null;
+        this._lastRenderArgs = null;
+        cc.resources.load("images/atlas/baoqei_f", cc.SpriteAtlas, function (err, atlas) {
+            if (err || !atlas) { console.log("[GameResult] 大赢家图集加载失败", err); return; }
+            var fr = atlas.getSpriteFrame("大赢家.png") || atlas.getSpriteFrame("大赢家");
+            if (!fr) { console.log("[GameResult] 图集里没有大赢家帧"); return; }
+            self._winBgFrame = fr;
+            //图集晚于结算数据到达: 用缓存的数据重绘一次
+            if (self._lastRenderArgs) {
+                self.renderList(self._lastRenderArgs[0], self._lastRenderArgs[1]);
+            }
+        });
         this.node.on('game_end',function(data){
             var d = data.detail || {};
             self._pendingEnd = {endinfo:d.endinfo, roundHistory:d.roundHistory};
-            //最后一小局:小局结算弹窗还没弹出或仍在显示时,总局结算必须等它关闭后再显示
+            //最后一小局:总局结算必须等小局结算弹窗关闭后再显示。
+            //roundSettleAwait 由 GameNetMgr 在收到 game_over_push 时置位,不依赖 GameOver 组件是否就绪
+            var nm = cc.vv ? cc.vv.gameNetMgr : null;
+            if(nm && nm.roundSettleAwait){ self._armEndFallback(); return; }
             var pending = false;
             var g1 = self.getComponent("GameOver");
             if(g1 && g1._isRoundSettlePending && g1._isRoundSettlePending()){ pending = true; }
             var g2 = self.getComponent("GameOverZP");
             if(!pending && g2 && g2._isRoundSettlePending && g2._isRoundSettlePending()){ pending = true; }
-            if(pending){ return; }
+            if(pending){ self._armEndFallback(); return; }
             self._flushGameEnd();
         });
         //小局结算弹窗关闭后再展示整场总结算(正常局没有缓存的game_end,这里直接跳过)
         this.node.on('game_over_popup_closed',function(){
+            var nm = cc.vv ? cc.vv.gameNetMgr : null;
+            if(nm){ nm.roundSettleAwait = false; }
+            self._clearEndFallback();
             self._flushGameEnd();
         });
+    },
+
+    //小局结算弹窗异常(未弹出/组件缺失)时的兜底:限时后直接展示整场结算,避免一直不弹。
+    //小局弹窗正在显示时不能抢弹:继续等 game_over_popup_closed(弹窗自带30秒倒计时一定会关闭)
+    _armEndFallback:function(){
+        var self = this;
+        this._clearEndFallback();
+        this._endFallbackTimer = setTimeout(function(){
+            self._endFallbackTimer = null;
+            if(self._isRoundSettleShowing()){
+                self._armEndFallback();
+                return;
+            }
+            if(cc.vv && cc.vv.gameNetMgr){ cc.vv.gameNetMgr.roundSettleAwait = false; }
+            self._flushGameEnd();
+        }, 8000);
+    },
+
+    //小局结算弹窗当前是否正在显示
+    _isRoundSettleShowing:function(){
+        var g1 = this.getComponent("GameOver");
+        if(g1 && g1._gameover && g1._gameover.active){ return true; }
+        var g2 = this.getComponent("GameOverZP");
+        if(g2 && g2._gameover && g2._gameover.active){ return true; }
+        var n1 = cc.find("Canvas/game_over_xlch");
+        if(n1 && n1.active){ return true; }
+        var n2 = cc.find("Canvas/game_over");
+        if(n2 && n2.active){ return true; }
+        return false;
+    },
+
+    _clearEndFallback:function(){
+        if(this._endFallbackTimer){ clearTimeout(this._endFallbackTimer); this._endFallbackTimer = null; }
+    },
+
+    onDestroy:function(){
+        this._clearEndFallback();
+        this._stopExitCountdown();
     },
 
     //渲染缓存的整场结算数据(没有缓存时什么都不做)
@@ -61,6 +118,7 @@ cc.Class({
     //结算渲染(参考 mjgame_bb_shou 的 game_result):
     //顶部信息条(房号/玩法/扣费/倍率/时间) + 每个座位一张玩家卡片(头像/昵称/ID/总分/大赢家)
     renderList:function(endinfo, roundHistory){
+        this._lastRenderArgs = [endinfo, roundHistory];
         if(this._gameresult == null){ return; }
         var root = this._gameresult;
         this.setInfoLine(root);
@@ -86,7 +144,16 @@ cc.Class({
             card.node.active = !!s;
             if(!s){ continue; }
             var sc = Number(s.score) || 0;
-            if(card.bg){ card.bg.color = sc > 0 ? cc.color(255,132,112) : (sc < 0 ? cc.color(128,166,255) : cc.color(235,235,235)); }
+            var isWin = (sc > 0 && sc == maxscore);
+            if(card.bg){
+                var bgSp = card.bg.getComponent(cc.Sprite);
+                if(bgSp){
+                    if(!card._bgFrame){ card._bgFrame = bgSp.spriteFrame; }
+                    //赢家换成"大赢家"背景,其余恢复默认背景
+                    if(this._winBgFrame){ bgSp.spriteFrame = isWin ? this._winBgFrame : card._bgFrame; }
+                }
+                card.bg.color = isWin ? cc.color(255,255,255) : (sc > 0 ? cc.color(255,132,112) : (sc < 0 ? cc.color(128,166,255) : cc.color(235,235,235)));
+            }
             if(card.avatar && s.userid){
                 var il = card.avatar.getComponent("ImageLoader");
                 if(il == null){
@@ -163,6 +230,8 @@ cc.Class({
         }
         //game_result 的位置/大小/缩放全部在场景里配置,JS只控制显隐
         if(this._gameresult){ this._gameresult.active = true; }
+        //整场结算页倒计时:时间到自动退出房间
+        this._startExitCountdown(30);
         if(roundHistory && roundHistory.length > 0){
             //需求:结算列表按局列出每局得分明细(正绿负红),最终总成绩保持显示,不展示全局统计数据
             this.renderList(null, roundHistory);
@@ -175,21 +244,60 @@ cc.Class({
         }
     },
 
+    //整场结算页倒计时(数字显示在场景 game_result 下名为 countdown 的节点上),归零自动退出房间
+    _startExitCountdown:function(sec){
+        this._stopExitCountdown();
+        var root = this._gameresult || this.node.getChildByName("game_result");
+        //countdown 不一定是 game_result 的直接子节点(编辑器里被拖进其他容器),按名字递归查找
+        var node = root ? this._findChildByName(root, "countdown") : null;
+        if(node == null){
+            console.warn("[GameResult] 场景 game_result 下找不到 countdown 倒计时节点");
+        }
+        this._cdLabel = node ? node.getComponent(cc.Label) : null;
+        if(node){ node.active = true; }
+        this._cdLeft = sec;
+        var self = this;
+        this._cdCb = function(){
+            self._cdLeft--;
+            if(self._cdLabel){ self._cdLabel.string = "" + Math.max(0, self._cdLeft); }
+            if(self._cdLeft <= 0){
+                self._stopExitCountdown();
+                self.onBtnCloseClicked();
+            }
+        };
+        if(this._cdLabel){ this._cdLabel.string = "" + this._cdLeft; }
+        this.schedule(this._cdCb, 1);
+    },
+
+    //递归按名字找子节点
+    _findChildByName:function(node, name){
+        if(node == null){ return null; }
+        if(node.name === name){ return node; }
+        var children = node.children || [];
+        for(var i = 0; i < children.length; ++i){
+            var r = this._findChildByName(children[i], name);
+            if(r){ return r; }
+        }
+        return null;
+    },
+
+    _stopExitCountdown:function(){
+        if(this._cdCb){ this.unschedule(this._cdCb); this._cdCb = null; }
+    },
+
     onBtnCloseClicked:function(){
+        //手动退出/倒计时到点:都要停掉倒计时,避免重复触发
+        this._stopExitCountdown();
         if(cc.vv && cc.vv.net && cc.vv.net.send){
             cc.vv.net.send("leave_room");
         }
-        //按进入来源返回:来源为俱乐部→club场景(由clubScene根据fromClubId直达玩法详情页),否则回大厅
+        //统一回牌桌大厅(该俱乐部玩法/牌桌列表页),不再按来源回系统大厅
         var nm = cc.vv.gameNetMgr;
-        var backClub = (nm && nm.roomBackScene === "club") || cc.vv.fromClubId;
-        if(backClub){
-            cc.vv.fromClub = true;
-            if(nm && nm.roomBackClubId && !cc.vv.fromClubId){ cc.vv.fromClubId = nm.roomBackClubId; }
-            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
+        if(nm && nm.exitToTableHall){
+            nm.exitToTableHall();
         }
-        else{
-            if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
-        }
+        else if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); }
+        else{ cc.director.loadScene("club"); }
     },
 
     onBtnShareClicked:function(){

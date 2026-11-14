@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "90aYq9lftAur8ZDomQzGVO"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "mian",
+      "rect": [
+        0,
+        0,
+        979,
+        405
+      ],
+      "offset": [
+        0,
+        0
+      ],
+      "originalSize": [
+        979,
+        405
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

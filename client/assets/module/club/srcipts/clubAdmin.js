@@ -8,6 +8,8 @@ var CLUB_ADMIN_ROUTES = {
     "/club_members_detail": "/club_admin/members",
     "/partners": "/club_admin/partners",
     "/rewards": "/club_admin/rewards",
+    "/reward_claim": "/club_admin/reward_claim",
+    "/reward_claim_all": "/club_admin/reward_claim_all",
     "/club_game_configs": "/club_admin/game_configs",
     "/game_unified": "/club_admin/game_unified",
     "/partner/gems": "/club_admin/partner_gems",
@@ -898,6 +900,114 @@ _bindRewardPage: function () {
         content.setPosition(0, scroll.height / 2);
         this._rewardLayout = layout;
         if (this._rewardSv) { this._rewardSv.content = content; }
+
+        // 列表上方「未领取 / 已领取」标签(表头右侧), 默认看未领取
+        this._rewardFilter = 0;
+        var self = this;
+        var tabUn = this._find("tab_unclaimed", page);
+        var tabCl = this._find("tab_claimed", page);
+        this._rewardTabs = [tabUn, tabCl];
+        if (tabUn) {
+            tabUn.on(cc.Node.EventType.TOUCH_END, function () {
+                if (self._rewardFilter === 0) return;
+                self._rewardFilter = 0;
+                self._renderRewards();
+            });
+        }
+        if (tabCl) {
+            tabCl.on(cc.Node.EventType.TOUCH_END, function () {
+                if (self._rewardFilter === 1) return;
+                self._rewardFilter = 1;
+                self._renderRewards();
+            });
+        }
+        // 两个按钮右侧: 未领取/已领取 总金额
+        this._rewardTotalUn = this._find("lbl_unclaimed_total", page);
+        this._rewardTotalCl = this._find("lbl_claimed_total", page);
+        // 一键领取: 只在"未领取"标签下且有待领取时显示
+        var btnAll = this._find("btn_claim_all", page);
+        this._rewardClaimAllBtn = btnAll;
+        if (btnAll) {
+            btnAll.on(cc.Node.EventType.TOUCH_END, function () {
+                self._claimAllRewards();
+            });
+        }
+    },
+
+    // 金额显示: 最多两位小数, 去掉无意义的0
+    _fmtRewardAmount: function (v) {
+        var n = Number(v);
+        if (!isFinite(n)) n = 0;
+        return String(parseFloat(n.toFixed(2)));
+    },
+
+    // 一键领取当前俱乐部全部未领取奖励
+    _claimAllRewards: function () {
+        if (this._claiming || this._claimingAll) return;
+        var self = this;
+        this._claimingAll = true;
+        clubReq("/reward_claim_all", { club_id: this._clubId }, function (ret) {
+            self._claimingAll = false;
+            if (ret && ret.errcode === 0) {
+                self._loadRewards();
+            }
+        });
+    },
+
+    // 刷新两个标签的文字(带总数)、总金额、选中态
+    _updateRewardTabs: function (unclaimed, claimed, unAmt, clAmt) {
+        var tabs = this._rewardTabs || [];
+        var texts = ["未领取(" + unclaimed + ")", "已领取(" + claimed + ")"];
+
+        // 总金额
+        if (this._rewardTotalUn) {
+            var u = this._rewardTotalUn.getComponent(cc.Label);
+            if (u) { u.string = "未领取总金额：" + this._fmtRewardAmount(unAmt); }
+        }
+        if (this._rewardTotalCl) {
+            var c = this._rewardTotalCl.getComponent(cc.Label);
+            if (c) { c.string = "已领取总金额：" + this._fmtRewardAmount(clAmt); }
+        }
+        // 一键领取按钮: 仅未领取标签且有条目时显示
+        if (this._rewardClaimAllBtn) {
+            this._rewardClaimAllBtn.active = (this._rewardFilter === 0 && unclaimed > 0);
+        }
+
+        for (var i = 0; i < 2; i++) {
+            var tab = tabs[i];
+            if (!tab || !cc.isValid(tab)) continue;
+            var lbNode = tab.getChildByName("Label");
+            var lb = lbNode ? lbNode.getComponent(cc.Label) : null;
+            if (lb) { lb.string = texts[i]; }
+            var sel = (this._rewardFilter === i);
+            var col = sel ? cc.color(255, 255, 255) : cc.color(150, 150, 150);
+            tab.color = col;
+            // 按钮是颜色过渡模式, 不改 normalColor 的话触摸后会被还原成白色
+            var btn = tab.getComponent(cc.Button);
+            if (btn && btn.transition === cc.Button.Transition.COLOR) {
+                btn.normalColor = col;
+                btn.hoverColor = col;
+                btn.pressedColor = col;
+            }
+        }
+    },
+
+    // 手动领取一条奖励(服务端到账并标记已领取)
+    _claimReward: function (reward, btn) {
+        if (!reward || this._claiming) return;
+        var self = this;
+        this._claiming = true;
+        if (btn) { btn.active = false; }
+        clubReq("/reward_claim", { club_id: this._clubId, id: reward.id }, function (ret) {
+            self._claiming = false;
+            if (ret && ret.errcode === 0) {
+                reward.claim_status = 1;
+                reward.claim_time = Math.floor(Date.now() / 1000);
+                self._renderRewards();
+            } else if (btn && cc.isValid(btn)) {
+                btn.active = true;
+            }
+        });
     },
 
     _renderRewards: function () {
@@ -909,11 +1019,23 @@ _bindRewardPage: function () {
         if (!tpl) return;
         tpl.active = false;
 
-        for (var i = 0; i < this._rewards.length; i++) {
-            var r = this._rewards[i];
+        // 统计已领取/未领取总数, 并按当前标签过滤
+        var all = this._rewards || [];
+        var unclaimed = 0, claimed = 0, unAmt = 0, clAmt = 0;
+        for (var n = 0; n < all.length; n++) {
+            var amt = Number(all[n].amount) || 0;
+            if (Number(all[n].claim_status) === 1) { claimed++; clAmt += amt; }
+            else { unclaimed++; unAmt += amt; }
+        }
+        var filter = (this._rewardFilter === 1) ? 1 : 0;
+        for (var i = 0; i < all.length; i++) {
+            var r = all[i];
+            var cs = (Number(r.claim_status) === 1) ? 1 : 0;
+            if (cs !== filter) { continue; }
             var row = this._createRewardRow(tpl, r);
             if (row) { row.parent = content; row.active = true; }
         }
+        this._updateRewardTabs(unclaimed, claimed, unAmt, clAmt);
         // 行克隆完成后按实际行数重新计算 content 高度(可滚动), 并回到顶部
         this._refreshRewardScroll();
     },
@@ -938,6 +1060,26 @@ _bindRewardPage: function () {
         this._setLabel(row, "game", this._rewardGameName(reward));
         this._setLabel(row, "room", String(reward.roomid || 0));
         this._setLabel(row, "date", new Date(reward.create_time * 1000).toLocaleString());
+
+        // 状态 + 领取按钮(已领取的行不显示按钮)
+        var claimed = (Number(reward.claim_status) === 1);
+        var stNode = row.getChildByName("status");
+        if (stNode) {
+            var stLb = stNode.getComponent(cc.Label);
+            if (stLb) { stLb.string = claimed ? "已领取" : "未领取"; }
+            stNode.color = claimed ? cc.color(120, 220, 120) : cc.color(255, 210, 90);
+        }
+        var btn = row.getChildByName("btn_claim");
+        if (btn) {
+            btn.active = !claimed;
+            if (!claimed) {
+                (function (self, rw, b) {
+                    b.on(cc.Node.EventType.TOUCH_END, function () {
+                        self._claimReward(rw, b);
+                    });
+                })(this, reward, btn);
+            }
+        }
 
         return row;
     },

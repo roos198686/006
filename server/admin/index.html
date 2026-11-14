@@ -549,6 +549,16 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
           <input type="number" id="cfg_auto_dissolve" value="300" title="房间内有玩家断线或无动作超过该秒数自动解散">
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>叫台倒计时(秒)</label>
+          <input type="number" id="cfg_bao_seconds" value="15" title="包财神玩法:玩家叫台的时限,超时自动不包;缺省15秒">
+        </div>
+        <div class="form-group">
+          <label>定财神倒计时(秒)</label>
+          <input type="number" id="cfg_caishen_seconds" value="60" title="包财神玩法:包家选定财神的时限,超时自动选第一张;缺省60秒">
+        </div>
+      </div>
       <div class="form-group">
         <label>收费模式（每个玩法独立）</label>
         <select id="cfg_unified_charge">
@@ -1808,6 +1818,8 @@ function showConfigModal(){
     document.getElementById('cfg_gp_card_history').checked = false;
   document.getElementById('cfg_sort').value = 0;
   document.getElementById('cfg_auto_dissolve').value = 300;
+  document.getElementById('cfg_bao_seconds').value = 15;
+  document.getElementById('cfg_caishen_seconds').value = 60;
   document.getElementById('cfg_unified_charge').value = '0';
   document.getElementById('cfg_enabled').checked = true;
   applyTypeGroups('');
@@ -1894,6 +1906,8 @@ function editConfig(id){
     document.getElementById('cfg_gp_card_history').checked = !!c.gp_card_history;
     document.getElementById('cfg_sort').value = c.sort;
     document.getElementById('cfg_auto_dissolve').value = c.auto_dissolve_seconds != null ? c.auto_dissolve_seconds : 300;
+    document.getElementById('cfg_bao_seconds').value = c.bao_seconds != null ? c.bao_seconds : 15;
+    document.getElementById('cfg_caishen_seconds').value = c.caishen_seconds != null ? c.caishen_seconds : 60;
     document.getElementById('cfg_unified_charge').value = (String(c.unified_charge) === '1') ? '1' : '0';
     document.getElementById('cfg_enabled').checked = !!c.enabled;
     editingTaiRules = (c.tai_rules && typeof c.tai_rules === 'object') ? c.tai_rules : null;
@@ -1972,6 +1986,8 @@ function saveConfig(){
     gp_straight_a2: document.getElementById('cfg_gp_straight_a2').checked ? 1 : 0,
     gp_card_history: document.getElementById('cfg_gp_card_history').checked ? 1 : 0,
     auto_dissolve_seconds: parseInt(document.getElementById('cfg_auto_dissolve').value) || 300,
+    bao_seconds: parseInt(document.getElementById('cfg_bao_seconds').value) || 15,
+    caishen_seconds: parseInt(document.getElementById('cfg_caishen_seconds').value) || 60,
     unified_charge: parseInt(document.getElementById('cfg_unified_charge').value) || 0,
     sort: parseInt(document.getElementById('cfg_sort').value),
     enabled: document.getElementById('cfg_enabled').checked

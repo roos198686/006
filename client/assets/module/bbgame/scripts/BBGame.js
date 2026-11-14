@@ -863,12 +863,10 @@ cc.Class({
         });
     },
 
-    // 预加载退出后要返回的场景(大厅/俱乐部): 房间内提前把场景资源加载好,
+    // 预加载退出后要返回的场景(牌桌大厅=club场景): 房间内提前把场景资源加载好,
     // 点退出时直接切场景, 不会出现"点一下卡住"的加载停顿
     _preloadBackScene: function () {
-        var nm = cc.vv.gameNetMgr;
-        var name = ((nm && nm.roomBackScene === "club") || cc.vv.fromClubId) ? "club" : "hall";
-        try { cc.director.preloadScene(name, function () {}); } catch (e) {}
+        try { cc.director.preloadScene("club", function () {}); } catch (e) {}
     },
 
     // ===== 场景加载/重连恢复 =====
@@ -3999,15 +3997,9 @@ cc.Class({
         if (curName === "hall" || curName === "club") return;
         var nm = cc.vv.gameNetMgr;
         if (nm) nm._ignoreDisconnectOnce = true; //服务端即将断 socket, 别让 disconnect 再切一次场景
-        //按进房来源返回: 俱乐部进桌回俱乐部详情, 大厅进桌才回大厅
-        var backClub = (nm && nm.roomBackScene === "club") || cc.vv.fromClubId;
-        if (backClub) {
-            cc.vv.fromClub = true;
-            if (nm && nm.roomBackClubId && !cc.vv.fromClubId) { cc.vv.fromClubId = nm.roomBackClubId; }
-            if (cc.vv.sceneMgr) { cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
-        } else {
-            if (cc.vv.sceneMgr) { cc.vv.sceneMgr.load("hall"); } else { cc.director.loadScene("hall"); }
-        }
+        //统一回牌桌大厅(该俱乐部玩法/牌桌列表页),不再按来源回系统大厅
+        if (nm && nm.exitToTableHall) { nm.exitToTableHall(); }
+        else if (cc.vv.sceneMgr) { cc.vv.sceneMgr.load("club"); } else { cc.director.loadScene("club"); }
     },
 
     showTip: function (msg) {

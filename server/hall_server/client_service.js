@@ -1800,6 +1800,25 @@ app.get('/club_admin/rewards',function(req,res){
 		});
 	});
 });
+//一键领取全部未领取奖励
+app.get('/club_admin/reward_claim_all',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		db.reward_claim_all(clubId,function(count,amount){
+			http.send(res,0,"ok",{count:count || 0,amount:amount || 0});
+		});
+	});
+});
+//领取奖励(手动到账)
+app.get('/club_admin/reward_claim',function(req,res){
+	clubAdminAccess(req,res,function(clubId){
+		var id = parseInt(req.query.id);
+		if(!(id > 0)){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		db.reward_claim(clubId,id,function(ok,amount){
+			if(!ok){ http.send(res,1,"该奖励已领取或不存在"); return; }
+			http.send(res,0,"ok",{amount:amount || 0});
+		});
+	});
+});
 
 //玩法配置列表
 app.get('/club_admin/game_configs',function(req,res){
@@ -1935,8 +1954,18 @@ app.get('/club_admin/table_delete',function(req,res){
 });
 
 //初始化监听
+//奖励超过7天未手动领取: 自动到账(启动跑一次, 之后每10分钟扫一次)
+function autoClaimExpiredRewards(){
+	var cutoff = Math.ceil(Date.now()/1000) - 7*86400;
+	db.reward_auto_claim(cutoff,function(n){
+		if(n > 0){ console.log('[奖励] 超过7天未领取, 自动到账 ' + n + ' 条'); }
+	});
+}
+
 exports.start = function($config){
 	config = $config;
 	app.listen(config.CLEINT_PORT);
 	console.log("client service is listening on port " + config.CLEINT_PORT);
+	setTimeout(autoClaimExpiredRewards,5000);
+	setInterval(autoClaimExpiredRewards,10*60*1000);
 };

@@ -13,6 +13,7 @@ var SUIT_FRAMES = ["Spade", "Heart", "Club", "Diamond"];
 var SUIT_SYMBOLS = ["\u2660", "\u2665", "\u2663", "\u2666"];
 var RANK_NAMES = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
 var ROAD_CAP = { head: 3, mid: 5, tail: 5 };
+var ROAD_START = { head: 0, mid: 3, tail: 8 };
 var ROAD_NAMES = { head: "\u5934\u9053", mid: "\u4e2d\u9053", tail: "\u5c3e\u9053" };
 var ROADS = ["tail", "mid", "head"];
 var HAND_SLOTS = 13;
@@ -187,11 +188,22 @@ cc.Class({
         this._pendingStartTimer = null;
         this._revealTimer = null;
         this._revealToken = 0;
+        this._revealing = false;
+        this._dragInfo = null;
+        this._dragRoad = null;
+        this._dragGhost = null;
         this._dealingSec = 0;
+        //桌面亮牌: 对家牌背原始帧; 自己复用场景 handRoot 的 13 个槽位摆到桌面
+        this._backFrames = [];
+        this._backLayout = [];
+        this._revealedCount = {};
+        this._revealHint = "";
+        this._revealingOnTable = false;
         //服务端 sss_ready_push 用"牌局座位号", 房间 seats 用"房间座位号", 需要用户id映射
         this._gameSeatOf = {};
         this._gameSeatTotal = 0;
         this._bindUI();
+        this._captureBackFrames();
         this._bindNet();
         this._loadCards();
         this._loadStartFx();
@@ -207,6 +219,7 @@ cc.Class({
         this._pendingStart = null;
         if (this._tipTimer) { clearTimeout(this._tipTimer); this._tipTimer = null; }
         this._cancelReveal();
+        this._destroyDragGhost();
         if (this._sio && this._sioListeners) {
             this._sio.removeListener('exit_result', this._sioListeners.exit_result);
             this._sio.removeListener('dispress_push', this._sioListeners.dispress_push);
@@ -405,59 +418,165 @@ cc.Class({
             });
         }
 
-        // 手牌槽位(13个固定节点)
+        // 手牌/三道槽位: 统一走拖拽+点击(参考宝宝摆牌交互)
         for (var i = 0; i < n.handSlots.length; ++i) {
-            this._bindHandSlot(n.handSlots[i], i);
+            this._bindCardDrag(n.handSlots[i], "hand", i);
         }
-        // 三道槽位
         ROADS.forEach(function (road) {
             var row = n.rows[road];
             if (!row) return;
             for (var i = 0; i < row.slots.length; ++i) {
-                self._bindRoadSlot(row.slots[i], road, i);
+                self._bindCardDrag(row.slots[i], road, i);
             }
         });
     },
 
-    _bindHandSlot: function (slot, index) {
+    // 手牌/道内牌: 按住拖动可换道, 轻点仍按原逻辑(手牌放入下一道 / 道内牌收回手牌)
+    _bindCardDrag: function (slot, road, index) {
         var self = this;
         if (!slot) return;
-        var handler = function () {
-            var id = self._handSlotIds[index];
-            if (id == null || id < 0) return;
-            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.wav");
-            self.onTapHand(id);
-        };
-        slot.on(cc.Node.EventType.TOUCH_END, handler);
         var card = slot.getChildByName("card");
-        if (card) {
-            card.on(cc.Node.EventType.TOUCH_END, function (e) {
-                if (e) e.stopPropagation();
-                handler();
-            });
+        var target = card || slot;
+        var startPos = null, moved = false, dragging = false;
+        target.on(cc.Node.EventType.TOUCH_START, function (e) {
+            if (!self._canArrange()) return;
+            var info = self._dragSourceOf(road, index);
+            if (!info) return;
+            dragging = true;
+            moved = false;
+            startPos = e ? e.getLocation() : null;
+            self._dragInfo = info;
+        });
+        target.on(cc.Node.EventType.TOUCH_MOVE, function (e) {
+            if (!dragging || !e) return;
+            var p = e.getLocation();
+            if (!moved && startPos) {
+                moved = (Math.abs(p.x - startPos.x) + Math.abs(p.y - startPos.y)) > 16;
+                if (moved && cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.wav");
+            }
+            if (!moved) return;
+            var t = self._dropTargetAt(p);
+            self._dragRoad = (t && t.road != "hand") ? t.road : null;
+            self._ensureDragGhost(target, p);
+            self._renderRoads();
+        });
+        target.on(cc.Node.EventType.TOUCH_END, function (e) {
+            if (!dragging) return;
+            dragging = false;
+            var info = self._dragInfo;
+            self._dragInfo = null;
+            self._dragRoad = null;
+            self._destroyDragGhost();
+            if (!cc.isValid(self.node) || !info) { self._renderRoads(); return; }
+            if (moved && e) {
+                var t = self._dropTargetAt(e.getLocation());
+                if (t) self._moveCard(info, t.road);
+                else self._renderRoads();
+            } else {
+                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.wav");
+                if (road == "hand") self.onTapHand(info.id);
+                else self.onTapRoadCard(road, info.id);
+            }
+        });
+        target.on(cc.Node.EventType.TOUCH_CANCEL, function () {
+            dragging = false;
+            self._dragInfo = null;
+            self._dragRoad = null;
+            self._destroyDragGhost();
+            self._renderRoads();
+        });
+    },
+
+    // 拖动时的跟手牌影(参考宝宝拖动牌的手感)
+    _ensureDragGhost: function (cardNode, screenPos) {
+        var root = this._n.arrangeRoot;
+        if (!root) return;
+        if (this._dragGhost && cc.isValid(this._dragGhost)) {
+            this._dragGhost.setPosition(root.convertToNodeSpaceAR(screenPos));
+            return;
+        }
+        var ghost = new cc.Node("sssDragGhost");
+        var sp = ghost.addComponent(cc.Sprite);
+        if (sp && cc.Sprite.SizeMode) sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+        var src = cardNode ? cardNode.getComponent(cc.Sprite) : null;
+        if (sp && src) sp.spriteFrame = src.spriteFrame;
+        var w = cardNode ? cardNode.width : 100;
+        var h = cardNode ? cardNode.height : 142;
+        ghost.setContentSize(w, h);
+        ghost.opacity = 210;
+        ghost.zIndex = 999;
+        root.addChild(ghost);
+        ghost.setPosition(root.convertToNodeSpaceAR(screenPos));
+        this._dragGhost = ghost;
+    },
+
+    _destroyDragGhost: function () {
+        if (this._dragGhost) {
+            if (cc.isValid(this._dragGhost)) this._dragGhost.destroy();
+            this._dragGhost = null;
         }
     },
 
-    _bindRoadSlot: function (slot, road, index) {
-        var self = this;
-        if (!slot) return;
-        var handler = function (e) {
-            if (e && e.propagationStopped) return;
-            var cards = self._roads[road] || [];
-            var id = cards[index];
-            if (id == null) return;
-            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("select.wav");
-            self.onTapRoadCard(road, id);
-        };
-        slot.on(cc.Node.EventType.TOUCH_END, handler);
-        //牌面在子节点上, 单独挂一次并阻止冒泡, 防止事件被子节点吃掉导致点了没反应
-        var card = slot.getChildByName("card");
-        if (card) {
-            card.on(cc.Node.EventType.TOUCH_END, function (e) {
-                if (e) e.stopPropagation();
-                handler(e);
-            });
+    _dragSourceOf: function (road, index) {
+        if (road == "hand") {
+            var id = this._handSlotIds[index];
+            return (id == null || id < 0) ? null : { from: "hand", id: id };
         }
+        var arr = this._roads[road] || [];
+        var cid = arr[index];
+        return (cid == null) ? null : { from: "road", road: road, id: cid };
+    },
+
+    // 手指位置换算到 arrangeRoot 坐标, 判断落在哪一道/手牌区
+    _dropTargetAt: function (screenPos) {
+        var root = this._n.arrangeRoot;
+        if (!root || !screenPos) return null;
+        var p = root.convertToNodeSpaceAR(screenPos);
+        var rows = this._n.rows || {};
+        if (rows.head && Math.abs(p.y - rows.head.row.y) < 100) return { road: "head" };
+        if (rows.mid && Math.abs(p.y - rows.mid.row.y) < 100) return { road: "mid" };
+        if (rows.tail && Math.abs(p.y - rows.tail.row.y) < 100) return { road: "tail" };
+        var handY = this._n.handRoot ? this._n.handRoot.y : -330;
+        if (p.y < handY + 100) return { road: "hand" };
+        return null;
+    },
+
+    _canArrange: function () {
+        return this._playing && !this._dealing && !this._confirmed && !this._autoMode && !this._final && !this._revealing;
+    },
+
+    _moveCard: function (info, destRoad) {
+        if (!info || !this._canArrange()) { this._renderRoads(); return; }
+        if (destRoad == "hand") {
+            if (info.from != "road") { this._renderRoads(); return; }
+            var src = this._roads[info.road] || [];
+            var ix = src.indexOf(info.id);
+            if (ix >= 0) src.splice(ix, 1);
+            this._hand.push(info.id);
+            this._hand.sort(function (a, b) { return a - b; });
+            this._selectRoad = info.road;
+            this.renderAll();
+            return;
+        }
+        if (info.from == "road" && info.road == destRoad) { this._renderRoads(); return; }
+        var dest = this._roads[destRoad];
+        if (!dest) { this._renderRoads(); return; }
+        if (dest.length >= ROAD_CAP[destRoad]) {
+            this.showTip(ROAD_NAMES[destRoad] + "\u5df2\u6ee1");
+            this._renderRoads();
+            return;
+        }
+        if (info.from == "road") {
+            var from = this._roads[info.road] || [];
+            var fi = from.indexOf(info.id);
+            if (fi >= 0) from.splice(fi, 1);
+        } else {
+            var hi = this._hand.indexOf(info.id);
+            if (hi >= 0) this._hand.splice(hi, 1);
+        }
+        dest.push(info.id);
+        this._selectRoad = destRoad;
+        this.renderAll();
     },
 
     _confirm: function (msg, onOk) {
@@ -478,7 +597,17 @@ cc.Class({
             self._frames = atlas;
             self.renderAll();
             // 比牌先于牌图到达: 加载完成后补绘明牌
+            if (self._revealingOnTable && self._lastResult) {
+                // 桌面翻牌过程中牌图才到: 重新走一遍亮牌, 避免已翻的牌是空白
+                self.onResult(self._lastResult);
+                return;
+            }
             if (self._lastResult && self._n.resultPanel && self._n.resultPanel.active) {
+                if (self._revealing) {
+                    // 亮牌过程中牌图才到: 重新走一遍亮牌流程, 保证已翻过的道不会丢牌面
+                    self.onResult(self._lastResult);
+                    return;
+                }
                 var rs = self._lastResult.results || [];
                 for (var p = 0; p < self._n.resultPlayers.length; ++p) {
                     var pb = self._n.resultPlayers[p];
@@ -631,6 +760,12 @@ cc.Class({
     applyStart: function (data, resend) {
         if (!data) return;
         this._cancelReveal();
+        this._revealing = false;
+        this._revealingOnTable = false;
+        this._revealedCount = {};
+        this._revealHint = "";
+        this._hideSelfHandRow();
+        this._resetTableCards();
         this._dealingSec = 0;
         this._playing = true;
         this._final = false;
@@ -682,6 +817,8 @@ cc.Class({
             this.renderAll();
             this._playStartFx(function () {
                 self._dealing = false;
+                // 参考宝宝发牌: 开始动画结束后落牌音
+                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("deal.wav");
                 self.showTip("");
                 self.renderAll();
             });
@@ -733,97 +870,210 @@ cc.Class({
         this._refreshSeats();
     },
 
-    // ================= 比牌结果 =================
+    // ================= 亮牌/比牌/结算(流程参考宝宝: 按道轮转亮牌 -> 逐对比牌 -> 结算) =================
     onResult: function (data) {
         if (!data) return;
+        this._cancelReveal();
         this._playing = false;
         this._dealing = false;
+        this._revealing = true;
+        this._revealingOnTable = true;
         this._leftSec = 0;
         this._refreshSeats();
 
         var results = data.results || [];
         this._lastResult = data;
-        var myDelta = 0;
+        var myDelta = 0, myTotal = null;
         for (var i = 0; i < results.length; ++i) {
-            if (results[i] && results[i].userid == this._myUserId) myDelta = results[i].delta || 0;
+            if (results[i] && results[i].userid == this._myUserId) {
+                myDelta = results[i].delta || 0;
+                myTotal = results[i].totalscore;
+            }
         }
 
-        // 先填好所有玩家的牌面和分数, 但全部隐藏, 稍后逐家亮牌
-        var revealList = [];
+        // 先摆好所有玩家名牌和三道牌(牌面全部盖住), 亮牌阶段再按道翻开
+        var self = this;
+        var players = [];
         for (var p = 0; p < this._n.resultPlayers.length; ++p) {
             var pb = this._n.resultPlayers[p];
             if (!pb) continue;
             var r = results[p];
-            pb.box.active = false;
+            pb.box.active = !!r;
             if (!r) continue;
             if (pb.name) pb.name.string = r.name || ("\u73a9\u5bb6" + ((r.seatindex || 0) + 1));
-            var tags = [];
-            if (r.special) tags.push(r.special);
-            if (r.invalid) tags.push("\u5012\u6c34");
-            if (r.gun > 0) tags.push("\u6253\u67aa\u00d7" + r.gun);
-            if (r.quanleida) tags.push("\u5168\u5792\u6253");
-            if (pb.tags) pb.tags.string = tags.join("  ");
-            var d = r.delta || 0;
-            if (pb.delta) {
-                pb.delta.string = (d >= 0 ? "+" : "") + d;
-                pb.delta.node.color = d >= 0 ? cc.color(120, 235, 150) : cc.color(255, 130, 130);
-            }
+            if (pb.tags) { pb.tags.string = ""; pb.tags.node.active = false; }
+            if (pb.delta) { pb.delta.string = ""; pb.delta.node.active = false; }
             var arr = r.arrange || {};
-            this._fillResultRow(pb.rows.head, arr.head);
-            this._fillResultRow(pb.rows.mid, arr.mid);
-            this._fillResultRow(pb.rows.tail, arr.tail);
-            if (r.userid == this._myUserId) revealList.unshift(pb);
-            else revealList.push(pb);
+            ["head", "mid", "tail"].forEach(function (road) {
+                var rowNode = pb.rows[road];
+                if (!rowNode) return;
+                var lbl = rowNode.getChildByName("lbl");
+                if (lbl) {
+                    lbl.active = true;
+                    var lb = lbl.getComponent(cc.Label);
+                    if (lb) { lb.string = ROAD_NAMES[road]; lb.node.color = cc.color(190, 235, 215); }
+                }
+                self._fillResultRow(rowNode, arr[road]);
+                self._hideResultRow(rowNode);
+            });
+            players.push({ pb: pb, r: r, idx: p });
         }
 
-        if (this._n.resultDetail) {
-            this._n.resultDetail.string = "\u672c\u5c40\u5f97\u5206 " + (myDelta >= 0 ? "+" : "") + myDelta;
-            this._n.resultDetail.node.color = myDelta >= 0 ? cc.color(120, 235, 150) : cc.color(255, 130, 130);
-            this._n.resultDetail.node.active = false;
-        }
-        if (this._n.resultPanel) this._n.resultPanel.active = true;
+        // 亮牌阶段先在桌面翻牌, 结算面板等桌面亮完再打开
+        if (this._n.resultPanel) this._n.resultPanel.active = false;
         if (this._n.arrangeRoot) this._n.arrangeRoot.active = false;
-        if (this._n.selfSeat) this._n.selfSeat.active = false;
+        if (this._n.selfSeat) this._n.selfSeat.active = true;
         if (this._n.btnReady) this._n.btnReady.active = false;
         var btnRR = this._n.resultPanel ? this._n.resultPanel.getChildByName("btnResultReady") : null;
         if (btnRR) btnRR.active = false;
+        if (this._n.resultDetail) this._n.resultDetail.node.active = false;
         this._refreshCountdown();
+        // 对家牌背复位并全部盖到桌面; 自己的 13 张复用场景 handRoot 槽位摆到桌面
+        this._resetTableCards();
+        this._layoutTableBacks();
+        this._showTableBacks();
+        var myRes = null;
+        for (var mi = 0; mi < results.length; ++mi) {
+            if (results[mi] && results[mi].userid == this._myUserId) { myRes = results[mi]; break; }
+        }
+        this._showSelfHandRow(myRes ? (myRes.arrange || {}) : {});
+        // 场景座位状态栏显示亮牌进度(亮牌阶段不用弹窗, 用桌面上的席位 UI)
+        for (var pi2 = 0; pi2 < players.length; ++pi2) {
+            var stLb0 = this._seatStateLabel(players[pi2].r.userid);
+            if (stLb0) stLb0.string = "\u4eae\u724c\u4e2d";
+        }
 
-        // 亮牌比牌过程: 一家一家翻牌, 全部亮完后出分数和继续按钮
-        this._cancelReveal();
-        var self = this;
+        // 亮牌顺序: 自己先亮, 其余按牌局座位顺序; 每轮所有玩家各亮一道(头->中->尾)
+        var order = players.slice().sort(function (a, b) {
+            var am = (a.r.userid == self._myUserId) ? 0 : 1;
+            var bm = (b.r.userid == self._myUserId) ? 0 : 1;
+            if (am != bm) return am - bm;
+            var as = (a.r.gameSeat != null) ? a.r.gameSeat : a.idx;
+            var bs = (b.r.gameSeat != null) ? b.r.gameSeat : b.idx;
+            return as - bs;
+        });
+        var ROAD_SEQ = ["head", "mid", "tail"];
+        var total = order.length * ROAD_SEQ.length;
+        var stepIdx = 0;
         var token = ++this._revealToken;
-        var idx = 0;
-        var total = revealList.length;
-        var step = function () {
+        var title = this._n.resultTitle;
+
+        var doSettle = function () {
             if (!cc.isValid(self.node) || token != self._revealToken) return;
-            if (idx >= revealList.length) {
-                self.showTip("");
-                if (self._n.resultTitle) self._n.resultTitle.string = "\u672c\u5c40\u7ed3\u7b97";
-                if (self._n.resultDetail) {
-                    self._n.resultDetail.string = self._compareText(data, myDelta);
-                    self._n.resultDetail.node.active = true;
+            self._revealing = false;
+            self._revealingOnTable = false;
+            self._hideSelfHandRow();
+            self._revealHint = "";
+            self.showTip("");
+            for (var k = 0; k < players.length; ++k) {
+                var pl = players[k], rr = pl.r, pbx = pl.pb;
+                var tags = [];
+                if (rr.special) tags.push(rr.special);
+                if (rr.invalid) tags.push("\u5012\u6c34");
+                if (rr.gun > 0) tags.push("\u6253\u67aa\u00d7" + rr.gun);
+                if (rr.quanleida) tags.push("\u5168\u5792\u6253");
+                if (pbx.tags) {
+                    pbx.tags.string = tags.join("  ");
+                    pbx.tags.node.active = !!tags.length;
                 }
-                if (btnRR && cc.isValid(btnRR)) btnRR.active = true;
-                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(myDelta >= 0 ? "win.wav" : "lose.wav");
-                return;
+                var dd = rr.delta || 0;
+                if (pbx.delta) {
+                    pbx.delta.node.active = true;
+                    pbx.delta.string = (dd >= 0 ? "+" : "") + dd;
+                    pbx.delta.node.color = dd >= 0 ? cc.color(120, 235, 150) : cc.color(255, 130, 130);
+                }
+                var stLbS = self._seatStateLabel(rr.userid);
+                if (stLbS) stLbS.string = "\u672c\u5c40 " + (dd >= 0 ? "+" : "") + dd;
             }
-            var box = revealList[idx++].box;
-            if (box && cc.isValid(box)) box.active = true;
-            var nmNode = (box && cc.isValid(box)) ? box.getChildByName("name") : null;
-            var nm = nmNode ? nmNode.getComponent(cc.Label) : null;
-            if (self._n.resultTitle) self._n.resultTitle.string = "\u4eae\u724c\u6bd4\u724c " + idx + "/" + total + (nm ? ("  " + nm.string) : "");
-            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("deal.wav");
-            self._revealTimer = setTimeout(step, 550);
+            if (title) {
+                title.string = myDelta > 0 ? "\u672c\u5c40\u80dc\u5229" : (myDelta < 0 ? "\u672c\u5c40\u5931\u8d25" : "\u672c\u5c40\u5e73\u5c40");
+                title.node.color = myDelta > 0 ? cc.color(120, 235, 150) : (myDelta < 0 ? cc.color(255, 130, 130) : cc.color(235, 235, 235));
+            }
+            if (self._n.resultDetail) {
+                self._n.resultDetail.node.active = true;
+                self._n.resultDetail.node.color = myDelta >= 0 ? cc.color(120, 235, 150) : cc.color(255, 130, 130);
+                var txt = "\u672c\u5c40\u5f97\u5206 " + (myDelta >= 0 ? "+" : "") + myDelta;
+                if (myTotal != null) txt += "   \u603b\u5206 " + myTotal;
+                self._n.resultDetail.string = txt;
+            }
+            if (btnRR && cc.isValid(btnRR)) btnRR.active = true;
+            self._revealTimer = null;
+            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(myDelta >= 0 ? "win.wav" : "lose.wav");
         };
-        if (this._n.resultTitle) this._n.resultTitle.string = "\u4eae\u724c\u6bd4\u724c 0/" + total;
-        this.showTip("\u4eae\u724c\u6bd4\u724c\u4e2d...");
-        step();
+
+        // 比牌阶段: 桌面亮完 -> 打开结算板摆好所有牌 -> 逐个对手播报三道胜负
+        var doComparePhase = function () {
+            if (!cc.isValid(self.node) || token != self._revealToken) return;
+            self._revealingOnTable = false;
+            self._hideSelfHandRow();
+            self._revealHint = "\u6bd4\u724c";
+            if (self._n.selfSeat) self._n.selfSeat.active = false;
+            if (self._n.resultPanel) self._n.resultPanel.active = true;
+            for (var k = 0; k < players.length; ++k) {
+                var pbr = players[k].pb;
+                var arrr = players[k].r.arrange || {};
+                ["head", "mid", "tail"].forEach(function (road2) {
+                    var rn = pbr.rows[road2];
+                    if (!rn) return;
+                    var ids2 = arrr[road2] || [];
+                    self._revealResultRow(rn, ids2);
+                    var lbl2 = rn.getChildByName("lbl");
+                    if (lbl2 && ids2.length) {
+                        var lb2 = lbl2.getComponent(cc.Label);
+                        var h2 = (road2 == "head") ? eval3(ids2) : eval5(ids2);
+                        if (lb2) lb2.string = ROAD_NAMES[road2] + " " + handTypeName(road2, h2);
+                    }
+                });
+            }
+            var lines = self._compareLines(data);
+            if (title) { title.string = "\u6bd4\u724c"; title.node.color = cc.color(255, 226, 130); }
+            self.showTip("\u6bd4\u724c\u4e2d...");
+            var ci = 0;
+            var nextPair = function () {
+                if (!cc.isValid(self.node) || token != self._revealToken) return;
+                if (ci >= lines.length) { doSettle(); return; }
+                if (self._n.resultDetail) {
+                    self._n.resultDetail.node.active = true;
+                    self._n.resultDetail.node.color = cc.color(235, 235, 235);
+                    self._n.resultDetail.string = lines[ci];
+                }
+                if (title) title.string = "\u6bd4\u724c " + (ci + 1) + "/" + lines.length;
+                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("fanpai.mp3");
+                ci++;
+                self._revealTimer = setTimeout(nextPair, 900);
+            };
+            self._revealTimer = setTimeout(nextPair, 350);
+        };
+
+        var nextStep = function () {
+            if (!cc.isValid(self.node) || token != self._revealToken) return;
+            if (stepIdx >= total) { doComparePhase(); return; }
+            var round = Math.floor(stepIdx / order.length);
+            var pl = order[stepIdx % order.length];
+            var road = ROAD_SEQ[round];
+            var ids = (pl.r.arrange && pl.r.arrange[road]) || [];
+            var hand = (road == "head") ? eval3(ids) : eval5(ids);
+            // 参考宝宝: 在桌面按道翻牌(对家翻牌背, 自己亮桌面上已有的牌)
+            self._revealTableRoad(pl.r, road, ids);
+            stepIdx++;
+            var rv = (self._revealedCount[pl.r.userid] || 0) + 1;
+            self._revealedCount[pl.r.userid] = rv;
+            // 席位 UI: 对家状态显示已亮道数, 顶部进度显示整体进度
+            var stLb = self._seatStateLabel(pl.r.userid);
+            if (stLb) stLb.string = "\u5df2\u4eae " + rv + "/3";
+            self._revealHint = "\u4eae\u724c " + stepIdx + "/" + total;
+            self.showTip("\u4eae\u724c " + (pl.r.name || "") + " " + ROAD_NAMES[road] +
+                (ids.length ? (" " + handTypeName(road, hand)) : "") + "  " + stepIdx + "/" + total);
+            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("fanpai.mp3");
+            self._revealTimer = setTimeout(nextStep, 380);
+        };
+
+        this.showTip("\u4eae\u724c\u4e2d...");
+        nextStep();
     },
 
-    // 把服务端 details 拼成一行"我和每家比三道"的结果
-    _compareText: function (data, myDelta) {
-        var head = "\u672c\u5c40\u5f97\u5206 " + (myDelta >= 0 ? "+" : "") + myDelta;
+    // 我和每个对手三道比牌的结果(服务端 details)
+    _compareLines: function (data) {
         var details = (data && data.details) || [];
         var results = (data && data.results) || [];
         var bySeat = {};
@@ -848,13 +1098,12 @@ cc.Class({
                 var rn = roads[k].road == "head" ? "\u5934" : (roads[k].road == "mid" ? "\u4e2d" : "\u5c3e");
                 w.push(rn + (mine > 0 ? "\u80dc" : (mine < 0 ? "\u8d1f" : "\u5e73")));
             }
-            var txt = oname + " " + w.join("/");
-            if (it.note) txt += "(" + it.note + ")";
+            var txt = "\u6211 vs " + oname + "\uff1a" + w.join("/");
+            if (it.note) txt += " (" + it.note + ")";
             parts.push(txt);
         }
-        var line = parts.length ? (head + "   " + parts.slice(0, 2).join("  \u00b7  ")) : head;
-        console.log("[SSS] onResult delta=" + myDelta + " pairs=" + details.length + " -> " + line);
-        return line;
+        if (!parts.length) parts.push("\u672c\u5c40\u6ca1\u6709\u53ef\u6bd4\u5bf9\u624b");
+        return parts;
     },
 
     _cancelReveal: function () {
@@ -880,8 +1129,41 @@ cc.Class({
         }
     },
 
+    _hideResultRow: function (rowNode) {
+        if (!rowNode) return;
+        for (var i = 0; i < rowNode.children.length; ++i) {
+            var child = rowNode.children[i];
+            if (child.name.indexOf("card") === 0) child.active = false;
+        }
+    },
+
+    // 亮一道: 翻开该道所有牌, 带一个轻微放大动效(参考宝宝翻牌)
+    _revealResultRow: function (rowNode, ids) {
+        if (!rowNode) return;
+        ids = ids || [];
+        var ci = 0;
+        for (var i = 0; i < rowNode.children.length; ++i) {
+            var child = rowNode.children[i];
+            if (child.name.indexOf("card") !== 0) continue;
+            var has = ci < ids.length;
+            child.active = has;
+            if (has) {
+                var sp = this._spriteOf(child);
+                if (sp) sp.spriteFrame = this._frameOf(ids[ci]);
+            }
+            ci++;
+        }
+        rowNode.stopAllActions();
+        rowNode.setScale(0.85, 0.85);
+        rowNode.runAction(cc.scaleTo(0.14, 1, 1).easing(cc.easeBackOut()));
+    },
+
     onGameEnd: function (data) {
         this._cancelReveal();
+        this._revealing = false;
+        this._revealingOnTable = false;
+        this._revealHint = "";
+        this._hideSelfHandRow();
         var lines = [];
         var endinfo = (data && data.endinfo) || [];
         for (var i = 0; i < endinfo.length; ++i) {
@@ -910,7 +1192,12 @@ cc.Class({
         var nm = cc.vv.gameNetMgr;
         var conf = (nm && nm.conf) || this._conf || {};
         if (this._n.progress) {
-            this._n.progress.string = "\u5e95\u5206 " + (conf.baseScore || 1) + "   \u7b2c" + ((nm && nm.numOfGames) || 0) + "/" + (conf.maxGames || "-") + " \u5c40";
+            // 亮牌/比牌阶段顶部进度让给亮牌进度(场景已有的 progressLabel)
+            if (this._revealing && this._revealHint) {
+                this._n.progress.string = this._revealHint;
+            } else {
+                this._n.progress.string = "\u5e95\u5206 " + (conf.baseScore || 1) + "   \u7b2c" + ((nm && nm.numOfGames) || 0) + "/" + (conf.maxGames || "-") + " \u5c40";
+            }
         }
         if (this._n.time) {
             var d = new Date();
@@ -944,7 +1231,8 @@ cc.Class({
             var scoreLb = this._labelOf(box.getChildByName("score"));
             var confirmed = this._readyMap[this._gameSeatOf[seat.userid]];
             var st;
-            if (!this._playing) st = seat.ready ? "\u5df2\u51c6\u5907" : "\u672a\u51c6\u5907";
+            if (this._revealing) st = "\u4eae\u724c\u4e2d";
+            else if (!this._playing) st = seat.ready ? "\u5df2\u51c6\u5907" : "\u672a\u51c6\u5907";
             else if (this._dealing) st = "\u7406\u724c\u4e2d";
             else st = confirmed ? "\u5df2\u786e\u5b9a\u6446\u724c" : "\u7406\u724c\u4e2d...";
             if (nameLb) nameLb.string = (seat.name || "\u73a9\u5bb6") + (seat.online === false ? "(\u79bb\u7ebf)" : "");
@@ -953,7 +1241,7 @@ cc.Class({
             //每个座位显示13张牌背(牌背节点在场景里摆好, 这里只控制显隐)
             for (var bi = 0; bi < 13; ++bi) {
                 var back = box.getChildByName("back" + bi);
-                if (back) back.active = this._playing;
+                if (back) back.active = this._playing || this._revealingOnTable;
             }
         }
         // 自己
@@ -965,7 +1253,9 @@ cc.Class({
             if (this._n.selfName) this._n.selfName.string = me.name || ("\u6211");
             if (this._n.selfScore) this._n.selfScore.string = "\u91d1\u5e01:" + (me.score || 0);
             if (this._n.selfState) {
-                if (this._confirmed) {
+                if (this._revealing) {
+                    this._n.selfState.string = "\u4eae\u724c\u4e2d";
+                } else if (this._confirmed) {
                     var cnt = 0;
                     for (var uid in this._gameSeatOf) {
                         if (this._readyMap[this._gameSeatOf[uid]]) cnt++;
@@ -980,6 +1270,185 @@ cc.Class({
         this._refreshTitle();
     },
 
+    // ================= 桌面亮牌 =================
+    _captureBackFrames: function () {
+        this._backFrames = [];
+        this._backLayout = [];
+        var opps = this._n.opps || [];
+        for (var k = 0; k < opps.length; ++k) {
+            var arr = [], lay = [];
+            for (var bi = 0; bi < 13; ++bi) {
+                var back = opps[k] ? opps[k].getChildByName("back" + bi) : null;
+                var sp = back ? back.getComponent(cc.Sprite) : null;
+                arr.push(sp ? sp.spriteFrame : null);
+                lay.push(back ? { x: back.x, y: back.y, sx: back.scaleX, sy: back.scaleY } : null);
+            }
+            this._backFrames.push(arr);
+            this._backLayout.push(lay);
+        }
+    },
+
+    _backFrame: function () {
+        for (var k = 0; k < this._backFrames.length; ++k) {
+            for (var i = 0; i < this._backFrames[k].length; ++i) {
+                if (this._backFrames[k][i]) return this._backFrames[k][i];
+            }
+        }
+        return null;
+    },
+
+    // 对家结果对应哪个 opp 盒子(和 _refreshSeats 的 opp0..opp4 排布一致); 自己返回 -1
+    _oppBoxIndexOf: function (userid) {
+        var nm = cc.vv.gameNetMgr;
+        if (!nm || !nm.seats) return -1;
+        var opps = [];
+        for (var i = 0; i < nm.seats.length; ++i) {
+            var s = nm.seats[i];
+            if (!s || !(s.userid > 0) || s.userid == this._myUserId) continue;
+            opps.push(s);
+        }
+        var keep = [[], [1], [0, 2], [0, 1, 2], [0, 1, 2, 3], [0, 1, 2, 3, 4]];
+        var idxs = keep[Math.min(opps.length, 5)];
+        for (var k = 0; k < 5; ++k) {
+            var si = idxs.indexOf(k);
+            if (si >= 0 && opps[si] && opps[si].userid == userid) return k;
+        }
+        return -1;
+    },
+
+    // 恢复对家牌背原始帧并全部盖住(新一局用)
+    _resetTableCards: function () {
+        var opps = this._n.opps || [];
+        for (var k = 0; k < opps.length; ++k) {
+            var box = opps[k];
+            if (!box) continue;
+            for (var bi = 0; bi < 13; ++bi) {
+                var back = box.getChildByName("back" + bi);
+                if (!back) continue;
+                back.stopAllActions();
+                var sp = back.getComponent(cc.Sprite);
+                if (sp && this._backFrames[k] && this._backFrames[k][bi]) sp.spriteFrame = this._backFrames[k][bi];
+                var layList = this._backLayout ? this._backLayout[k] : null;
+                var lay = layList ? layList[bi] : null;
+                if (lay) { back.setPosition(lay.x, lay.y); back.setScale(lay.sx, lay.sy); }
+                back.active = false;
+            }
+        }
+    },
+
+    _showTableBacks: function () {
+        var opps = this._n.opps || [];
+        for (var k = 0; k < opps.length; ++k) {
+            var box = opps[k];
+            if (!box || !box.active) continue;
+            for (var bi = 0; bi < 13; ++bi) {
+                var back = box.getChildByName("back" + bi);
+                if (back) back.active = true;
+            }
+        }
+    },
+
+    // 亮牌时把一叠牌背摊开一点, 否则13张叠在一起只能看到最上面一张
+    _layoutTableBacks: function () {
+        var opps = this._n.opps || [];
+        var spacing = 26, s = 0.8, half = (12 * spacing) / 2;
+        for (var k = 0; k < opps.length; ++k) {
+            var box = opps[k];
+            if (!box || !box.active) continue;
+            var lay0 = this._backLayout && this._backLayout[k] ? this._backLayout[k][0] : null;
+            var lay12 = this._backLayout && this._backLayout[k] ? this._backLayout[k][12] : null;
+            if (!lay0 || !lay12) continue;
+            var center = (lay0.x + lay12.x) / 2;
+            var abs = box.x + center;
+            // 靠边的座位往场内收, 避免摊开后出屏
+            if (abs + half > 930) center -= (abs + half - 930);
+            if (abs - half < -930) center += (-930 - (abs - half));
+            for (var bi = 0; bi < 13; ++bi) {
+                var back = box.getChildByName("back" + bi);
+                var lay = this._backLayout[k][bi];
+                if (!back || !lay) continue;
+                back.setPosition(center - half + bi * spacing, lay.y);
+                back.setScale(s, s);
+            }
+        }
+    },
+
+    // 自己的 13 张: 复用场景 handRoot 里摆好的 handSlot0..12 (0..2 头道, 3..7 中道, 8..12 尾道)
+    _showSelfHandRow: function (arr) {
+        var slots = this._n.handSlots || [];
+        if (this._n.handRoot) this._n.handRoot.active = true;
+        var order = (arr.head || []).concat(arr.mid || [], arr.tail || []);
+        for (var i = 0; i < slots.length; ++i) {
+            var slot = slots[i];
+            if (!slot) continue;
+            slot.active = true;
+            this._handSlotIds[i] = -1;
+            var card = slot.getChildByName("card");
+            if (!card) continue;
+            card.stopAllActions();
+            card.active = true;
+            card.setScale(1, 1);
+            var sp = card.getComponent(cc.Sprite);
+            if (sp && order[i] != null) sp.spriteFrame = this._frameOf(order[i]);
+        }
+    },
+
+    _hideSelfHandRow: function () {
+        if (this._n.handRoot) this._n.handRoot.active = false;
+    },
+
+    // 某家的状态文字节点: 自己用 selfSeat.state, 对家用 opp 盒子的 state
+    _seatStateLabel: function (userid) {
+        if (userid == this._myUserId) return this._n.selfState;
+        var bi = this._oppBoxIndexOf(userid);
+        if (bi < 0 || !this._n.opps || !this._n.opps[bi]) return null;
+        return this._labelOf(this._n.opps[bi].getChildByName("state"));
+    },
+
+    // 翻牌动画: 横向压扁 -> 换牌面 -> 弹回
+    _flipNode: function (node, face, endScale) {
+        if (!node) return;
+        var sp = node.getComponent(cc.Sprite);
+        node.stopAllActions();
+        node.runAction(cc.sequence(
+            cc.scaleTo(0.07, 0, endScale),
+            cc.callFunc(function () { if (sp) sp.spriteFrame = face; }),
+            cc.scaleTo(0.07, endScale, endScale)
+        ));
+    },
+
+    // 在桌面翻开某一家的一道牌: 对家翻牌背, 自己翻桌面牌行
+    _revealTableRoad: function (r, road, ids) {
+        if (!r || !ids || !ids.length) return;
+        var start = ROAD_START[road] || 0;
+        var boxIdx = this._oppBoxIndexOf(r.userid);
+        if (boxIdx >= 0) {
+            var box = this._n.opps ? this._n.opps[boxIdx] : null;
+            if (!box) return;
+            for (var i = 0; i < ids.length; ++i) {
+                var back = box.getChildByName("back" + (start + i));
+                if (!back) continue;
+                back.active = true;
+                this._flipNode(back, this._frameOf(ids[i]), 0.8);
+            }
+            return;
+        }
+        // 自己: 13 张已在桌面手牌区, 亮到哪道就把该道的牌弹一下
+        var slots = this._n.handSlots || [];
+        for (var j = 0; j < ids.length; ++j) {
+            var slot = slots[start + j];
+            var card = slot ? slot.getChildByName("card") : null;
+            if (!card) continue;
+            card.stopAllActions();
+            card.active = true;
+            card.setScale(1, 1);
+            card.runAction(cc.sequence(
+                cc.scaleTo(0.08, 1.18, 1.18),
+                cc.scaleTo(0.12, 1, 1)
+            ));
+        }
+    },
+
     renderAll: function () {
         this._refreshPhase();
         this._renderHand();
@@ -990,8 +1459,8 @@ cc.Class({
     },
 
     _refreshPhase: function () {
-        //摆牌界面只要在对局中就显示(发牌动画只是盖在上面的一层), 避免动画卡住时按钮/手牌全不见
-        var showArrange = this._playing && !this._final;
+        // 参考宝宝: 发牌(开始动画)期间先看牌桌, 动画结束后再弹摆牌界面; 动画卡住由 _tick 的6秒兜底解锁
+        var showArrange = this._playing && !this._final && !this._dealing;
         if (this._n.arrangeRoot) this._n.arrangeRoot.active = showArrange;
         if (this._n.selfSeat) this._n.selfSeat.active = !showArrange;
         if (this._n.cdRoot) this._n.cdRoot.active = showArrange;
@@ -999,6 +1468,8 @@ cc.Class({
 
     _renderHand: function () {
         var slots = this._n.handSlots || [];
+        // 亮牌阶段手牌区被借用成桌面亮牌行, 不能被摆牌刷新关掉
+        if (this._revealing) return;
         var n = this._hand.length;
         var show = !this._autoMode && !this._confirmed && !this._dealing;
         if (this._n.handRoot) this._n.handRoot.active = show;
@@ -1023,11 +1494,12 @@ cc.Class({
             if (!info) return;
             var cap = ROAD_CAP[road];
             var cards = self._roads[road] || [];
+            var hiRoad = self._dragRoad || self._selectRoad;
             if (info.label) info.label.string = ROAD_NAMES[road] + " " + cards.length + "/" + cap;
-            if (info.labelNode) info.labelNode.color = (self._selectRoad == road) ? cc.color(255, 226, 130) : cc.color(190, 235, 215);
+            if (info.labelNode) info.labelNode.color = (hiRoad == road) ? cc.color(255, 226, 130) : cc.color(190, 235, 215);
 
             var full = (cards.length == cap);
-            var showType = self._autoMode && full;
+            var showType = full;
             if (info.ok) info.ok.active = showType;
             if (info.typeNode) info.typeNode.active = showType;
             if (showType && info.typeLabel) {
@@ -1099,7 +1571,7 @@ cc.Class({
         if (n.btnManual) n.btnManual.active = playing;
         if (n.btnSwap) n.btnSwap.active = playing;
         if (n.btnConfirm) n.btnConfirm.active = playing && !done;
-        if (n.btnReady) n.btnReady.active = !this._playing && !this._final;
+        if (n.btnReady) n.btnReady.active = !this._playing && !this._final && !this._revealing;
     },
 
     _refreshCountdown: function () {
@@ -1315,7 +1787,10 @@ cc.Class({
         var curScene = cc.director.getScene ? cc.director.getScene() : null;
         var curName = (curScene && curScene.name) ? curScene.name : "";
         if (curName === "hall" || curName === "club") return;
-        if (cc.vv.fromClub || cc.vv.fromClubId) cc.director.loadScene("club");
-        else cc.director.loadScene("hall");
+        //统一回牌桌大厅(该俱乐部玩法/牌桌列表页),不再按来源回系统大厅
+        var nm = cc.vv.gameNetMgr;
+        if(nm && nm.exitToTableHall) nm.exitToTableHall();
+        else if(cc.vv.sceneMgr) cc.vv.sceneMgr.load("club");
+        else cc.director.loadScene("club");
     }
 });

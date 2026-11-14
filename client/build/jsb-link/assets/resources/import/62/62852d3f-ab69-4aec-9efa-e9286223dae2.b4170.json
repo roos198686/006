@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "42eYMsAIJEKo5J9uWA3oiu"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "结算",
+      "rect": [
+        11,
+        14,
+        680,
+        325
+      ],
+      "offset": [
+        1,
+        -1.5
+      ],
+      "originalSize": [
+        700,
+        350
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

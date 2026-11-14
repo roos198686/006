@@ -1,4 +1,4 @@
-﻿// 诸暨赖倒胡（翻财神，无台数门槛，推倒胡）游戏主脚本
+﻿﻿// 诸暨赖倒胡（翻财神，无台数门槛，推倒胡）游戏主脚本
 // 财神手牌金色固定: 同步Button过渡色, 防止鼠标滑过(hover)被按钮过渡重置回原色
 function tintHandCard(node, isCs){
     var col = isCs ? cc.color(255, 208, 90) : cc.Color.WHITE;
@@ -103,15 +103,10 @@ cc.Class({
         var gameChild = this.node.getChildByName("game");
         //mj剩余数和剩余局数
         this._mjcount = gameChild.getChildByName('mjcount').getComponent(cc.Label);
-        this._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
+        this._updateMjCount();
         this._gamecount = gameChild.getChildByName('gamecount').getComponent(cc.Label);
         this._gamecount.string = "" + cc.vv.gameNetMgr.numOfGames + "/" + cc.vv.gameNetMgr.maxNumOfGames + "局";
-        //剩余牌数放到中间局数的左侧(下一拍等Label宽度更新后再对齐)
-        var mjcountNode = this._mjcount.node, gamecountNode = this._gamecount.node;
-        this.scheduleOnce(function(){
-            if(!cc.isValid(mjcountNode) || !cc.isValid(gamecountNode)){ return; }
-            mjcountNode.setPosition(gamecountNode.x - gamecountNode.width/2 - mjcountNode.width/2 - 12, gamecountNode.y);
-        }, 0);
+        //剩余牌数/局数的位置全部按场景里摆好的来, 代码不再改写
         //取到手牌节点
         var myselfChild = gameChild.getChildByName("myself");
         var myholds = myselfChild.getChildByName("holds");
@@ -138,9 +133,7 @@ cc.Class({
             if(sideChild == null){ continue; }
             this._hupaiTips.push(sideChild.getChildByName("HuPai"));
             this._hupaiLists.push(sideChild.getChildByName("hupailist"));
-            this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
-            //出牌数组将出牌节点获取进来
-            this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
+
             //获取胡后显示节点
             var opt = sideChild.getChildByName("opt");
             opt.active = false;
@@ -150,6 +143,9 @@ cc.Class({
                 sprite:sprite
             };
             this._opts.push(data);
+            this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
+            //出牌数组将出牌节点获取进来
+            this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
         }
         //获取到ops节点
         var opts = gameChild.getChildByName("ops");
@@ -177,6 +173,15 @@ cc.Class({
         }
         this.hideOptions();
         this.hideChupai();
+    },
+
+    //剩余张数 = 牌墙上还亮着的牌减掉置灰不可摸的死墙(即还能摸几张),由MJRoom刷新牌墙时算好
+    _updateMjCount:function(){
+        if(!this._mjcount){ return; }
+        var room = this.getComponent("MJRoom") || this.node.getComponent("MJRoom");
+        if(room && room._brickBuilt){ room.refreshBrickWall(); }
+        var n = (room && room._brickRemainCount != null) ? room._brickRemainCount : cc.vv.gameNetMgr.numOfMJ;
+        this._mjcount.string = "剩余" + n + "张";
     },
 
     //隐藏出牌
@@ -312,7 +317,7 @@ cc.Class({
         });
 
         this.node.on('mj_count',function(data){
-            self._mjcount.string = "剩余" + cc.vv.gameNetMgr.numOfMJ + "张";
+            self._updateMjCount();
         });
 
         this.node.on('game_num',function(data){
@@ -397,6 +402,7 @@ cc.Class({
         });
         //吃
         this.node.on('chi_notify',function(data){
+            self._chiJustSent = false; //吃牌成功,清掉超时/拒绝侦测标记
             self.hideChupai();
             var seatData = data.detail;
             console.log('[chi_notify] seatData.userid=',seatData.userid,'holds=',typeof seatData.holds === 'object' ? seatData.holds.length+':'+JSON.stringify(seatData.holds) : seatData.holds);
@@ -722,8 +728,22 @@ cc.Class({
     //碰杠胡行为实现
     playEfx:function(index,name){
         var efx = this._playEfxs[index];
-        efx.node.active = true;
-        efx.play(name);
+        var efxNode = efx ? efx.node : null;
+        if(efxNode == null){
+            //进场景时座位数据还没同步会取不到play_efx,这里按方位名现取一次并缓存,
+            //否则吃/碰/杠/胡会在这里抛异常,整个座位spine动画直接没有
+            var gameChild = this.node.getChildByName("game");
+            var sideName = cc.vv.mahjongmgr.getSide(index);
+            var sideChild = gameChild ? gameChild.getChildByName(sideName) : null;
+            efxNode = sideChild ? sideChild.getChildByName("play_efx") : null;
+            if(efxNode){
+                efx = efxNode.getComponent(cc.Animation);
+                this._playEfxs[index] = efx;
+            }
+        }
+        if(efxNode == null){ return; }
+        efxNode.active = true;
+        if(efx){ efx.play(name); }
         //吃/碰/杠/胡/自摸叠加逆向包 spine 动画(资源未导入时静默跳过)
         if(cc.vv && cc.vv.mahjongmgr){
             var spKey = null;
@@ -732,7 +752,7 @@ cc.Class({
             else if(name == "play_chi"){ spKey = "mj_chi"; }
             else if(name == "play_peng"){ spKey = "mj_peng"; }
             else if(name == "play_guafeng" || name == "play_xiayu" || name == "play_gang"){ spKey = "mj_gang"; }
-            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efx.node, spKey); }
+            if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efxNode, spKey); }
         }
     },
     //游戏开始
@@ -742,7 +762,7 @@ cc.Class({
         this._pendingShowPrepare = false; //新一局开始,清掉上局"弹窗关闭才切等待界面"的标记
 
         for(var i = 0; i < this._playEfxs.length; ++i){
-            this._playEfxs[i].node.active = false;
+            if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
         for(var i = 0; i < this._hupaiLists.length; ++i){

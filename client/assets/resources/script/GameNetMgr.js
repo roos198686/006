@@ -60,6 +60,7 @@ cc.Class({
             this.seats[i].angangs = [];
             this.seats[i].diangangs = [];
             this.seats[i].wangangs = [];
+            this.seats[i].hua = []; //漳浦:花牌数组,新一局必须清,否则沿用上一局的花牌
             this.seats[i].ready = false;
             this.seats[i].hued = false;
         }
@@ -117,6 +118,23 @@ cc.Class({
         this.sssConfirmed = null;
         this.sssResult = null;
         this._pendingEvents = [];    //清事件队列:防止上一房间残留事件重放进新房间场景
+    },
+
+    //退出房间统一回"牌桌大厅"(club场景按fromClubId直达该俱乐部的玩法/牌桌列表页)。
+    //俱乐部id优先取进房来源(俱乐部进桌),其次房间配置conf.clubid(从大厅按房号进桌也有),
+    //两处都取不到才落到俱乐部列表页;不再回系统大厅。
+    exitToTableHall:function(){
+        var cid = 0;
+        if(this.roomBackClubId){ cid = parseInt(this.roomBackClubId) || 0; }
+        if(!(cid > 0) && cc.vv.fromClubId){ cid = parseInt(cc.vv.fromClubId) || 0; }
+        if(!(cid > 0) && this.conf && this.conf.clubid){ cid = parseInt(this.conf.clubid) || 0; }
+        if(cid > 0){
+            cc.vv.fromClub = true;
+            cc.vv.fromClubId = cid;
+        }
+        console.log("[退出房间]回牌桌大厅 clubId=" + cid);
+        if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); }
+        else{ cc.director.loadScene("club"); }
     },
 
     onLoad:function(){
@@ -334,6 +352,10 @@ cc.Class({
                 self.bbMyMian = null;
                 //记录本局玩法类型:退出/结算回俱乐部时用于直达该玩法的牌桌页,而不是默认玩法列表
                 if(data.conf && data.conf.type){ cc.vv.lastGameType = data.conf.type; }
+                //记录房间所属俱乐部:从大厅按房号进桌时没有来源俱乐部,靠它退出时也能回该俱乐部的牌桌页
+                //(按本局实际房间覆盖,避免上一间俱乐部房间的id带到普通房间)
+                var _cid = (data.conf && Number(data.conf.clubid)) || Number(cc.vv.fromClubId) || 0;
+                self.roomBackClubId = (_cid > 0) ? _cid : null;
             }
             else{
                 //进房失败:必须清掉上一房间残留(seats/conf/gamestate),否则服务端重启/房间不存在时,
@@ -347,12 +369,10 @@ cc.Class({
                 }else{
                     cc.vv.wc.showError(failMsg);
                 }
-                //重连旧房失败(房间已失效):人还停在旧牌桌场景,必须切回来源页,否则面对一桌假牌无法操作
+                //重连旧房失败(房间已失效):人还停在旧牌桌场景,必须切回牌桌大厅,否则面对一桌假牌无法操作
                 if(hadRoom){
-                    var back = (self.roomBackScene === "club" || cc.vv.fromClub || cc.vv.fromClubId) ? "club" : "hall";
                     setTimeout(function(){
-                        if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load(back); }
-                        else{ cc.director.loadScene(back); }
+                        self.exitToTableHall();
                     }, 1200); //略作停留让错误提示可见
                 }
             }
@@ -453,18 +473,8 @@ cc.Class({
                 }
             };
             if(self.roomId == null){
-                //无房断线:按进房时记录的来源场景回去(俱乐部进桌回俱乐部详情,大厅进桌回大厅),避免固定回大厅
-                if(self.roomBackScene === "club"){
-                    if(self.roomBackClubId){ cc.vv.fromClubId = self.roomBackClubId; }
-                    cc.vv.fromClub = true;
-                    doLoad("club");
-                }
-                else if(cc.vv.fromClub || cc.vv.fromClubId){
-                    doLoad("club");
-                }
-                else{
-                    doLoad("hall");
-                }
+                //无房断线:统一回牌桌大厅(俱乐部玩法/牌桌列表页),不再固定回系统大厅
+                self.exitToTableHall();
             }
             else{
                 if(self.isOver == false){
@@ -996,6 +1006,8 @@ cc.Class({
             //先缓存本次结算数据(含整场 endinfo), 再派发 game_over: 
             //宝宝结算面板要靠 overData.endinfo 判定"整场最后一局", 否则会误显示洗牌按钮/直接弹总结算
             self.overData = data;
+            //本轮小局结算待关闭:整场结算面板必须等小局结算弹窗关闭后再显示
+            self.roundSettleAwait = true;
             self.dispatchEvent('game_over',results);
             //缓存最近一次结算数据:结算停留期断线/刷新重进时,服务端补发的game_over_push
             //会先于游戏场景加载到达,弹窗组件尚未注册监听会错过,场景就绪后由login_finished重放

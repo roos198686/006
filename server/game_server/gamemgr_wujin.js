@@ -126,7 +126,8 @@ function canFormMelds(cm, shape){
         cm[t] += 3;
     }
     var v = t % 9;
-    if(getMJType(t) >= 0 && v <= 7 && (cm[t+1] || 0) > 0 && (cm[t+2] || 0) > 0){
+    //v<=6: t+2必须在同一门内(v=7时t+2已跨到下一门,会误判 8筒9筒+1条 之类为顺子)
+    if(getMJType(t) >= 0 && v <= 6 && (cm[t+1] || 0) > 0 && (cm[t+2] || 0) > 0){
         cm[t]--; cm[t+1]--; cm[t+2]--;
         if(shape) shape.sequenceCount++;
         if(canFormMelds(cm, shape)){ cm[t]++; cm[t+1]++; cm[t+2]++; return true; }

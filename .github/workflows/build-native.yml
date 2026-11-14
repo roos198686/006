@@ -27,7 +27,7 @@ jobs:
           echo "ndk.dir=$ANDROID_HOME/ndk/21.4.7075529" >> client/build/jsb-default/frameworks/runtime-src/proj.android-studio/local.properties
 
       - name: Rebuild hot update manifest
-        run: node tools/gen_manifest.js client/build/jsb-default 1.0.6 http://47.239.100.68:9100/hotupdate
+        run: node tools/gen_manifest.js client/build/jsb-default 1.0.10 http://47.239.100.68:9100/hotupdate
 
       - name: Build unsigned release APK
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.android-studio

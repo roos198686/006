@@ -924,10 +924,12 @@ cc.Class({
         var curScene = cc.director.getScene ? cc.director.getScene() : null;
         var curName = (curScene && curScene.name) ? curScene.name : "";
         if (curName === "hall" || curName === "club") return;
-        //从俱乐部进的房间退出回俱乐部(直达玩法详情页),从大厅进的房间退出回大厅牌桌页面
+        //统一回牌桌大厅(该俱乐部玩法/牌桌列表页),不再按来源回系统大厅
         console.log('[GP] leaveRoom fromClub=' + cc.vv.fromClub + ' fromClubId=' + cc.vv.fromClubId);
-        if (cc.vv.fromClub || cc.vv.fromClubId) cc.director.loadScene("club");
-        else cc.director.loadScene("hall");
+        var nm = cc.vv.gameNetMgr;
+        if(nm && nm.exitToTableHall) nm.exitToTableHall();
+        else if(cc.vv.sceneMgr) cc.vv.sceneMgr.load("club");
+        else cc.director.loadScene("club");
     },
 
     // 场景加载时：若牌局已在进行(开局事件早于场景就绪被丢弃)，直接用GameNetMgr缓存恢复

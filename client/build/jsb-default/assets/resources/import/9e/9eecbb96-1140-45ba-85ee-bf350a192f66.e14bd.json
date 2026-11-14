@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "95LnaZoG1Hc6bPz9X+QM5Z"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "dice_5",
+      "rect": [
+        4,
+        1,
+        95,
+        99
+      ],
+      "offset": [
+        1.5,
+        -0.5
+      ],
+      "originalSize": [
+        100,
+        100
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "6clf62D2JPILPDKmZcshZ0"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "流局-麻将",
+      "rect": [
+        0,
+        19,
+        670,
+        249
+      ],
+      "offset": [
+        0,
+        -3.5
+      ],
+      "originalSize": [
+        670,
+        280
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "caXo2PSrRByK67LGJp9O3J"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "dn_6_holdem_green",
+      "rect": [
+        0,
+        33,
+        411,
+        219
+      ],
+      "offset": [
+        0,
+        -16.5
+      ],
+      "originalSize": [
+        411,
+        252
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

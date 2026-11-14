@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "44mHzBGY9ILr01JyXCGEdP"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "failed",
+      "rect": [
+        1,
+        3,
+        154,
+        184
+      ],
+      "offset": [
+        -2,
+        0
+      ],
+      "originalSize": [
+        160,
+        190
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]

@@ -18,6 +18,8 @@ cc.Class({
         _pingju:null,
         _win:null,
         _lose:null,
+        _cdLabel:null,     //小局结算倒计时Label
+        _cdTickCb:null,    //每秒刷新倒计时的回调
     },
 
     // use this for initialization
@@ -36,6 +38,8 @@ cc.Class({
         }
         
         this._gameover.active = false;
+        //小局结算弹窗是否已经关闭:整场结算必须等它为true后才能显示
+        this._roundSettleClosed = false;
 
         this._pingju = this._gameover.getChildByName("pingju");
         this._win = this._gameover.getChildByName("win");
@@ -88,8 +92,9 @@ cc.Class({
         
         this.node.on('game_end',function(data){
             self._isGameEnd = true;
-            //最后一小局:必须先弹小局结算,总局结算等小局弹窗关闭后再显示
-            if(self._isRoundSettlePending()){
+            //最后一小局:必须先弹小局结算(含倒计时),总局结算等小局弹窗关闭后再显示。
+            //不能用_isRoundSettlePending判断:game_end和game_over同一帧派发,此时延时弹窗的回调可能还没建立
+            if(!self._roundSettleClosed){
                 self._pendingGameEnd = true;
                 return;
             }
@@ -126,11 +131,93 @@ cc.Class({
     //显示整场总结算面板:game_result 的位置/大小/缩放全部在场景里配置,这里只控制显隐
     _showGameResult:function(){
         this._pendingGameEnd = false;
+        this._stopCountdown();
         if(this._gameresult){ this._gameresult.active = true; }
         if(this._gameover){ this._gameover.active = false; }
     },
 
+    //单局结算30秒未操作:自动关闭弹窗(最后一局关闭后切整场结算)
+    startAutoReadyTimer:function(){
+        if(this._autoReadyCb){
+            this.unschedule(this._autoReadyCb);
+            this._autoReadyCb = null;
+        }
+        this._stopCountdown();
+        var self = this;
+        var total = 30;
+        //优先用场景里的 settleCountdown 节点, 没有就建在准备按钮上方
+        var lb = this._ensureSettleCountdown();
+        if(lb){
+            var left = total;
+            lb.node.active = true;
+            lb.string = "" + left;
+            this._cdTickCb = function(){
+                left--;
+                if(!cc.isValid(lb.node)){ return; }
+                lb.string = (left > 0) ? ("" + left) : "0";
+            };
+            this.schedule(this._cdTickCb, 1, total - 2);
+        }
+        this._autoReadyCb = function(){
+            self._autoReadyCb = null;
+            self._stopCountdown();
+            if(self._gameover && self._gameover.active){
+                console.log("[结算]30秒未操作,自动关闭结算弹窗");
+                self.onBtnReadyClicked();
+            }
+        };
+        this.scheduleOnce(this._autoReadyCb, total);
+    },
+
+    //小局结算倒计时Label:场景里若有 settleCountdown 就用它, 否则运行时创建
+    _ensureSettleCountdown:function(){
+        if(this._cdLabel && cc.isValid(this._cdLabel.node)){ return this._cdLabel; }
+        if(this._gameover == null){ return null; }
+        //倒计时节点可能被包在容器里(settleCountdown在Newsf下),递归查找
+        var findNode = function(root, name){
+            if(root == null){ return null; }
+            if(root.name == name){ return root; }
+            var ch = root.children || [];
+            for(var i = 0; i < ch.length; ++i){
+                var r = findNode(ch[i], name);
+                if(r){ return r; }
+            }
+            return null;
+        };
+        var node = findNode(this._gameover, "settleCountdown");
+        if(node == null){
+            var btn = this._gameover.getChildByName("btnReady");
+            node = new cc.Node("settleCountdown");
+            node.setContentSize(360, 40);
+            node.setPosition(0, (btn ? btn.y : -327) + 70);
+            node.color = cc.color(255, 236, 150);
+            this._gameover.addChild(node);
+        }
+        var lb = node.getComponent(cc.Label);
+        if(lb == null){ lb = node.addComponent(cc.Label); }
+        lb.fontSize = lb.fontSize || 28;
+        lb.lineHeight = lb.lineHeight || 32;
+        lb.string = "";
+        this._cdLabel = lb;
+        return lb;
+    },
+
+    //停止倒计时刷新并隐藏Label
+    _stopCountdown:function(){
+        if(this._cdTickCb){
+            this.unschedule(this._cdTickCb);
+            this._cdTickCb = null;
+        }
+        if(this._cdLabel && cc.isValid(this._cdLabel.node)){
+            this._cdLabel.string = "";
+            this._cdLabel.node.active = false;
+        }
+    },
+
     onGameOver(data){
+        //新一局结算开始:复位关闭标记,保证本局整场结算仍要等小局弹窗关闭
+        this._roundSettleClosed = false;
+        this._pendingGameEnd = false;
         var delay = this._getHuDelay();
         if(delay > 0){
             var self = this;
@@ -329,6 +416,8 @@ cc.Class({
                 }
             }
         }
+        //小局结算倒计时(最后一局也走,到0关闭弹窗再弹整场结算)
+        this.startAutoReadyTimer();
     },
 
     //结算行老庄标签:挂在庄标节点正下方(庄标56x56,下方空隙不碰右侧牌区),count>=1时显示"老庄X",否则隐藏
@@ -588,6 +677,8 @@ cc.Class({
                 }    
             }
         }
+        //小局结算倒计时(最后一局也走,到0关闭弹窗再弹整场结算)
+        this.startAutoReadyTimer();
     },
     onGameOver_XLCH:function(data){
         console.log(data);
@@ -841,6 +932,8 @@ cc.Class({
                 }    
             }
         }
+        //小局结算倒计时(最后一局也走,到0关闭弹窗再弹整场结算)
+        this.startAutoReadyTimer();
     },
     
     initPengAndGangs:function(seatView,index,mjid,flag,tiles){
@@ -855,7 +948,13 @@ cc.Class({
             pgroot.active = true;
         }
 
-        var sprites = pgroot.getComponentsInChildren(cc.Sprite);
+        //只取预制体的直系牌面(csCorner财神角标是孙节点,结算里不显示,
+        //用getComponentsInChildren会把角标也当成一张牌,导致吃的三张牌赋值错位)
+        var sprites = [];
+        for(var c = 0; c < pgroot.childrenCount; ++c){
+            var csp = pgroot.children[c].getComponent(cc.Sprite);
+            if(csp){ sprites.push(csp); }
+        }
         var pi = 0; //碰组真实组成渲染索引(仅peng且有tiles时)
         for(var s = 0; s < sprites.length; ++s){
             var sprite = sprites[s];
@@ -879,7 +978,62 @@ cc.Class({
                 pi++;
             }
         }
-        pgroot.x = index * 55 * 3 + index * 10;
+        this._tightenMeld(pgroot, seatView, index);
+    },
+
+    //副牌(吃/碰/杠)组内紧贴 + 整组对齐手牌槽位:
+    //B_牌图集每张frame是55x84, 但画面内容只有52宽(左1px/右2px透明边),
+    //按预制体的55间距摆放会露出3px空隙; 这里用50(内容宽52再重叠2px),
+    //即使结算行缩放到1.1这类非整数倍, 重叠也能盖住采样产生的半透明缝。
+    _tightenMeld:function(pgroot, seatView, index){
+        var step = 50;
+        var cards = [];
+        for(var c = 0; c < pgroot.childrenCount; ++c){
+            var cn = pgroot.children[c];
+            if(!cn || cn.name == "gang") continue;
+            var sp = cn.getComponent(cc.Sprite);
+            if(sp == null) continue;
+            //统一尺寸模式与节点尺寸:否则TRIMMED会按各自frame改节点宽度,间距算不准
+            sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+            cn.width = 55;
+            cn.height = 84;
+            cn.scaleX = 1;
+            cn.scaleY = 1;
+            cards.push(cn);
+        }
+        if(cards.length == 0){ return step; }
+        for(var k = 0; k < cards.length; ++k){
+            cards[k].x = k * step;
+        }
+        var gangNode = pgroot.getChildByName("gang");
+        if(gangNode && cards.length > 1){ gangNode.x = cards[1].x; }
+
+        //手牌槽位(排除副牌节点自身):每组副牌占3个槽位
+        var pai = seatView ? seatView.mahjongs : null;
+        var meld = pgroot.parent;
+        if(pai && meld){
+            var slots = [];
+            for(var i = 0; i < pai.childrenCount; ++i){
+                var n = pai.children[i];
+                if(!n || n.name == "gang") continue;
+                if(seatView._pengandgang && seatView._pengandgang.indexOf(n) >= 0) continue;
+                if(n.getComponent(cc.Sprite) == null) continue;
+                slots.push(n);
+            }
+            if(slots.length > 0){
+                var si = Math.min(index * 3, slots.length - 1);
+                var slot = slots[si];
+                //世界坐标换算:副牌容器(meldArea)与手牌容器(pai)的位置/缩放可能不同
+                var world = pai.convertToWorldSpaceAR(cc.v2(slot.x, slot.y));
+                var local = meld.convertToNodeSpaceAR(world);
+                pgroot.x = local.x - cards[0].x * pgroot.scaleX;
+                pgroot.y = local.y - cards[0].y * pgroot.scaleY;
+                return step * cards.length;
+            }
+        }
+        //没有手牌槽位的老场景:按组顺序平铺
+        pgroot.x = index * step * cards.length;
+        return step * cards.length;
     },
 
     //吃牌组：3张不同的牌平铺显示（复用碰预制体，隐藏gang背后逐张赋值）
@@ -895,7 +1049,12 @@ cc.Class({
             pgroot.active = true;
         }
         var sorted = chiArr.slice().sort(function(a,b){return a-b;});
-        var sprites = pgroot.getComponentsInChildren(cc.Sprite);
+        //只取直系牌面,跳过csCorner角标(否则三张吃的牌会赋值错位)
+        var sprites = [];
+        for(var c = 0; c < pgroot.childrenCount; ++c){
+            var csp = pgroot.children[c].getComponent(cc.Sprite);
+            if(csp){ sprites.push(csp); }
+        }
         var pi = 0;
         for(var s = 0; s < sprites.length; ++s){
             var sprite = sprites[s];
@@ -908,12 +1067,20 @@ cc.Class({
                 pi++;
             }
         }
-        pgroot.x = index * 55 * 3 + index * 10;
+        this._tightenMeld(pgroot, seatView, index);
     },
     
     onBtnReadyClicked:function(){
         console.log("onBtnReadyClicked");
-        if(this._isGameEnd){
+        //手动点准备:取消30秒自动关闭定时器,避免重复触发
+        if(this._autoReadyCb){
+            this.unschedule(this._autoReadyCb);
+            this._autoReadyCb = null;
+        }
+        this._stopCountdown();
+        //标记小局结算已关闭,此后才允许弹整场结算
+        this._roundSettleClosed = true;
+        if(this._isGameEnd || this._pendingGameEnd){
             this._showGameResult();
         }
         else{

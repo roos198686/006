@@ -241,6 +241,9 @@ cc.Class({
         this._panel = root;
         var mask = root.getChildByName("mask");
         if (mask) { addClick(mask, this.node, "DeskStyle", "_onMaskClick"); }
+        // 场景 bg_choose 下新增的 noSprite: 点它也关闭弹窗
+        var noSprite = root.getChildByName("noSprite");
+        if (noSprite) { addClick(noSprite, this.node, "DeskStyle", "_onMaskClick"); }
         var panel = root.getChildByName("panel");
         if (panel) {
             var items = this._getItems(panel);

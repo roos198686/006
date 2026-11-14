@@ -1,0 +1,51 @@
+[
+  1,
+  [
+    "d95lRoYWhGkYnRUsN3j0B8"
+  ],
+  [
+    "_textureSetter"
+  ],
+  [
+    "cc.SpriteFrame"
+  ],
+  0,
+  [
+    {
+      "name": "总览",
+      "rect": [
+        8,
+        6,
+        404,
+        307
+      ],
+      "offset": [
+        0,
+        0.5
+      ],
+      "originalSize": [
+        420,
+        320
+      ],
+      "capInsets": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  [
+    0
+  ],
+  0,
+  [
+    0
+  ],
+  [
+    0
+  ],
+  [
+    0
+  ]
+]
