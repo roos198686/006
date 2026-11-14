@@ -1221,7 +1221,9 @@ _bindRewardPage: function () {
         this._setLabel(row, "amount", String(Number(reward.amount) || 0));
         this._setLabel(row, "game", this._rewardGameName(reward));
         this._setLabel(row, "room", String(reward.roomid || 0));
-        this._setLabel(row, "date", new Date(reward.create_time * 1000).toLocaleString());
+        // 日期统一用页面里的格式化函数: toLocaleString 在原生(JSB)里跟随设备语言,
+        // 可能输出 "11/15/2026, 3:41:00 AM" 这类格式, 看着像日期错了
+        this._setLabel(row, "date", this._fmtDateTime(reward.create_time));
 
         // 状态 + 领取按钮(已领取的行不显示按钮)
         var claimed = (Number(reward.claim_status) === 1);
@@ -2244,7 +2246,7 @@ _bindRewardPage: function () {
                 var list = ret.data || [];
                 for (var i = 0; i < list.length; i++) {
                     var r = list[i];
-                    var t = r.create_time ? new Date(r.create_time * 1000).toLocaleString() : "";
+                    var t = self._fmtDateTime(r.create_time);
                     rows.push([t, r.change_type || "", r.amount || 0, r.roomid || "", r.remark || ""]);
                 }
             }
@@ -2273,7 +2275,7 @@ _bindRewardPage: function () {
                 var list = ret.data || [];
                 for (var i = 0; i < list.length; i++) {
                     var r = list[i];
-                    var t = r.create_time ? new Date(r.create_time * 1000).toLocaleString() : "";
+                    var t = self._fmtDateTime(r.create_time);
                     rows.push([t, r.change_type || "", r.amount || 0, r.roomid || "", r.name || ""]);
                 }
             }
