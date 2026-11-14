@@ -41,7 +41,6 @@ cc.Class({
         _mjcount:null,
         _gamecount:null,
         _hupaiTips:[],
-        _hupaiLists:[],
         _playEfxs:[],
         _opts:[], //胡牌自摸数组
         _chiPanel:null, //吃牌组合选择面板
@@ -132,7 +131,6 @@ cc.Class({
             var sideChild = gameChild.getChildByName(side);
             if(sideChild == null){ continue; }
             this._hupaiTips.push(sideChild.getChildByName("HuPai"));
-            this._hupaiLists.push(sideChild.getChildByName("hupailist"));
 
             //获取胡后显示节点
             var opt = sideChild.getChildByName("opt");
@@ -763,12 +761,6 @@ cc.Class({
 
         for(var i = 0; i < this._playEfxs.length; ++i){
             if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
-        }
-
-        for(var i = 0; i < this._hupaiLists.length; ++i){
-            for(var j = 0; j < this._hupaiLists[i].childrenCount; ++j){
-                this._hupaiLists[i].children[j].active = false;
-            }
         }
 
         if(cc.vv.gameNetMgr.seats){ //无房间数据时跳过,避免null.length崩溃

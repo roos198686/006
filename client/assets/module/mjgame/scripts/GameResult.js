@@ -116,7 +116,7 @@ cc.Class({
     },
 
     //结算渲染(参考 mjgame_bb_shou 的 game_result):
-    //顶部信息条(房号/玩法/扣费/倍率/时间) + 每个座位一张玩家卡片(头像/昵称/ID/总分/大赢家)
+    //顶部信息条(房号/玩法/时间) + 每个座位一张玩家卡片(头像/昵称/ID/总分/大赢家)
     renderList:function(endinfo, roundHistory){
         this._lastRenderArgs = [endinfo, roundHistory];
         if(this._gameresult == null){ return; }
@@ -194,21 +194,18 @@ cc.Class({
         return out;
     },
 
-    //顶部信息条:房号/玩法/扣费/倍率/时间
+    //顶部信息条:房号/玩法/时间
     setInfoLine:function(root){
         var bar = root.getChildByName("infoBar");
         var lbl = bar ? bar.getChildByName("infoLabel") : null;
         var lb = lbl ? lbl.getComponent(cc.Label) : null;
         if(lb == null){ return; }
         var nm = cc.vv.gameNetMgr || {};
-        var conf = nm.conf || {};
         var wanfa = nm.getWanfa ? (nm.getWanfa() || "") : "";
-        var cost = (conf.cost != null) ? conf.cost : ((conf.fangka != null) ? conf.fangka : "-");
-        var rate = (conf.rate != null) ? conf.rate : ((conf.multiple != null) ? conf.multiple : 1);
         var d = new Date();
         var pad = function(v){ return v < 10 ? ("0" + v) : ("" + v); };
         var time = d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
-        lb.string = "房号：" + (nm.roomId || "") + "   " + wanfa + "   扣费:" + cost + "   倍率:" + rate + "倍   " + time;
+        lb.string = "房号：" + (nm.roomId || "") + "   " + wanfa + "   " + time;
     },
 
     //给节点上的 Label 填字

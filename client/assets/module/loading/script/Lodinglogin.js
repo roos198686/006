@@ -86,6 +86,8 @@ cc.Class({
     //引导图显示加载
     start:function(){
         console.log("[Lodinglogin] start enter");
+        if(this._bootStarted){ return; } //只跑一次, 防止场景重进时重复检查热更
+        this._bootStarted = true;
         //原生环境先做APP热更新检查(服务器未发布热更清单时自动跳过), 完成后走 checkVersion
         if(cc.sys.isNative && typeof jsb !== "undefined" && jsb.AssetsManager){
             this.checkHotUpdate();
@@ -95,7 +97,7 @@ cc.Class({
     },
 
     //==================== APP热更新 ====================
-    //恢复上次热更写入的资源搜索路径:与当前不一致时应用并重启一次引擎, 返回true表示已发起重启
+    //恢复上次热更写入的资源搜索路径, 返回true表示已发起重启
     applyHotUpdateSearchPaths:function(){
         if(!cc.sys.isNative || typeof jsb === "undefined" || !jsb.fileUtils){
             return false;
@@ -111,34 +113,32 @@ cc.Class({
             cc.sys.localStorage.removeItem("HotUpdateSearchPaths");
             return false;
         }
-        //扁平化比较(忽略嵌套结构差异), 相同说明本会话已应用过, 不再重启防止死循环
+        var apkVer = this._readManifestVersion("project.manifest");
+        var hotVer = this._readManifestVersion(this._hotStoragePath() + "project.manifest");
+        //热更目录里没有清单(被覆盖安装/清理清空), 或包内版本已不低于热更版本: 保存的路径都没用了。
+        //此时若还 setSearchPaths+重启, 重启后搜索路径被引擎重置又会判断不一致, 就无限重启(loading/login一直闪)
+        if(!hotVer || (apkVer && compareVersion(apkVer, hotVer) >= 0)){
+            console.error("[HotUpdate] 热更资源无效(包内" + (apkVer || "?") + " 热更" + (hotVer || "无") + "), 丢弃旧热更路径");
+            cc.sys.localStorage.removeItem("HotUpdateSearchPaths");
+            cc.sys.localStorage.removeItem("HotUpdateAppliedPaths");
+            return false;
+        }
+        var flat = this._flattenPaths(paths);
         var cur = null;
         try { cur = jsb.fileUtils.getSearchPaths(); } catch(e){ cur = null; }
-        var curFlat = cur ? this._flattenPaths(cur) : "";
-        //装过新APK(包内版本 >= 热更目录里的版本)时, 旧热更资源已经失效:
-        //引擎初始化资产管理器时会清空热更目录, 这里必须丢弃保存的路径,
-        //否则会先按旧热更代码启动、再反复重启报错
-        if(curFlat.indexOf(this._flattenPaths([this._hotStoragePath()])) < 0){
-            var apkVer = this._readManifestVersion("project.manifest");
-            var hotVer = this._readManifestVersion(this._hotStoragePath() + "project.manifest");
-            if(apkVer && hotVer && compareVersion(apkVer, hotVer) >= 0){
-                console.log("[HotUpdate] 包内版本" + apkVer + " >= 热更版本" + hotVer + ", 丢弃旧热更路径");
-                cc.sys.localStorage.removeItem("HotUpdateSearchPaths");
-                return false;
-            }
-        }
-        if(cur && curFlat === this._flattenPaths(paths)){
-            return false;
+        if(cur && this._flattenPaths(cur) === flat){
+            return false; //已经生效, 不需要重启
         }
         jsb.fileUtils.setSearchPaths(paths);
-        //一次进程只允许因恢复搜索路径重启一次: 万一重启后引擎重置了搜索路径,
-        //也不能无限重启(真机上表现为loading页一直闪)
-        if(window.__huRestarted){
-            console.log("[HotUpdate] 本次启动已重启过, 跳过重复重启");
+        //重启会把JS上下文整个重来(window上的标记也一起丢), "是否已为这组路径重启过"必须存localStorage:
+        //否则重启后路径被重置->又判断不一致->再重启, 真机上就是loading/login反复闪
+        var applied = cc.sys.localStorage.getItem("HotUpdateAppliedPaths");
+        if(applied === flat){
+            console.error("[HotUpdate] 同一组热更路径已重启过, 跳过重复重启");
             return false;
         }
-        window.__huRestarted = true;
-        console.log("[HotUpdate] 已恢复热更搜索路径, 重启生效");
+        cc.sys.localStorage.setItem("HotUpdateAppliedPaths", flat);
+        console.error("[HotUpdate] 已恢复热更搜索路径, 重启生效");
         cc.game.restart();
         return true;
     },
@@ -244,6 +244,8 @@ cc.Class({
                             Array.prototype.unshift.apply(searchPaths, newPaths);
                         }
                         cc.sys.localStorage.setItem("HotUpdateSearchPaths", JSON.stringify({paths: searchPaths}));
+                        //新下载的资源路径必须重新应用并重启一次才会加载到新JS, 清掉"已重启"标记
+                        cc.sys.localStorage.removeItem("HotUpdateAppliedPaths");
                     } catch(e) {
                         console.log("[HotUpdate] 保存搜索路径失败:", e);
                     }
@@ -265,6 +267,12 @@ cc.Class({
                 case EV.ERROR_UPDATING:
                 case EV.ERROR_DECOMPRESS:
                     console.log("[HotUpdate] 资源异常:", event.getAssetId(), event.getMessage());
+                    self._hotFailCount++;
+                    if(self._hotFailCount > 3){
+                        self.showHotTip("更新失败, 跳过热更");
+                        self._finishHot();
+                        self.checkVersion();
+                    }
                     break;
                 default:
                     break;
@@ -392,61 +400,56 @@ cc.Class({
         }
         return params;
     },
-    //检查版本更新
+    //检查版本更新: 无论成功/失败都必须继续预载资源并进登录页, 不能卡死在"正在连接服务器"
     checkVersion:function(){
-        var self=this;
-        //获得版本
-      var onGetVersion=function(ret){
-          //如果版本号为空
-         if(ret.version==null){
-            console.log("error.");
-         }
-         else{
-            cc.vv.SI = ret; //定义si接受ret
-            //HTTP.url不在此处切,留给UserMgr.onAuth在登录成功后切(因为/guest在account_server 9000,/login/club_join等在hall_server 9001)
-            //是否和线上版本一致
-            if(ret.version!=cc.VERSION){
-               
-            }else
-            {
-                self.startPreloading();
+        if(this._versionStarted){ return; } //只允许启动一次, 防止热更回调/看门狗重复触发
+        this._versionStarted = true;
+        var self = this;
+        var tries = 0;
+        var done = false;
+        var finish = function(ret){
+            if(done){ return; }
+            done = true;
+            if(ret && ret.version != null){
+                cc.vv.SI = ret; //定义si接受ret
+                //HTTP.url不在此处切,留给UserMgr.onAuth在登录成功后切
+                if(String(ret.version) != String(cc.VERSION)){
+                    console.error("[Boot] 服务器版本" + ret.version + " 与客户端" + cc.VERSION + " 不同, 继续启动");
+                }
+            } else {
+                console.error("[Boot] 获取服务器信息失败, 继续启动");
             }
-         }
-      };
-      
-      var xhr = null;
-      var complete = false;  //请求是否完成
-      //定义request回调方法
-      var fnRequest = function(){
-        self._stateStr = "正在连接服务器";
-        xhr = cc.vv.http.sendRequest("/get_serverinfo",null,function(ret){
-            xhr = null;
-            complete = true;  
-            onGetVersion(ret);   //成功取到对象调用方法
-        });
-        setTimeout(fn,5000);            
-    }
-    
-    //连接失败重新请求
-    var fn = function(){
-        if(!complete){
-            if(xhr){
-                xhr.abort();
+            self.startPreloading();
+        };
+        var request = function(){
+            tries++;
+            self._stateStr = "正在连接服务器";
+            var xhr = null;
+            try {
+                xhr = cc.vv.http.sendRequest("/get_serverinfo", null, function(ret){ finish(ret); });
+            } catch(e) {
+                finish(null);
+                return;
+            }
+            setTimeout(function(){
+                if(done){ return; }
+                if(xhr){ try { xhr.abort(); } catch(e){} }
+                if(tries >= 3){
+                    self._stateStr = "服务器无响应, 继续启动";
+                    finish(null); //服务器连不上也要进登录页, 不能无限重试
+                    return;
+                }
                 self._stateStr = "连接失败，即将重试";
-                setTimeout(function(){
-                    fnRequest();
-                },5000);
-            }
-            else{
-                fnRequest();
-            }
-        }
-    };
-    fn();
+                request();
+            }, 5000);
+        };
+        request();
     },
      
-    //版本一致结束加载
+    //开始预载资源(只允许一次)
     startPreloading:function(){
+        if(this._preloadingStarted){ return; }
+        this._preloadingStarted = true;
         this._stateStr = "正在加载资源，请稍候";
         this._isLoading = true;
         var self = this;
@@ -477,6 +480,8 @@ cc.Class({
     },
     //加载完成
     onLoadComplete:function(){
+        if(this._loginLaunched){ return; } //防止重复切场景(重复 loadScene 会造成两个页面交替显示)
+        this._loginLaunched = true;
         this._isLoading = false;
         this._progress = 1;
         this._stateStr = "准备登陆";

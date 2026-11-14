@@ -297,7 +297,7 @@ cc.Class({
         if (!this._baseScales) { this._baseScales = new Map(); }
         var self = this;
         var sides = ["myself"];
-        var subs = ["holds", "penggangs", "folds", "ChuPai", "hupailist"];
+        var subs = ["holds", "penggangs", "folds", "ChuPai"];
         for (var i = 0; i < sides.length; ++i) {
             var sideRoot = game.getChildByName(sides[i]);
             if (!sideRoot) { continue; }
