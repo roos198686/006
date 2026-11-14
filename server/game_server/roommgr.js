@@ -176,6 +176,23 @@ function getGameMgrByType(type){
 	return require("./gamemgr_baobao");
 }
 
+// 进场费: 所有玩法统一在 begin(第一局开局)之前对在坐玩家各扣一次,
+// 这里包一层 begin, 避免逐个玩法文件改
+function hookEnterFee(mgr){
+	if(!mgr || typeof mgr.begin !== "function" || mgr.__enterFeeHooked){ return mgr; }
+	var orig = mgr.begin;
+	mgr.begin = function(roomInfo){
+		try{
+			require("./charge").chargeEnterFee(roomInfo);
+		}catch(e){
+			console.log("[enterFee] " + (e && e.message));
+		}
+		return orig.apply(mgr, arguments);
+	};
+	mgr.__enterFeeHooked = true;
+	return mgr;
+}
+
 function generateRoomId(){
 	var roomId = "";
 	for(var i = 0; i < 6; ++i){
@@ -218,7 +235,7 @@ function constructRoomFromDb(dbdata){
 		conf:conf
 	};
 
-	roomInfo.gameMgr = getGameMgrByType(conf.type);
+	roomInfo.gameMgr = hookEnterFee(getGameMgrByType(conf.type));
 	var roomId = roomInfo.id;
 
 	var _seatsLog = [];
@@ -460,6 +477,8 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 									};
 									conf.face_score = pick('face_score', conf.face_score != null ? conf.face_score : (Number(clubCfg.face_score) || 0));
 									conf.shuffle_score = pick('shuffle_score', conf.shuffle_score != null ? conf.shuffle_score : (Number(clubCfg.shuffle_score) || 0));
+									//进场费: 每位在坐玩家第一局开局时各扣一次, 收入全额进俱乐部分成链
+									conf.enter_fee = pick('enter_fee', Number(clubCfg.enter_fee) || 0);
 									//记录配置id, 结算/扣费时按它实时重读DB, 馆主改配置后无需重建房间即可生效
 									conf.game_config_id = clubCfg.id || cfgId || 0;
 									// 俱乐部人数限制只对宝宝玩法生效(其它玩法人数由玩法固定)
@@ -499,7 +518,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							var _taiDebug = conf.taiRules ? JSON.stringify(conf.taiRules) : "";
 							console.log("[createRoom] roomId=", roomId, " type=", type, " conf keys=", Object.keys(conf), " baseScore=", conf.baseScore, " maxTai=", conf.maxTai, " maxGames=", conf.maxGames, " taiRules=", _taiDebug.substring(0,80));
 
-							roomInfo.gameMgr = getGameMgrByType(type);
+							roomInfo.gameMgr = hookEnterFee(getGameMgrByType(type));
 							console.log(roomInfo.conf);
 
 							for(var i = 0; i < maxPlayers; ++i){

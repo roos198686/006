@@ -2323,18 +2323,22 @@ _bindRewardPage: function () {
         this._setRuleRow(content, "max_players", true, isBaobao);
         // 表情分/房卡共用一行: 开启时是表情分, 关闭时是房卡(房卡按局扣, 进场扣)
         this._setRuleRow(content, "face_score", true, true);
-        // 费用类抽取比例不在此配置, 统一走合伙人设置: 显示但置灰, 不隐藏
-        var hideFeeRate = ["fee_rake_percentLabel", "fee_rake_percentInput"];
-        for (var hi = 0; hi < hideFeeRate.length; hi++) {
-            var hNode = content.getChildByName(hideFeeRate[hi]);
-            if (hNode) {
-                hNode.active = true;
-                hNode.opacity = 120;
-                var hEb = hNode.getComponent(cc.EditBox);
-                if (hEb) {
-                    if (typeof hEb.interactable === "boolean") { hEb.interactable = false; }
-                    else { hEb.enabled = false; }
-                }
+        // 进场费: 复用现有"进场费"标签 + fee_rake_percentLabel 输入框(节点名历史遗留)
+        // 统一收费开启时可编辑; 关闭时只置灰, 不隐藏
+        var enterFeeLabel = null;
+        for (var efIdx = 0; efIdx < content.children.length; efIdx++) {
+            var efLabelCmp = content.children[efIdx].getComponent(cc.Label);
+            if (efLabelCmp && efLabelCmp.string === "进场费") { enterFeeLabel = content.children[efIdx]; break; }
+        }
+        var enterFeeInput = content.getChildByName("fee_rake_percentLabel");
+        if (enterFeeLabel) { enterFeeLabel.active = true; enterFeeLabel.opacity = unified ? 255 : 120; }
+        if (enterFeeInput) {
+            enterFeeInput.active = true;
+            enterFeeInput.opacity = unified ? 255 : 120;
+            var enterFeeEb = enterFeeInput.getComponent(cc.EditBox);
+            if (enterFeeEb) {
+                if (typeof enterFeeEb.interactable === "boolean") { enterFeeEb.interactable = !!unified; }
+                else { enterFeeEb.enabled = !!unified; }
             }
         }
         // 统一收费开启时这一行是"表情分"; 关闭时复用为"房卡"(房卡按局扣, 进场扣), 只改文字不改布局
@@ -2370,7 +2374,8 @@ _bindRewardPage: function () {
         this._setInput(content, "kick_beanInput", base ? (base.kick_bean || 0) : 0);
         this._setInput(content, "rake_percentInput", base ? base.rake_percent : 0);
         this._setInput(content, "hidden_rake_percentInput", base ? base.hidden_rake_percent : 0);
-        // fee_rake_percent 已不再配置: 费用类收入全额进链, 上下级比例走合伙人设置
+        // fee_rake_percentLabel 现在用作"进场费"输入(节点名历史遗留)
+        this._setInput(content, "fee_rake_percentLabel", base ? (Number(base.enter_fee) || 0) : 0);
         this._setInput(content, "room_feeInput", base ? base.room_fee : 0);
 
         this._rakePerRound = (base && base.rake_per_round != null) ? Number(base.rake_per_round) : 1;
@@ -2575,7 +2580,9 @@ _bindRewardPage: function () {
                 kick_bean: isBaobao ? (parseInt(this._getInput(content, "kick_beanInput")) || 0) : 0,
                 rake_percent: parseFloat(this._getInput(content, "rake_percentInput")) || 0,
                 hidden_rake_percent: parseFloat(this._getInput(content, "hidden_rake_percentInput")) || 0,
-                // fee_rake_percent 不再提交
+                // 进场费: 统一收费开启时可配; 关闭时保留原值不覆盖
+                enter_fee: unified ? (parseInt(this._getInput(content, "fee_rake_percentLabel")) || 0)
+                    : ((cfg && Number(cfg.enter_fee)) || 0),
                 room_fee: parseInt(this._getInput(content, "room_feeInput")) || 0,
                 rake_per_round: this._rakePerRound,
                 room_fee_payer: this._roomFeePayer

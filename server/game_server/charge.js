@@ -356,6 +356,64 @@ exports.chargeRoom = function(conf, userId, kind, roomId, done){
     });
 };
 
+//进场费: 第一局开局时对每位在坐玩家各扣一次, 收入全额进俱乐部分成链(与房费/表情/洗牌一致)
+//由 roommgr.hookEnterFee 统一包在各玩法 begin() 前调用, 不需要逐个玩法改
+exports.chargeEnterFee = function(roomInfo){
+    var conf = roomInfo && roomInfo.conf;
+    if(!conf || Number(roomInfo.numOfGames) !== 0){ return; } //只扣第一局
+    var clubId = (conf.clubGameConfig && conf.clubGameConfig.clubId) || conf.clubid || 0;
+    if(!(clubId > 0)){ return; }
+    unifiedCharge(conf.type, function(on){
+    if(!on){ return; }
+    var charged = roomInfo._enterFeeCharged || (roomInfo._enterFeeCharged = {});
+    var applyTable = function(tconf, cfg){
+        var src = tconf || {};
+        var c = cfg || {};
+        var pick = function(k, def){
+            if(src[k] == null || src[k] === ''){ return def; }
+            var v = Number(src[k]);
+            return isNaN(v) ? def : v;
+        };
+        var amount = pick('enter_fee', Number(c.enter_fee) || 0);
+        conf.enter_fee = amount;
+        if(!(amount > 0)){ return; }
+        var seats = roomInfo.seats || [];
+        for(var i = 0; i < seats.length; i++){
+            var uid = seats[i] ? (Number(seats[i].userId) || 0) : 0;
+            if(!(uid > 0) || charged[uid]){ continue; }
+            charged[uid] = 1;
+            (function(userId){
+                deduct(userId, amount, roomInfo.id, conf.type, "进场扣豆", 0, function(){
+                    //扣下来的费用全额进俱乐部分账链, 上下级比例走 fee_profit_ratio
+                    splitPartnerShare(clubId, round4(amount), roomInfo.id, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", null, function(net){
+                        db.add_reward_log(clubId, 0, "进场费", net, conf.type, roomInfo.id, conf.room_uuid || "", 0, conf.club_table_name || "", function(){});
+                    }, 'fee_profit_ratio');
+                }, { clubId: clubId, tableName: conf.club_table_name || "" });
+            })(uid);
+        }
+    };
+    var apply = function(cfg){
+        var tableId = Number(conf.club_table_id) || 0;
+        if(!(tableId > 0)){ applyTable(null, cfg); return; }
+        db.club_get_table(tableId, function(t){
+            var tconf = null;
+            try{ tconf = t ? (JSON.parse(t.conf || "{}") || null) : null; }catch(e){ tconf = null; }
+            if(t && t.name){ conf.club_table_name = t.name; }
+            applyTable(tconf, cfg);
+        });
+    };
+    var cfgId = Number(conf.game_config_id) || 0;
+    if(cfgId > 0){
+        db.club_game_get_config(cfgId, function(c){
+            if(c){ apply(c); }
+            else { db.club_game_get_config_by_club_type(clubId, conf.type, apply); }
+        });
+    } else {
+        db.club_game_get_config_by_club_type(clubId, conf.type, apply);
+    }
+    });
+};
+
 //单局结算抽水/暗水
 //deltas: {seatIndex: delta} 本局盈亏(正为赢)
 //winners: [seatIndex] 赢家列表

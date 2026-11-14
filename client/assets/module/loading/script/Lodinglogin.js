@@ -265,6 +265,7 @@ cc.Class({
                     self._stateStr = "正在更新资源";
                     self._isLoading = true;
                     var pct = event.getPercent();
+                    if(pct <= 1) pct *= 100;   //部分引擎版本返回0~1, 统一成百分比
                     if(pct > 100) pct = 100;
                     if(pct / 100 > self._targetProgress){
                         self._targetProgress = pct / 100; //只增不减, 复用 update() 的进度显示

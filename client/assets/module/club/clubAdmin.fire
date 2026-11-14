@@ -60896,7 +60896,7 @@
       "__id__": 1148
     },
     "_children": [],
-    "_active": false,
+    "_active": true,
     "_components": [
       {
         "__id__": 1222
@@ -60913,7 +60913,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 243.33,
+      "width": 90,
       "height": 40.32
     },
     "_anchorPoint": {
@@ -60925,7 +60925,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        -460.674,
+        -389.252,
         -144,
         0,
         0,
@@ -60965,8 +60965,8 @@
     ],
     "_srcBlendFactor": 770,
     "_dstBlendFactor": 771,
-    "_string": "房费/表情/洗牌(%)",
-    "_N$string": "房费/表情/洗牌(%)",
+    "_string": "进场费",
+    "_N$string": "进场费",
     "_fontSize": 30,
     "_lineHeight": 32,
     "_enableWrapText": false,
@@ -60998,7 +60998,7 @@
         "__id__": 1226
       }
     ],
-    "_active": false,
+    "_active": true,
     "_components": [
       {
         "__id__": 1228

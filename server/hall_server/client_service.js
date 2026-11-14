@@ -1181,6 +1181,7 @@ app.get('/club_add_table',function(req,res){
 					rake_per_round: g && g.rake_per_round != null ? g.rake_per_round : 1,
 					room_fee: g ? (g.room_fee || 0) : 0,
 					room_fee_payer: g && g.room_fee_payer != null ? g.room_fee_payer : 1,
+					enter_fee: g ? (g.enter_fee || 0) : 0,
 					game_config_id: g ? (g.id || 0) : 0,
 					tai_rules: clubTaiRules
 				};
@@ -1552,7 +1553,7 @@ function pickGameConfig(req,withDefault){
 	if(req.query.difen_options != null || withDefault){ fields.difen_options = parseNumList(req.query.difen_options,[1,2,5]); }
 	if(req.query.jushu_options != null || withDefault){ fields.jushu_options = parseNumList(req.query.jushu_options,[4,8]); }
 	if(req.query.cost_options != null || withDefault){ fields.cost_options = parseNumList(req.query.cost_options,[2,3]); }
-	['sort','min_players','max_players_custom','rake_percent','hidden_rake_percent','fee_rake_percent','rake_per_round','room_fee','room_fee_payer','face_score','shuffle_score','min_bean','kick_bean'].forEach(function(k){
+	['sort','min_players','max_players_custom','rake_percent','hidden_rake_percent','fee_rake_percent','rake_per_round','room_fee','room_fee_payer','face_score','shuffle_score','min_bean','kick_bean','enter_fee'].forEach(function(k){
 		if(req.query[k] != null && req.query[k] !== ''){ fields[k] = parseFloat(req.query[k]) || 0; }
 	});
 	//去万/去条/去筒(存 tai_rules JSON,三选互斥由客户端保证,服务端按优先级容错)
@@ -1895,7 +1896,7 @@ app.get('/club_admin/table_update',function(req,res){
 			if(jushu && jushu.length){ conf.jushu_value = jushu[0]; conf.jushuxuanze = 0; }
 			var cost = parseNumList(req.query.cost_options,null);
 			if(cost && cost.length){ conf.cost = cost[0]; }
-			var map = { min_players:'min_players', max_players_custom:'max_players', face_score:'face_score', shuffle_score:'shuffle_score', min_bean:'min_bean', kick_bean:'kick_bean', rake_percent:'rake_percent', hidden_rake_percent:'hidden_rake_percent', fee_rake_percent:'fee_rake_percent', rake_per_round:'rake_per_round', room_fee:'room_fee', room_fee_payer:'room_fee_payer' };
+			var map = { min_players:'min_players', max_players_custom:'max_players', face_score:'face_score', shuffle_score:'shuffle_score', min_bean:'min_bean', kick_bean:'kick_bean', rake_percent:'rake_percent', hidden_rake_percent:'hidden_rake_percent', fee_rake_percent:'fee_rake_percent', rake_per_round:'rake_per_round', room_fee:'room_fee', room_fee_payer:'room_fee_payer', enter_fee:'enter_fee' };
 			for(var k in map){
 				var v = num(k);
 				if(v != null){ conf[map[k]] = v; }

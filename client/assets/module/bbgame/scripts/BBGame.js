@@ -97,6 +97,8 @@ cc.Class({
                 var ok = self._renderSettleCards(self._lastResults, self._lastDetails);
                 if (self._n.resultContent) self._n.resultContent.active = !ok;
             }
+            // 免摆确认弹窗里的预览牌同理: 图集到得晚时先显示牌背, 到了再补绘
+            if (self._confirmRoot && self._confirmRoot.active) self._renderConfirmPreview();
             if (self._started) self.renderCards();
         });
     },
@@ -466,7 +468,31 @@ cc.Class({
         this._confirmAutoBtn = this.findNode(root, "bbConfirmBtn-a");
         // 结算弹窗的倒计时(场景内节点, 位置由编辑器调); bbArrangeCd 在 _buildArrangeUI 收集
         this._settleCd = this.findNode(this._n.resultPanel, "settleCd");
+        // 预览牌位/牌型名全部在场景里: bbConfirmPreview > bbConfirmCard0-5, bbConfirmTypeLabel
+        this._confirmPreview = this.findNode(root, "bbConfirmPreview");
+        this._confirmSlots = [];
+        for (var i = 0; i < 6; ++i) this._confirmSlots.push(this.findNode(root, "bbConfirmCard" + i));
+        var typeNode = this.findNode(root, "bbConfirmTypeLabel");
+        this._confirmTypeLabel = typeNode ? typeNode.getComponent(cc.Label) : null;
+        if (this._confirmTypeLabel) this._confirmTypeLabel.string = "";
         root.active = false;
+    },
+
+    // 填免摆预览: 6 张牌取服务端 myMian.cards(已按最优牌型排好), 名称取 myMian.typeName
+    _renderConfirmPreview: function () {
+        if (!this._confirmRoot || !this._confirmRoot.active) return;
+        var nm = cc.vv && cc.vv.gameNetMgr;
+        var mian = nm && nm.bbMyMian;
+        var cards = mian && mian.cards;
+        var has = !!(cards && cards.length >= 6);
+        if (this._confirmPreview) this._confirmPreview.active = has;
+        if (this._confirmTypeLabel) this._confirmTypeLabel.string = has ? (mian.typeName || "") : "";
+        if (!has || !this._confirmSlots) return;
+        for (var i = 0; i < this._confirmSlots.length; ++i) {
+            var sp = this._confirmSlots[i].getComponent(cc.Sprite);
+            if (!sp) continue;
+            sp.spriteFrame = this.frameOf(cards[i]) || this._cardBack || null;
+        }
     },
 
     _bindButtons: function () {
@@ -1178,6 +1204,7 @@ cc.Class({
             this._setBtnText(this._confirmAutoBtn, "免摆出牌");
             this.bindButton(this._confirmAutoBtn, this.onConfirmTap, this);
         }
+        this._renderConfirmPreview();
         this._confirmCount = 0;
     },
 
@@ -1199,6 +1226,7 @@ cc.Class({
             this._setBtnText(this._confirmAutoBtn, "免摆出牌");
             this.bindButton(this._confirmAutoBtn, this.onConfirmMianFree, this);
         }
+        this._renderConfirmPreview();
         this._confirmCount = 0;
     },
 

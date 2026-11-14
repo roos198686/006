@@ -188,7 +188,8 @@ exports.init = function(config){
             'ALTER TABLE `t_club_games` ADD COLUMN `face_score` INT(11) NOT NULL DEFAULT 0 COMMENT "表情分"',
             'ALTER TABLE `t_club_games` ADD COLUMN `shuffle_score` INT(11) NOT NULL DEFAULT 0 COMMENT "洗牌分"',
             'ALTER TABLE `t_club_games` ADD COLUMN `min_bean` INT(11) NOT NULL DEFAULT 0 COMMENT "进场豆豆"',
-            'ALTER TABLE `t_club_games` ADD COLUMN `kick_bean` INT(11) NOT NULL DEFAULT 0 COMMENT "出场豆豆"'
+            'ALTER TABLE `t_club_games` ADD COLUMN `kick_bean` INT(11) NOT NULL DEFAULT 0 COMMENT "出场豆豆"',
+            'ALTER TABLE `t_club_games` ADD COLUMN `enter_fee` INT(11) NOT NULL DEFAULT 0 COMMENT "进场费(每位玩家第一局开局各扣一次)"'
         ];
         alters.forEach(function(sql, i){
             setTimeout(function(){
@@ -1994,7 +1995,9 @@ function buildTableConf(gameType,config){
         hidden_rake_percent: config.hidden_rake_percent || 0,
         rake_per_round: config.rake_per_round != null ? Number(config.rake_per_round) : 1,
         room_fee: config.room_fee || 0,
-        room_fee_payer: config.room_fee_payer || 0
+        room_fee_payer: config.room_fee_payer || 0,
+        //进场费: 第一位玩家开局时每人各扣一次
+        enter_fee: config.enter_fee || 0
     });
 }
 
@@ -2030,7 +2033,7 @@ exports.club_game_add_with_config = function(clubId,gameType,name,config,callbac
             });
             return;
         }
-        var sql = 'INSERT INTO t_club_games(club_id,game_type,name,difen_options,jushu_options,cost_options,sort,tai_rules,enabled,create_time,min_players,max_players_custom,rake_percent,hidden_rake_percent,rake_per_round,room_fee,room_fee_payer,face_score,shuffle_score,min_bean,kick_bean) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?)';
+        var sql = 'INSERT INTO t_club_games(club_id,game_type,name,difen_options,jushu_options,cost_options,sort,tai_rules,enabled,create_time,min_players,max_players_custom,rake_percent,hidden_rake_percent,rake_per_round,room_fee,room_fee_payer,face_score,shuffle_score,min_bean,kick_bean,enter_fee) VALUES(?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?,?,?,?,?)';
         queryP(sql,[
             clubId, gameType, name,
             JSON.stringify(config.difen_options || [1,2,5]),
@@ -2047,7 +2050,8 @@ exports.club_game_add_with_config = function(clubId,gameType,name,config,callbac
             config.face_score || 0,
             config.shuffle_score || 0,
             config.min_bean || 0,
-            config.kick_bean || 0
+            config.kick_bean || 0,
+            config.enter_fee || 0
         ],function(err,rows){
             if(err){ console.log(err); callback(null); return; }
             var configId = rows.insertId;
@@ -2104,6 +2108,7 @@ exports.club_game_update_config = function(id,fields,callback){
     if(fields.shuffle_score != null){ sets.push('shuffle_score = ?'); params.push(fields.shuffle_score); }
     if(fields.min_bean != null){ sets.push('min_bean = ?'); params.push(fields.min_bean); }
     if(fields.kick_bean != null){ sets.push('kick_bean = ?'); params.push(fields.kick_bean); }
+    if(fields.enter_fee != null){ sets.push('enter_fee = ?'); params.push(fields.enter_fee); }
     if(sets.length == 0){ callback(false); return; }
     params.push(id);
     queryP('UPDATE t_club_games SET ' + sets.join(',') + ' WHERE id = ?',params,function(err,rows){
