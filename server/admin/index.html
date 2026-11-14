@@ -850,12 +850,20 @@ function fmtSize(n){
   if(n < 1024*1024*1024) return (n/1024/1024).toFixed(2) + ' MB';
   return (n/1024/1024/1024).toFixed(2) + ' GB';
 }
+// 秒级时间戳 -> "YYYY-MM-DD HH:mm"; toLocaleString 跟随浏览器语言, en-US 下会显示成 11/15/2026, 3:41:00 AM
+function fmtTime(ts){
+  var n = Number(ts) || 0;
+  if(!(n > 0)) return '';
+  var d = new Date(n * 1000);
+  var p = function(v){ return v < 10 ? '0' + v : '' + v; };
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
 function loadAppInfo(){
   api('/admin/app/info').then(function(ret){
     var el = document.getElementById('appInfo');
     if(ret.code !== 0){ el.innerHTML = '<span style="color:red">'+ret.msg+'</span>'; return; }
     var d = ret.data || {};
-    var t = d.update_time ? new Date(d.update_time*1000).toLocaleString() : '—';
+    var t = fmtTime(d.update_time) || '—';
     if(!d.has_file){
       el.innerHTML = '版本号：<b>暂无</b><br>文件大小：—<br>更新时间：—<br>状态：<span style="color:#e67e22">还未上传安装包</span>';
     } else {
@@ -1150,8 +1158,8 @@ function loadSpectateUsers(){
       return;
     }
     spectateUsersCache.forEach(function(a){
-      var time = a.created_at ? new Date(a.created_at * 1000).toLocaleString() : '-';
-      var last = a.last_login ? new Date(a.last_login * 1000).toLocaleString() : '从未登录';
+      var time = fmtTime(a.created_at) || '-';
+      var last = fmtTime(a.last_login) || '从未登录';
       var enabled = Number(a.enabled) === 1;
       var card = document.createElement('div');
       card.className = 'card';
@@ -1248,7 +1256,7 @@ function loadHotupdateInfo(){
     if(!d.has_update){
       el.innerHTML = '尚未发布过热更包';
     } else {
-      var t = d.update_time ? new Date(d.update_time*1000).toLocaleString() : '—';
+      var t = fmtTime(d.update_time) || '—';
       el.innerHTML = '当前热更版本：<b style="color:#27ae60">'+(d.version||'未知')+'</b>'
         + '　文件数：' + (d.file_count||0)
         + '　总大小：' + fmtSize(d.total_size)
@@ -1340,7 +1348,7 @@ function renderClubs(){
     return;
   }
   list.forEach(function(c){
-    var time = c.create_time ? new Date(c.create_time * 1000).toLocaleString() : '-';
+    var time = fmtTime(c.create_time) || '-';
     var isRoot = (Number(c.parent_clubid) || 0) === 0;
     var hallOn = Number(c.hall_mode) === 1 ? 1 : 0;
     var card = document.createElement('div');
@@ -1449,7 +1457,7 @@ function loadAdmins(){
       return;
     }
     list.forEach(function(a){
-      var time = a.created_at ? new Date(a.created_at * 1000).toLocaleString() : '-';
+      var time = fmtTime(a.created_at) || '-';
       var roleStr = a.role === 'super' ? '<span class="tag tag-green">超级管理员</span>' : '<span class="tag tag-red">俱乐部管理员</span>';
       var card = document.createElement('div');
       card.className = 'card';
@@ -2175,7 +2183,7 @@ function loadGames(){
       }
       var caishen = g.base_info && g.base_info.caishen != null ? g.base_info.caishen : '-';
       var button = g.base_info && g.base_info.button != null ? g.base_info.button : '-';
-      var time = g.create_time ? new Date(g.create_time * 1000).toLocaleString() : '-';
+      var time = fmtTime(g.create_time) || '-';
       var card = document.createElement('div');
       card.className = 'list-card';
       card.innerHTML =
@@ -2575,7 +2583,7 @@ function clubRenderMembers(){
   });
   if(list.length === 0){ tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:#999;">暂无成员</td></tr>'; return; }
   list.forEach(function(m){
-    var time = m.join_time ? new Date(m.join_time * 1000).toLocaleString() : '-';
+    var time = fmtTime(m.join_time) || '-';
     var tr = document.createElement('tr');
     tr.innerHTML = '<td>'+m.userid+'</td><td>'+(m.account||'-')+'</td><td>'+(m.name||'-')+'</td>'+
       '<td>'+m.gems+'</td><td>'+time+'</td>'+

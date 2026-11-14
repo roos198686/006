@@ -120,21 +120,43 @@ window.boot = function () {
     }
 };
 
+/* bobao_hotfix_boot */
+if (window.jsb) {
+    window.__bbResolveSrc = function (name, fallback) {
+        try {
+            var fu = jsb.fileUtils;
+            var paths = fu.getSearchPaths() || [];
+            var re = new RegExp("^src/" + name + "\\.[^/]+\\.jsc?$");
+            for (var i = 0; i < paths.length; i++) {
+                var dir = paths[i].replace(/\/+$/, "");
+                var mf = dir + "/project.manifest";
+                if (!fu.isFileExist(mf)) { continue; }
+                var data = JSON.parse(fu.getStringFromFile(mf));
+                var assets = (data && data.assets) || {};
+                for (var k in assets) {
+                    if (re.test(k) && fu.isFileExist(dir + "/" + k)) { return k.replace(/\.jsc$/, ".js"); }
+                }
+            }
+        } catch (e) {}
+        return fallback;
+    };
+}
+
 if (window.jsb) {
     var isRuntime = (typeof loadRuntime === 'function');
     if (isRuntime) {
-        require('src/settings.f20d1.js');
+        require(__bbResolveSrc('settings', 'src/settings.90a8f.js'));
         require('src/cocos2d-runtime.js');
         if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
-            require('src/physics.10dc9.js');
+            require(__bbResolveSrc('physics', 'src/physics.10dc9.js'));
         }
         require('jsb-adapter/engine/index.js');
     }
     else {
-        require('src/settings.f20d1.js');
-        require('src/cocos2d-jsb.8491d.js');
+        require(__bbResolveSrc('settings', 'src/settings.90a8f.js'));
+        require(__bbResolveSrc('cocos2d-jsb', 'src/cocos2d-jsb.8491d.js'));
         if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
-            require('src/physics.10dc9.js');
+            require(__bbResolveSrc('physics', 'src/physics.10dc9.js'));
         }
         require('jsb-adapter/jsb-engine.js');
     }

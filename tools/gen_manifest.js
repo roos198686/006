@@ -27,7 +27,14 @@ if (!fs.existsSync(assetsRoot)) {
     process.exit(1);
 }
 
-// 递归收集文件, key 用 posix 风格相对路径
+// 热更要覆盖的目录:
+//   assets/      资源与 bundle(主包 index.<hash>.jsc 等)
+//   src/         settings / cocos2d-jsb / physics, 文件名带 hash, 必须能被热更替换
+//   jsb-adapter/ 适配层, 名字固定
+// 不含 frameworks/ (原生库), 那部分只能重新打包
+var ROOTS = ['assets', 'src', 'jsb-adapter'];
+
+// 递归收集文件, key 用 posix 风格相对路径(含根目录名)
 function walk(dir, prefix, out) {
     var list = fs.readdirSync(dir);
     for (var i = 0; i < list.length; i++) {
@@ -43,12 +50,16 @@ function walk(dir, prefix, out) {
 }
 
 var files = [];
-walk(assetsRoot, '', files);
+ROOTS.forEach(function (root) {
+    var dir = path.join(buildDir, root);
+    if (!fs.existsSync(dir)) { return; }
+    walk(dir, root, files);
+});
 
 var assets = {};
 files.forEach(function (f) {
     var buf = fs.readFileSync(f.full);
-    assets['assets/' + f.key] = {
+    assets[f.key] = {
         md5: crypto.createHash('md5').update(buf).digest('hex'),
         compressed: false,
         size: buf.length
