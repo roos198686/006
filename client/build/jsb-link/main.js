@@ -142,6 +142,8 @@ if (window.jsb) {
     };
 }
 
+
+
 /* bobao_hotupdate_boot */
 if (window.jsb && window.localStorage) {
     try {
@@ -211,6 +213,7 @@ if (window.jsb) {
     }
 
     cc.macro.CLEANUP_IMAGE_CACHE = true;
+
 /* bobao_build_stamp */
 try {
     var __bv = (window._CCSettings || {}).bundleVers || {};
