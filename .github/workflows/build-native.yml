@@ -3,6 +3,12 @@ name: Build Native Packages
 on:
   push:
     branches: [main]
+    # 只有客户端构建产物/源码变化才打包, 避免改文档或 server 也触发一次完整 APK 构建
+    paths:
+      - "client/build/**"
+      - "client/assets/**"
+      - "tools/**"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 jobs:
