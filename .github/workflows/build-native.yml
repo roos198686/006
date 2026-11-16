@@ -27,7 +27,9 @@ jobs:
           echo "ndk.dir=$ANDROID_HOME/ndk/21.4.7075529" >> client/build/jsb-default/frameworks/runtime-src/proj.android-studio/local.properties
 
       - name: Rebuild hot update manifest
-        run: node tools/gen_manifest.js client/build/jsb-default 1.0.11 http://47.239.100.68:9100/hotupdate
+        # APK 内置清单版本必须 >= 线上热更版本, 否则新装机一启动会被线上旧热更覆盖(手册 4.6 红线)。
+        # 当前线上热更为 1.0.15, 这里抬到 1.0.16。
+        run: node tools/gen_manifest.js client/build/jsb-default 1.0.16 http://47.239.100.68:9100/hotupdate
 
       - name: Build unsigned release APK
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.android-studio

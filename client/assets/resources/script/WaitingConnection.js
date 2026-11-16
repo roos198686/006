@@ -41,6 +41,7 @@ cc.Class({
     // called every frame, uncomment this function to activate update callback
     update: function (dt) {
         //v2.1.0起rotation已废弃,改用angle(angle = -rotation),保持原旋转方向与速度
+        if(!this.target || !cc.isValid(this.target)){ return; } //场景未绑转圈节点时跳过,避免每帧抛异常
         this.target.angle = this.target.angle + dt*90;
     },
 

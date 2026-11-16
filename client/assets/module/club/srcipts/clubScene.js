@@ -1167,6 +1167,9 @@ cc.Class({
             if(cnt > bestCnt){ bestCnt = cnt; best = t; }
         }
         if(!best){ cc.vv.wc.showError("当前没有可加入的牌桌"); return; }
+        //这是"快速加入"按钮的真实点击, 要给 _doEnterTable 的"必须有近期点击"校验留时间戳,
+        //否则会被当成脚本自动进桌直接拦掉(表现为点了没任何反应)
+        this._clubCardTouchAt = Date.now();
         this._clubEnterTable(best); //复用现有进入流程(含宝宝豆门槛校验)
     },
 
@@ -2113,7 +2116,7 @@ cc.Class({
             return;
         }
         this._clubSubSio = sio;
-        sio.on('connect',function(){ self._clubSubEmit(); });   //(重)连接成功后重新订阅
+        sio.on('connect',function(){ self._clubSubSentKey = null; self._clubSubEmit(); });   //(重)连接成功后重新订阅
         sio.on('connect_error',function(){ /*静默降级*/ });
         sio.on('club_update',function(data){ self._clubSubOnUpdate(data); });
     },
@@ -2123,6 +2126,11 @@ cc.Class({
         var sio = this._clubSubSio;
         if(!sio || !this._clubSubClubId){ return; }
         var gameType = (this._clubCurGame && this._clubCurGame.game_type) ? this._clubCurGame.game_type : null;
+        //同一连接上"俱乐部+玩法"只订阅一次: 牌桌列表每5秒轮询都会走到这里,
+        //原来每次都 emit, 服务端日志每5秒刷一条 club_subscribe, 长时间停留会堆成几十条
+        var key = this._clubSubClubId + "|" + (gameType || "");
+        if(this._clubSubSentKey === key){ return; }
+        this._clubSubSentKey = key;
         sio.emit('club_subscribe',{clubid:this._clubSubClubId,game_type:gameType});
     },
 
@@ -2203,6 +2211,7 @@ cc.Class({
         }
         this._clubSubSio = null;
         this._clubSubClubId = null;
+        this._clubSubSentKey = null;
     },
 
     //加载当前玩法下的桌面列表(数据无变化时不重建节点,避免抖动);「全部」时不传game_type,服务端返回所有玩法桌面
@@ -2304,32 +2313,20 @@ cc.Class({
         setTimeout(function(){ if(cc.vv && self._clubEnterTable) self._clubEnterTable(pick, true); }, 300);
     },
 
+    //进房关键步骤上报大厅服 /dbg_log(真机看不到控制台,靠服务端日志定位卡在哪一步)
+    _clubDbg:function(msg){
+        try{
+            if(cc.vv && cc.vv.http && cc.vv.http.sendRequest){
+                cc.vv.http.sendRequest("/dbg_log",{m:"[club] " + msg},null);
+            }
+        }catch(e){}
+    },
+
     //点击桌面进入游戏(服务端复用未满房间或自动建房)
     _clubEnterTable:function(t, auto){
-        var self = this;
-        var wc = cc.vv.wc;
-        //前置校验:宝宝豆为0不能进房间(具体最低宝宝豆由服务端牌桌配置校验,不足时回包提示)
-        var now = Date.now();
-        var cached = this._gemsCache;
-        var checkAndEnter = function(gems){
-            self._gemsCache = {gems:gems,at:Date.now()};
-            if(!(gems > 0)){
-                wc.hide(); //收起等待遮罩,避免遮挡弹窗
-                self._clubShowConfirm("提示","宝宝豆不足，无法进入桌面",null); //弹窗提示,需点击确定关闭
-                return;
-            }
-            self._doEnterTable(t, !!auto);
-        };
-        if(cached && now - cached.at < 5000){
-            checkAndEnter(cached.gems);
-            return;
-        }
-        wc.show("正在进入「" + t.name + "」");
-        //get_user_status走账号服(hall_url),返回{gems:真实余额}
-        cc.vv.http.sendRequest("/get_user_status",{account:cc.vv.userMgr.account,sign:cc.vv.userMgr.sign},function(ret){
-            var gems = (ret && ret.gems != null) ? Number(ret.gems) : 0;
-            checkAndEnter(gems);
-        });
+        //直接进桌:宝宝豆是否够由服务端 /club_enter_table 校验(不足返回2222,_doEnterTable里弹窗提示)。
+        //不再先发一次 /get_user_status:那次请求一旦没有回调,遮罩会永久挂住并吞掉所有点击。
+        this._doEnterTable(t, !!auto);
     },
 
     _doEnterTable:function(t, auto){
@@ -2346,15 +2343,17 @@ cc.Class({
         }
         wc.show("正在进入「" + t.name + "」");
         console.log("[进入房间]请求桌面 tableid=" + t.id + " name=" + t.name);
+        this._clubDbg("enter tableid=" + t.id + " name=" + t.name + " type=" + (t.game_type || ""));
         //排查用:把调用栈一起发给服务端,区分"真人点击"和"脚本自动进桌"(服务端会打进日志)
         var dbgStack = "";
         try{ dbgStack = String((new Error()).stack || "").split("\n").slice(1,4).join(" <- ").replace(/\s+/g," ").substring(0,200); }catch(e){}
         console.log("[进入房间]触发来源:" + dbgStack);
         //看门狗:12秒内若仍未进入游戏场景,则隐藏遮罩并给出可见原因,避免永久卡住
         var guard = setTimeout(function(){
-            if(cc.vv.wc !== wc){ return; }
-            wc.hide(); //超时也要收起遮罩,否则"正在进入房间"会一直挂着
-            wc.showError("进入房间失败,请重试(服务未响应)");
+            //wc 可能已被新场景替换, 这里必须收当前那份遮罩, 否则"正在进入"会永久挂着
+            var cur = cc.vv.wc || wc;
+            cur.hide(); //超时也要收起遮罩,否则"正在进入房间"会一直挂着
+            cur.showError("进入房间失败,请重试(服务未响应)");
         },12000);
         cc.vv.http.sendRequest("/club_enter_table",{
             account:cc.vv.userMgr.account,
@@ -2365,6 +2364,7 @@ cc.Class({
             try{
                 if(ret == null || ret.errcode !== 0){
                     console.log("[进入房间]失败:" + (ret ? ret.errcode + " " + ret.errmsg : "无响应"));
+                    self._clubDbg("enter FAIL " + (ret ? ret.errcode + " " + ret.errmsg : "no-response"));
                     clearTimeout(guard);
                     //失败必须收起"正在进入房间"遮罩,否则会一直卡在这行字上
                     wc.hide();
@@ -2378,6 +2378,7 @@ cc.Class({
                     return;
                 }
                 console.log("[进入房间]成功 roomid=" + ret.roomid + " ip=" + ret.ip + ":" + ret.port);
+                self._clubDbg("enter OK room=" + ret.roomid + " ip=" + ret.ip + ":" + ret.port);
                 clearTimeout(guard);
                 if(self._clubPanel){ self._clubPanel.active = false; }
                 self._clubStopTableWatch(); //离开俱乐部页进入牌桌:断开订阅连接,避免句柄泄漏

@@ -42,6 +42,13 @@ cc.Class({
         if(cc.vv == null){
             return;
         }
+        //上报"麻将场景已加载"到大厅服:真机看不到控制台,用来确认卡在场景加载前还是加载后
+        try{
+            if(cc.vv.http && cc.vv.http.sendRequest){
+                var scn = cc.director.getScene() ? cc.director.getScene().name : "";
+                cc.vv.http.sendRequest("/dbg_log",{m:"[mjroom] onLoad scene=" + scn},null);
+            }
+        }catch(e){}
         
         //任一初始化步骤异常都不能中断退出监听的注册,否则房间内点"退出房间"会毫无反应
         //每一步单独兜底:某一步报错不影响牌墙初始化与牌墙刷新监听(否则墙牌永远不减少)
@@ -962,7 +969,19 @@ cc.Class({
         cc.vv.popupMgr.showSettings();   
     },
 
+    //进房瞬间系统可能补发一次 TOUCH_END(切场景时常见), 落到返回/退出按钮上会立刻发 exit,
+    //把刚建好的房间拆掉(服务端: 建表→login→exit→解散). 进房1.5秒内的退出类点击一律忽略.
+    _ignoreEarlyRoomTap:function(){
+        var at = (cc.vv && cc.vv.roomEnteredAt) ? cc.vv.roomEnteredAt : 0;
+        if(at && (Date.now() - at) < 1500){
+            console.log("[room] 忽略进房瞬间的退出点击(切场景补发的TOUCH_END)");
+            return true;
+        }
+        return false;
+    },
+
     onBtnBackClicked:function(){
+        if(this._ignoreEarlyRoomTap()){ return; }
         //"退出房间"按钮:服务端exit为释放式退出(仅自己退出,不再占用房间;房内还有其他玩家时房间保留给他人),
         //服务端回exit_result清本地状态后断开连接,由disconnect处理器按来源回俱乐部/大厅
         var doSend = function(){ cc.vv.net.send("exit"); };
@@ -989,6 +1008,7 @@ cc.Class({
     },
     
     onBtnDissolveClicked:function(){
+        if(this._ignoreEarlyRoomTap()){ return; }
         //同上:避免cc.vv.alert未挂载抛错导致"解散房间"点击无效(修复"点击解散房间没有退出房间")
         var doSend = function(){
             //已开局:走投票解散(对家同意后才解散,原有功能);未开局:直接解散整房
@@ -1008,6 +1028,7 @@ cc.Class({
     },
     
     onBtnExit:function(){
+        if(this._ignoreEarlyRoomTap()){ return; }
         //退出前弹确认框,避免误触直接退房(与解散按钮同一原生弹窗组件)
         var doSend = function(){ cc.vv.net.send("exit"); };
         try{

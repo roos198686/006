@@ -170,6 +170,15 @@ cc.Class({
         }
     },
 
+    //把进房关键步骤上报到大厅服 /dbg_log(真机上看不到控制台,靠这个定位卡在哪一步)
+    _dbg:function(msg){
+        try{
+            if(cc.vv && cc.vv.http && cc.vv.http.sendRequest){
+                cc.vv.http.sendRequest("/dbg_log",{m:"[net] " + msg},null);
+            }
+        }catch(e){}
+    },
+
     getSeatIndexByID:function(userId){
         for(var i = 0; i < this.seats.length; ++i){
             var s = this.seats[i];
@@ -381,6 +390,7 @@ cc.Class({
             if(self._loginTimer){ clearTimeout(self._loginTimer); self._loginTimer = null; }
             var sceneName = self.getGameScene();
             console.log("[进入房间]加载场景 " + sceneName);
+            self._dbg("login_finished scene=" + sceneName + " type=" + (self.conf && self.conf.type) + " room=" + self.roomId);
             //标记本次是"进入/重进房间",玩法场景据此跳过补发残局的色子/发牌动画(正常新一局仍会播)
             if(cc.vv){ cc.vv.justEnteredRoom = true; cc.vv.roomEnteredAt = Date.now(); }
             //场景就绪回调:重放错过的结算补发(结算停留期重进,game_over_push早于场景加载到达,
@@ -407,10 +417,20 @@ cc.Class({
                 }
             }catch(e){
                 console.log("[进入房间]加载场景异常:" + (e && e.message));
+                self._dbg("loadScene EXCEPTION " + sceneName + " " + (e && e.message));
             }
+            self._dbg("loadScene " + sceneName + " ok=" + ok);
             if(ok === false){
                 cc.vv.wc.showError("场景 " + sceneName + " 未导入,请在Cocos Creator中刷新资源后重试");
             }
+            //兜底:10秒内若没有切到目标场景,收起"正在进入房间"遮罩并给出原因,避免永久卡住
+            setTimeout(function(){
+                if(!cc.vv || !cc.vv.wc){ return; }
+                var sn = cc.director.getScene() ? cc.director.getScene().name : "";
+                if(sn === sceneName){ return; }
+                cc.vv.wc.hide();
+                cc.vv.wc.showError("进入房间超时,请重试");
+            }, 10000);
         });
 
         cc.vv.net.addHandler("exit_result",function(data){
@@ -1131,22 +1151,22 @@ cc.Class({
         var onConnectFailed = function(){
             console.log("failed.");
             //连接游戏服失败:直接用等待遮罩显示原因,不使用恒为undefined的cc.vv.alert
-            cc.vv.wc.showError("连接游戏服失败(" + cc.vv.net.ip + "),请确认游戏服已启动");
+            cc.vv.wc.showError("连接游戏服失败,请确认游戏服已启动");
         };
-        cc.vv.wc.show("正在进入房间");
+        cc.vv.wc.show("正在进入房间...");
         console.log("[进入房间]连接游戏服 " + cc.vv.net.ip);
         //登录超时检测:8秒无回应则提示,避免永久卡在等待弹窗
         var self2 = this;
         this._loginTimer = setTimeout(function(){
             self2._loginTimer = null;
-            cc.vv.wc.showError("进入房间超时(" + cc.vv.net.ip + "),请重试");
+            cc.vv.wc.showError("进入房间超时,请重试");
         },8000);
         try{
             cc.vv.net.connect(onConnectOK,onConnectFailed);
         }catch(e){
             console.log("[进入房间]连接初始化异常:" + (e && e.message));
             if(this._loginTimer){ clearTimeout(this._loginTimer); this._loginTimer = null; }
-            cc.vv.wc.showError("连接初始化失败:" + (e && e.message));
+            cc.vv.wc.showError("连接初始化失败,请重试");
         }
     }
 });

@@ -72,12 +72,13 @@ var HTTP = cc.Class({
                 else if(xhr.readyState === 4){
                     //请求失败(超时/服务未启动/接口不存在):cc.vv.alert恒为undefined,改用等待遮罩显示原因
                     console.log("http failed status:" + xhr.status);
-                    if(cc.vv && cc.vv.wc && cc.vv.wc.showError){ cc.vv.wc.showError("网络请求失败(" + xhr.status + "),请确认服务已启动"); }
+                    if(cc.vv && cc.vv.wc && cc.vv.wc.showError){ cc.vv.wc.showError("网络请求失败,请稍后重试"); }
                 }
             };
 
             xhr.onerror = function(){
                 console.log("http onerror");
+                //失败原因只打到控制台, 不把URL/状态码显示给玩家
                 if(cc.vv && cc.vv.wc && cc.vv.wc.showError){ cc.vv.wc.showError("无法连接服务器,请确认服务已启动"); }
             };
 

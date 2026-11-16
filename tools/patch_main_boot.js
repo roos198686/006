@@ -3,11 +3,17 @@
 //   node tools/patch_main_boot.js client/build/jsb-link
 //   node tools/patch_main_boot.js client/build/jsb-default
 //
-// 为什么需要: main.js 里 require 的 src/settings.<hash>.js、cocos2d-jsb.<hash>.js、physics.<hash>.js
+// 为什么需要(一): main.js 里 require 的 src/settings.<hash>.js、cocos2d-jsb.<hash>.js、physics.<hash>.js
 // 文件名带构建哈希, 每次构建都变。旧 APK 的 main.js 只认自己那套名字, 所以热更下载下来的新
 // src 文件永远加载不到, 引擎仍按旧 settings 的 bundleVers 去加载旧 assets/main/index.<hash>.jsc。
 // 这里把 require 改成: 先到热更搜索目录里读 project.manifest, 找到本次构建真实的 src 文件名,
 // 存在就加载它, 不存在再回退到构建时写死的名字。
+//
+// 为什么需要(二): 光有上面的解析不够——冷启动时 jsb.fileUtils 的搜索路径还是 APK 内置目录,
+// 热更目录不在里面, 解析永远命中包内文件。而 cc.game.restart() 只销毁场景、重跑旧的 onStart,
+// 不重跑 main.js 也不重新 require settings, 所以"下载完重启生效"在 2.4 原生上根本不成立。
+// 必须在 require settings 之前(本文件注入的 __bbApplyHotPaths)把上次保存的热更搜索路径恢复,
+// 并按清单版本比较, 只允许"热更版本高于 APK 内置版本"时生效, 防止旧热更盖住新包。
 //
 // 构建指纹: settings.bundleVers 是每个构建都不同的版本哈希, 用来在启动时判断"设备上的旧热更
 // 资源是不是上一个包留下的"。它必须在 window.boot() 之前取到, 因为 boot() 第一件事就是把
@@ -33,7 +39,10 @@ var src = fs.readFileSync(mainPath, 'utf8');
 var MARK = '/* bobao_hotfix_boot */';
 var STAMP_MARK = '/* bobao_build_stamp */';
 var STAMP_END = '} catch (e) { window.__bbBuildStamp = ""; }';
+var HOT_MARK = '/* bobao_hotupdate_boot */';
+var HOT_END = '/* bobao_hotupdate_boot_end */';
 var BOOT_CALL = /^[ \t]*window\.boot\(\);/m;
+var JSB_ANCHOR = 'if (window.jsb) {\n    var isRuntime';
 
 // 取出当前 main.js 里写死的 src 文件名, 作为回退值
 function pick(re) {
@@ -73,6 +82,57 @@ var helper = MARK + '\n' +
 '    };\n' +
 '}\n';
 
+// 启动时恢复热更搜索路径(必须在 require settings 之前执行)
+// jsb-builtin.js 先于 main.js 执行, 所以这里 localStorage / jsb.fileUtils 都已可用
+var hotPathsCode = HOT_MARK + '\n' +
+'if (window.jsb && window.localStorage) {\n' +
+'    try {\n' +
+'        var __hbRaw = localStorage.getItem("HotUpdateSearchPaths");\n' +
+'        if (__hbRaw) {\n' +
+'            var __hbObj = JSON.parse(__hbRaw);\n' +
+'            var __hbList = Array.isArray(__hbObj) ? __hbObj : (__hbObj && __hbObj.paths);\n' +
+'            if (__hbList && __hbList.length) {\n' +
+'                var __hbFu = jsb.fileUtils;\n' +
+'                var __hbVer = function (dirs) {\n' +
+'                    for (var __i = 0; __i < dirs.length; __i++) {\n' +
+'                        var __d = String(dirs[__i]).replace(/\\/+$/, "");\n' +
+'                        var __mf = __d ? (__d + "/project.manifest") : "project.manifest";\n' +
+'                        if (!__hbFu.isFileExist(__mf)) { continue; }\n' +
+'                        try {\n' +
+'                            var __v = JSON.parse(__hbFu.getStringFromFile(__mf)).version;\n' +
+'                            if (__v) { return String(__v); }\n' +
+'                        } catch (__e) {}\n' +
+'                    }\n' +
+'                    return "";\n' +
+'                };\n' +
+'                var __hbCmp = function (a, b) {\n' +
+'                    var __x = String(a).split("."), __y = String(b).split(".");\n' +
+'                    var __n = Math.max(__x.length, __y.length);\n' +
+'                    for (var __i = 0; __i < __n; __i++) {\n' +
+'                        var __p = parseInt(__x[__i], 10) || 0;\n' +
+'                        var __q = parseInt(__y[__i], 10) || 0;\n' +
+'                        if (__p > __q) { return 1; }\n' +
+'                        if (__p < __q) { return -1; }\n' +
+'                    }\n' +
+'                    return 0;\n' +
+'                };\n' +
+'                var __hbApkVer = __hbVer(__hbFu.getSearchPaths() || []);\n' +
+'                var __hbHotVer = __hbVer(__hbList);\n' +
+'                if (__hbHotVer && (!__hbApkVer || __hbCmp(__hbHotVer, __hbApkVer) > 0)) {\n' +
+'                    __hbFu.setSearchPaths(__hbList);\n' +
+'                    window.__bbHotBootApplied = true;\n' +
+'                    window.__bbHotBootVersion = __hbHotVer;\n' +
+'                } else if (__hbHotVer) {\n' +
+'                    localStorage.removeItem("HotUpdateSearchPaths");\n' +
+'                    localStorage.removeItem("HotUpdateAppliedPaths");\n' +
+'                    localStorage.removeItem("HotUpdateBuildStamp");\n' +
+'                }\n' +
+'            }\n' +
+'        }\n' +
+'    } catch (__hbErr) {}\n' +
+'}\n' +
+HOT_END + '\n';
+
 // 构建指纹: 必须在 window.boot()(它会把 _CCSettings 置空)之前取值
 var stampCode = STAMP_MARK + '\n' +
 'try {\n' +
@@ -89,30 +149,19 @@ function insertStamp(text) {
     return text.slice(0, m.index) + stampCode + text.slice(m.index);
 }
 
-// 已经打过补丁: 校验指纹块的位置和取值, 不对就重写(旧版把它插在内层分支里并引用了不存在的 settings 变量)
-if (src.indexOf(MARK) >= 0 && src.indexOf(STAMP_MARK) >= 0) {
-    var s = src.indexOf(STAMP_MARK);
-    var e = src.indexOf(STAMP_END, s);
-    if (e < 0) {
-        console.error('已有构建指纹块结构不符: ' + mainPath);
-        process.exit(1);
-    }
-    var cleaned = (src.slice(0, s) + src.slice(e + STAMP_END.length)).replace(/^[ \t]*\r?\n/, '');
-    var rebuilt = insertStamp(cleaned);
-    if (rebuilt === null) {
-        console.error('main.js 里没找到 window.boot(); 调用');
-        process.exit(1);
-    }
-    if (rebuilt === src) {
-        console.log('已打过补丁, 跳过: ' + mainPath);
-    } else {
-        fs.writeFileSync(mainPath, rebuilt, 'utf8');
-        console.log('已重写构建指纹(位置/取值修正): ' + mainPath);
-    }
-    process.exit(0);
+// 去重: 已有块先摘掉, 统一按最新内容重插(保证补丁内容始终是最新的)
+function stripBlock(text, startMark, endMark) {
+    var s = text.indexOf(startMark);
+    if (s < 0) { return text; }
+    var e = text.indexOf(endMark, s);
+    if (e < 0) { return text; }
+    return (text.slice(0, s) + text.slice(e + endMark.length)).replace(/^[ \t]*\r?\n/, '');
 }
 
-// 在 if (window.jsb) 之前插入 helper, 并替换 require(仅首次)
+src = stripBlock(src, HOT_MARK, HOT_END);
+src = stripBlock(src, STAMP_MARK, STAMP_END);
+
+// 1) require 解析补丁(只加一次, 需要把 require 的写死文件名替换掉)
 if (src.indexOf(MARK) < 0) {
     var idx = src.indexOf('if (window.jsb)');
     if (idx < 0) {
@@ -137,20 +186,23 @@ if (src.indexOf(MARK) < 0) {
     }
 }
 
-if (src.indexOf(STAMP_MARK) >= 0) {
-    // require 与指纹块都已存在(结构上不会再发生), 保持原样
-    fs.writeFileSync(mainPath, src, 'utf8');
-    console.log('已补 require, 指纹块已存在: ' + mainPath);
-} else {
-    var out = insertStamp(src);
-    if (out === null) {
-        console.error('main.js 里没找到 window.boot(); 调用');
-        process.exit(1);
-    }
-    fs.writeFileSync(mainPath, out, 'utf8');
-    console.log('补丁完成: ' + mainPath);
+// 2) 热更路径恢复块: 插在 "if (window.jsb) { var isRuntime" 之前, 即 require settings 之前
+var anchor = src.indexOf(JSB_ANCHOR);
+if (anchor < 0) {
+    console.error('main.js 里没找到启动分支锚点: ' + JSON.stringify(JSB_ANCHOR));
+    process.exit(1);
+}
+src = src.slice(0, anchor) + hotPathsCode + '\n' + src.slice(anchor);
+
+// 3) 构建指纹块: 插在 window.boot(); 之前
+var out = insertStamp(src);
+if (out === null) {
+    console.error('main.js 里没找到 window.boot(); 调用');
+    process.exit(1);
 }
 
+fs.writeFileSync(mainPath, out, 'utf8');
+console.log('补丁完成: ' + mainPath);
 console.log('  settings : ' + settingsFile);
 if (jsbFile) { console.log('  jsb       : ' + jsbFile); }
 if (physicsFile) { console.log('  physics   : ' + physicsFile); }

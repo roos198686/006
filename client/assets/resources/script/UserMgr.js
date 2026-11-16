@@ -37,6 +37,18 @@ cc.Class({
         cc.vv.http.sendRequest("/guest",{account:account},this.onAuth,cc.vv.http.master_url);  //游客请求登入
     },
 
+    //大厅地址:优先用服务端 /get_serverinfo 下发的 SI.hall。
+    //该字段缺失(服务端配置没读到 HALL_IP/HALL_CLIENT_PORT)时会拼出 http://undefined,
+    //所有大厅接口(含 /club_enter_table)直接连不上,表现就是"无法连接服务器"。
+    //这里做兜底:字段异常时退回生产大厅地址。
+    _hallAddr:function(){
+        var h = (cc.vv.SI && cc.vv.SI.hall != null) ? String(cc.vv.SI.hall) : "";
+        if(!h || h.indexOf("undefined") >= 0 || h.indexOf("null") >= 0){
+            h = "47.239.100.68:9101";
+        }
+        return h;
+    },
+
     //账号密码登录:调账号服/auth,返回{account,halladdr,sign},成功后走onAuth进大厅
     pwdAuth:function(account,password){
         if(!account || !password){
@@ -60,9 +72,7 @@ cc.Class({
         this.account = cc.sys.localStorage.getItem("login_account");
         this.sign = cc.sys.localStorage.getItem("login_sign");
         //登录态存在时HTTP.url可能还是账号服,这里切回大厅服(与onAuth一致)
-        if(cc.vv.SI && cc.vv.SI.hall){
-            cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(cc.vv.SI.hall) : cc.vv.SI.hall);
-        }
+        cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(this._hallAddr()) : this._hallAddr());
         this._autoLoginFail = onFail || null;
         this.login();
         return true;
@@ -90,7 +100,7 @@ cc.Class({
             cc.sys.localStorage.setItem("login_account", self.account);
             cc.sys.localStorage.setItem("login_sign", self.sign == null ? "" : String(self.sign));
             cc.sys.localStorage.setItem("login_type", self._authType || "guest");
-            cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(cc.vv.SI.hall) : cc.vv.SI.hall);  //设置URL为取得版本接口时 ret.hall
+            cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(self._hallAddr()) : self._hallAddr());  //设置URL为取得版本接口时 ret.hall
             self.login();  //获取成功后登陆
         }   
     },

@@ -135,6 +135,12 @@ cc.Class({
         if(!cc.sys.isNative || typeof jsb === "undefined" || !jsb.fileUtils){
             return false;
         }
+        //main.js 已经在 require settings 之前按版本比较恢复过热更路径(main.js 先于本场景执行),
+        //此时加载进来的就是热更代码, 这里不能再做指纹校验/重启, 否则会把刚生效的热更目录删掉
+        if(window.__bbHotBootApplied){
+            console.error("[HotUpdate] 启动已应用热更版本 " + (window.__bbHotBootVersion || ""));
+            return false;
+        }
         var saved = cc.sys.localStorage.getItem("HotUpdateSearchPaths");
         if(!saved){
             return false;
@@ -289,7 +295,9 @@ cc.Class({
                     }
                     break;
                 case EV.UPDATE_FINISHED:
-                    //保存搜索路径并重启; 重启后 onLoad -> applyHotUpdateSearchPaths 会应用新路径
+                    //只保存路径, 不重启: 2.4 原生的 cc.game.restart() 只销毁场景后重跑旧的 onStart,
+                    //不重新 require settings / 不重新 init assetManager, 下载完这一轮仍跑包内旧代码。
+                    //下次冷启动由 main.js 在 require settings 之前应用这份路径, 才真正加载到新JS。
                     try {
                         var searchPaths = jsb.fileUtils.getSearchPaths();
                         var newPaths = am.getLocalManifest().getSearchPaths();
@@ -297,16 +305,14 @@ cc.Class({
                             Array.prototype.unshift.apply(searchPaths, newPaths);
                         }
                         cc.sys.localStorage.setItem("HotUpdateSearchPaths", JSON.stringify({paths: searchPaths}));
-                        //记录当前包指纹: 下次冷启动据此判断这份热更资源是否属于当前APK
-                        cc.sys.localStorage.setItem("HotUpdateBuildStamp", self._buildStamp() || "");
-                        //新下载的资源路径必须重新应用并重启一次才会加载到新JS, 清掉"已重启"标记
-                        cc.sys.localStorage.removeItem("HotUpdateAppliedPaths");
+                        //指纹/重启标记已废弃: 是否应用这份热更由 main.js 启动时按清单版本决定
                     } catch(e) {
                         console.log("[HotUpdate] 保存搜索路径失败:", e);
                     }
-                    self._stateStr = "更新完成, 正在重启";
+                    self._stateStr = "更新完成, 请重新打开应用";
+                    self.showHotTip("更新完成, 请重新打开应用");
                     self._finishHot();
-                    cc.game.restart();
+                    self.checkVersion();
                     break;
                 case EV.UPDATE_FAILED:
                     self._hotFailCount++;
