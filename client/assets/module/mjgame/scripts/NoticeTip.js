@@ -20,13 +20,19 @@ cc.Class({
     // use this for initialization
     onLoad: function () {
         this._guohu = cc.find("Canvas/tip_notice");
+        //部分麻将场景没有摆 tip_notice 节点(如赖倒胡/自选财神),不能直接取 active,否则场景加载即抛异常
+        if(!this._guohu){
+            return;
+        }
         this._guohu.active = false;
-        
-        this._info = cc.find("Canvas/tip_notice/info").getComponent(cc.Label);
-        
+
+        var info = cc.find("Canvas/tip_notice/info");
+        this._info = info ? info.getComponent(cc.Label) : null;
+
         var self = this;
         this.node.on('push_notice',function(data){
             var data = data.detail;
+            if(!self._guohu || !self._info){ return; }
             self._guohu.active = true;
             self._guohuTime = data.time;
             self._info.string = data.info;
@@ -35,7 +41,7 @@ cc.Class({
 
     // called every frame, uncomment this function to activate update callback
     update: function (dt) {
-       if(this._guohuTime > 0){
+       if(this._guohu && this._guohuTime > 0){
            this._guohuTime -= dt;
            if(this._guohuTime < 0){
                this._guohu.active = false;
