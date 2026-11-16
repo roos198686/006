@@ -77,3 +77,6 @@ backup/
 
 server_deploy/
 
+
+# 本地 Android SDK 路径, 不能进仓库(CI 会自己写入)
+**/local.properties
