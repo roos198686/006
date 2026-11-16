@@ -44,64 +44,91 @@ var Global = cc.Class({
             //jsb无window.location,无协议头的host:port无法被JS版socket.io解析,必须显式补http://
             var url = this.ip;
             if(url.indexOf('://') < 0){ url = 'http://' + url; }
-            this.sio = window.io.connect(url,opts);
+            //同一页面重复进房/断线重连会新建socket(旧房间的socket仍存活)。
+            //必须先把旧socket的监听全部摘掉再断开:否则服务端踢旧socket时发的 kick_offline / disconnect
+            //会通过旧监听回调进来,把新建的socket一起close掉——服务端已登录成功,客户端却永远等不到
+            //login_result,表现为一直卡在"正在进入房间",刷新页面后才正常(刷新后不存在旧socket)。
+            var oldSio = this.sio;
+            this.sio = null;
+            if(oldSio){
+                try{ oldSio.removeAllListeners(); }catch(e){}
+                try{ oldSio.disconnect(); }catch(e){}
+            }
+            var sio = this.sio = window.io.connect(url,opts);
+            //每个回调只认自己创建的那个socket,过期socket的任何事件一律丢弃
+            var isCurrent = function(){ return self.sio === sio; };
             // 全局监听所有socket事件(调试用)
-            this.sio.on('reconnect',function(){
+            sio.on('reconnect',function(){
+                if(!isCurrent()){ return; }
                 console.log('reconnection');
             });
             // socket.io 2.x 的 manager onAny
-            if(this.sio.io && this.sio.io.onAny){
-                this.sio.io.onAny(function(event,data){
+            if(sio.io && sio.io.onAny){
+                sio.io.onAny(function(event,data){
+                    if(!isCurrent()){ return; }
                     if(event.indexOf('game_') === 0 || event.indexOf('hu') >= 0 || event.indexOf('caishen') >= 0){
                         console.log('[socket.io onAny]', event, typeof(data) === 'string' ? data.substring(0,100) : data);
                     }
                 });
             }
-            this.sio.on('connect',function(data){
-                self.sio.connected = true;
+            sio.on('connect',function(data){
+                if(!isCurrent()){ return; }
+                sio.connected = true;
                 fnConnect(data);
             });
             
-            this.sio.on('disconnect',function(data){
+            sio.on('disconnect',function(data){
+                if(!isCurrent()){ return; } //旧socket断开不影响当前连接
                 console.log("disconnect");
-                self.sio.connected = false;
+                sio.connected = false;
                 self.close();
             });
             
-            this.sio.on('connect_failed',function (){
+            sio.on('connect_failed',function (){
+                if(!isCurrent()){ return; }
                 console.log('connect_failed');
                 if(fnError){ fnError(); }
             });
 
-            this.sio.on('connect_error',function (){
+            sio.on('connect_error',function (){
+                if(!isCurrent()){ return; }
                 console.log('connect_error');
                 if(fnError){ fnError(); }
             });
             
             console.log("[Net.connect] handlers keys:", Object.keys(this.handlers));
+            var bindHandler = function(key,value){
+                if(key == 'disconnect'){
+                    self.fnDisconnect = value;
+                }
+                else{
+                    console.log("[Net.connect] register sio.on:", key);
+                    sio.on(key,function(d){
+                        if(!isCurrent()){ return; }
+                        value(d);
+                    });
+                }
+            };
             for(var key in this.handlers){
                 var value = this.handlers[key];
                 if(typeof(value) == "function"){
-                    if(key == 'disconnect'){
-                        this.fnDisconnect = value;
-                    }
-                    else{
-                        console.log("[Net.connect] register sio.on:", key);
-                        this.sio.on(key,value);                        
-                    }
+                    bindHandler(key,value);
                 }
             }
             
-            this.startHearbeat();
+            this.startHearbeat(sio);
         },
         
-        startHearbeat:function(){
-            this.sio.on('game_pong',function(){
+        startHearbeat:function(sio){
+            sio = sio || this.sio;
+            if(!sio){ return; }
+            var self = this;
+            sio.on('game_pong',function(){
+                if(self.sio !== sio){ return; }
                 console.log('game_pong');
                 self.lastRecieveTime = Date.now(); 
             });
             this.lastRecieveTime = Date.now();
-            var self = this;
             console.log(1);
             if(!self.isPinging){
                 console.log(1);
@@ -136,14 +163,17 @@ var Global = cc.Class({
         
         close:function(){
             console.log('close');
-            if(this.sio && this.sio.connected){
-                this.sio.connected = false;
-                this.sio.disconnect();
-                this.sio = null;
+            //只关闭当前连接的socket,并立刻置空:避免旧socket的断开事件把新连接一起清掉
+            var sio = this.sio;
+            this.sio = null;
+            if(sio){
+                sio.connected = false;
+                try{ sio.disconnect(); }catch(e){}
             }
             if(this.fnDisconnect){
-                this.fnDisconnect();
+                var fn = this.fnDisconnect;
                 this.fnDisconnect = null;
+                fn();
             }
         },
         

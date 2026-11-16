@@ -1452,6 +1452,11 @@ app.get('/club_subscribe_info',function(req,res){
 	http.send(res,0,"ok",{ip:ip,port:port});
 });
 
+app.get('/dbg_log',function(req,res){
+	console.log('[client-dbg] ' + String(req.query.m || '').substring(0, 400));
+	http.send(res,0,"ok");
+});
+
 //点击桌面进入游戏:复用桌面已绑定且未满的房间,否则按桌面配置建房并绑定
 app.get('/club_enter_table',function(req,res){
 	if(!check_account(req,res)){
@@ -1462,6 +1467,8 @@ app.get('/club_enter_table',function(req,res){
 		http.send(res,-1,"tableid required.");
 		return;
 	}
+	//排查"解散房间后自动建房":记录是谁触发的进桌请求(dbg 为客户端调用栈)
+	console.log('[club_enter_table] account=' + req.query.account + ' tableid=' + tableId + ' dbg=' + String(req.query.dbg || '(none)').substring(0, 260));
 	db.get_user_data(req.query.account,function(data){
 		if(data == null){
 			http.send(res,-1,"system error");

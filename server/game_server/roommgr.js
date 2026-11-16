@@ -46,6 +46,16 @@ function checkRoomAutoDissolve(room, userMgr, now){
         dissolveIdleRoom(room);
         return;
     }
+    //房间内一个坐着的玩家都没有(被清出/踢出后座位已空,但没有走销毁流程):立即解散, 释放牌桌占用
+    var seated = 0;
+    for(var s0 = 0; s0 < room.seats.length; ++s0){
+        if(room.seats[s0].userId > 0){ seated++; }
+    }
+    if(seated == 0){
+        console.log('[roommgr] empty room dissolve:', roomId);
+        dissolveIdleRoom(room);
+        return;
+    }
     //统计是否有在线玩家
     var hasOnline = false;
     for(var i = 0; i < room.seats.length; ++i){
@@ -72,6 +82,14 @@ function checkRoomAutoDissolve(room, userMgr, now){
         var sec = (cfg && cfg.auto_dissolve_seconds != null ? cfg.auto_dissolve_seconds : 300);
         if(!(sec > 0)){ sec = 300; }
         var limit = sec * 1000;
+        //房间级检查:整桌人多久没有任何真实操作(心跳不算) → 解散。
+        //比按下线状态判断可靠:两个人都不操作(哪怕还连着)也会按时解散, 不会一直占着牌桌
+        var lastAct = room.lastActiveAt || ((room.createTime || 0) * 1000);
+        if(lastAct > 0 && (now - lastAct) >= limit){
+            console.log('[roommgr] auto dissolve (room idle ' + sec + 's): room=' + roomId);
+            dissolveIdleRoom(room);
+            return;
+        }
         for(var i = 0; i < room.seats.length; ++i){
             var uid = room.seats[i].userId;
             if(uid <= 0){ continue; }
@@ -786,9 +804,25 @@ exports.exitRoom = function(userId,callback){
 
 	//清座位、清积分、清绑定三条SQL都落库后再回调,避免调用方立即回查读到旧座位(牌桌列表"退出后不更新")
 	var left = 3;
+	var finished = false;
 	var done = function(){
+		if(finished){ return; }
 		left--;
-		if(left <= 0 && callback){ callback(); }
+		if(left > 0){ return; }
+		finished = true;
+		//座位全空就直接解散房间:被清出/踢出/退出的最后一个人走后,牌桌不能一直显示被占用
+		var anySeated = false;
+		if(rooms[roomId] && rooms[roomId].seats){
+			for(var i = 0; i < rooms[roomId].seats.length; ++i){
+				if(rooms[roomId].seats[i].userId > 0){ anySeated = true; break; }
+			}
+		}
+		if(anySeated || rooms[roomId] == null){
+			if(callback){ callback(); }
+			return;
+		}
+		console.log('[roommgr] room empty after exit, dissolve:', roomId);
+		exports.destroy(roomId, callback);
 	};
 
 	//同步清掉DB座位,否则俱乐部详情页/club_tables(LEFT JOIN t_rooms)仍显示已退出玩家

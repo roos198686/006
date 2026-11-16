@@ -203,8 +203,7 @@ cc.Class({
     //按玩法类型返回牌桌场景名(进入房间/回放共用)
     sceneForType:function(t){
         t = String(t || "");
-        if(t.indexOf("baobao_shou") === 0) return "mjgame_bb_shou";
-        if(t.indexOf("baobao") === 0) return "mjgame_bb_mian";
+        if(t.indexOf("baobao") === 0) return "mjgame_bb_shou";
         if(t == "zj_lao") return "mjgame_zjlao";
         if(t == "zj_bt") return "mjgame_bmj";
         if(t == "zj_zx") return "mjgame_zjzx";
@@ -214,7 +213,7 @@ cc.Class({
         if(t == "guanpai2") return "mjgame_gp2";
         if(t == "sss2" || t == "sss4" || t == "sss6") return "mjgame_sss";
         if(t == "zj" || t == "zj4" || t == "zj4_bt") return "mjgame_ldh";
-        return "mjgame_bb_mian";
+        return "mjgame_bb_shou";
     },
 
     //当前玩法的游戏场景名
@@ -382,6 +381,8 @@ cc.Class({
             if(self._loginTimer){ clearTimeout(self._loginTimer); self._loginTimer = null; }
             var sceneName = self.getGameScene();
             console.log("[进入房间]加载场景 " + sceneName);
+            //标记本次是"进入/重进房间",玩法场景据此跳过补发残局的色子/发牌动画(正常新一局仍会播)
+            if(cc.vv){ cc.vv.justEnteredRoom = true; cc.vv.roomEnteredAt = Date.now(); }
             //场景就绪回调:重放错过的结算补发(结算停留期重进,game_over_push早于场景加载到达,
             //此时弹窗组件尚未注册监听直接dispatch会错过,导致重进后停在无按钮的空准备界面)
             var onSceneLaunched = function(){
@@ -418,6 +419,7 @@ cc.Class({
             //3秒兜底自动复位,防止标记残留影响后续真实断线
             self._ignoreDisconnectOnce = true;
             setTimeout(function(){ self._ignoreDisconnectOnce = false; }, 3000);
+            if(cc.vv){ cc.vv.autoQuickJoin = null; } //退出房间同样不允许自动进桌
             self.clearRoomState();
             //座位/牌桌已在服务端释放完成, 通知场景立即切回大厅/俱乐部(不再固定空等)
             self.dispatchEvent('exit_result', {});
@@ -440,12 +442,29 @@ cc.Class({
             //服务端解散后会踢socket:标记忽略这次disconnect,返回页由房间/结算流程统一处理,避免二次切场景跳动
             self._ignoreDisconnectOnce = true;
             setTimeout(function(){ self._ignoreDisconnectOnce = false; }, 3000);
+            //解散/退出房间后不能再触发"快速加入"这类自动进桌:否则刚退回俱乐部就被自动带进同一张空桌,
+            //服务端按规则又建出一间新房,牌桌座位看起来一直占着
+            if(cc.vv){ cc.vv.autoQuickJoin = null; }
             self.clearRoomState();
             self.dispatchEvent("dispress_push", null);
+            //解散投票通过后自动回牌桌大厅:原来只清状态不切场景,玩家会一直停在牌桌上,
+            //只能手动刷新页面才能回去。这里统一切场景(已在俱乐部则不重复加载)
+            setTimeout(function(){
+                if(!cc.vv){ return; }
+                var sn = cc.director.getScene() ? cc.director.getScene().name : "";
+                if(sn === "club"){ return; }
+                self.exitToTableHall();
+            }, 150);
         });
 
         // 同一账号在其他设备登录被踢下线: 立即清房间状态,弹窗提示后回大厅
         cc.vv.net.addHandler("kick_offline", function(data){
+            //刚重连进房时,服务端会把"同一账号的旧socket"踢下线并立刻给它发 kick_offline;
+            //这条消息是发给旧连接的,不代表被其他设备顶号,误处理会直接跳回首页大厅(点牌桌就跳大厅的根因)
+            if(self._ignoreKickUntil && Date.now() < self._ignoreKickUntil){
+                console.log("[kick_offline] 忽略:自身重连顶掉的旧连接, reason=" + (data && data.reason));
+                return;
+            }
             console.log("[kick_offline] 被其他设备顶下线:", data && data.reason);
             self._ignoreDisconnectOnce = true;
             self.clearRoomState();
@@ -1082,6 +1101,9 @@ cc.Class({
     //连接服务器 请求
     connectGameServer:function(data){
         this.dissoveData = null;
+        //进房/重连会新建 socket,服务端随即踢掉同账号的旧socket并给它发 kick_offline;
+        //这里打一个宽限窗口,避免把自己顶掉的旧连接误判成"被其他设备顶号"而跳回大厅
+        this._ignoreKickUntil = Date.now() + 6000;
         //进房间前记下来源场景与俱乐部id:退出时按来源页返回(从俱乐部进桌回俱乐部详情,大厅进桌回大厅)
         var _bs = cc.director.getScene ? cc.director.getScene() : null;
         //断线重连时当前场景可能是 hall/loading:若已有俱乐部来源标记,保持俱乐部来源不被覆盖

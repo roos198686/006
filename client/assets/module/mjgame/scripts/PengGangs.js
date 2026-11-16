@@ -275,7 +275,8 @@ cc.Class({
             pgroot.zIndex = -index;
         }
         else if(side == "myself"){
-            pgroot.x = index * 55 * 3 + index * 10;
+            //自家:组间距按模板里牌的实际宽度算,固定 55*3 比实际一组牌宽很多,会空出很大间隙
+            pgroot.x = index * this._meldStride(pgroot, 0);
         }
         else{
             //对家:组间距按模板里牌的实际宽度算,写死间距比一组牌还窄时相邻组会把牌盖住(看起来像少一张)
@@ -330,7 +331,7 @@ cc.Class({
             if(right == null || r > right){ right = r; }
         }
         if(left == null){ return minStep; }
-        return Math.max(minStep, (right - left) + 6);
+        return Math.max(minStep, (right - left) + 2);
     },
     
     initPengAndGangs:function(pengangroot,side,pre,index,mjid,flag,tiles){
@@ -352,7 +353,8 @@ cc.Class({
             pgroot.zIndex = -index;
         }
         else if(side == "myself"){
-            pgroot.x = index * 55 * 3 + index * 10;
+            //自家:组间距按模板里牌的实际宽度算,固定 55*3 比实际一组牌宽很多,会空出很大间隙
+            pgroot.x = index * this._meldStride(pgroot, 0);
         }
         else{
             //对家:组间距按模板里牌的实际宽度算,避免相邻组互相盖住

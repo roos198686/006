@@ -44,22 +44,27 @@ cc.Class({
         }
         
         //任一初始化步骤异常都不能中断退出监听的注册,否则房间内点"退出房间"会毫无反应
-        try{
-            this.initView();
-            this.initSeats();
-            this.initEventHandlers();
-            this.initStartButton();
-            this.applyCustomBtnSkins();
-            this.initBrickWall();
-        }catch(e){
-            console.error("[MJRoom] 初始化异常(继续注册退出监听):", (e && e.stack) ? e.stack : e);
+        //每一步单独兜底:某一步报错不影响牌墙初始化与牌墙刷新监听(否则墙牌永远不减少)
+        var steps = ["initView","initSeats","initEventHandlers","initStartButton","applyCustomBtnSkins","initBrickWall"];
+        for(var si2 = 0; si2 < steps.length; ++si2){
+            try{
+                this[steps[si2]]();
+            }catch(e){
+                console.error("[MJRoom] " + steps[si2] + " 异常:", (e && e.stack) ? e.stack : e);
+            }
         }
+        try{ this.initBrickHandlers(); }catch(e){ console.error("[MJRoom] initBrickHandlers 异常:", e); }
         this.initNetExitListeners();
 
         //座位(头像/昵称/分数)统一挂在game牌桌层下,而各玩法脚本进房时会把整个game层隐藏(开局才显示),
         //导致"进房间看不到玩家,只有开局才出现"。牌局未开始时把game层重新显示(只隐藏手牌占位/牌墙)。
         var self = this;
         this.scheduleOnce(function(){ self.showSeatsInWaiting(); }, 0);
+        //座位/登录数据可能比场景 onLoad 稍晚到:1秒后再刷一次座位(头像/昵称),避免进房只看到默认头像
+        this.scheduleOnce(function(){
+            if(!cc.isValid(self.node)){ return; }
+            try{ self.initSeats(); }catch(e){ console.error("[MJRoom] 延迟刷新座位异常:", (e && e.stack) ? e.stack : e); }
+        }, 1.0);
         //胡牌后桌面牌要保留到结算弹窗关闭,这里不能在game_over时就切等待界面;
         //弹窗关闭后延迟一拍(等玩法脚本隐藏牌桌)再显示座位/开始按钮
         this.node.on('game_over_popup_closed', function(){
@@ -383,11 +388,49 @@ cc.Class({
         this._brickWall = wall;
         this._brickBuilt = true;
         this._brickRemainCount = 0;
-        this._brickZJLao = !!(cc.vv.gameNetMgr.conf && cc.vv.gameNetMgr.conf.type == "zj_lao");
-        this._brickPendingTail = false;
+        this._brickZJLao = !!((cc.vv.gameNetMgr && cc.vv.gameNetMgr.conf) && cc.vv.gameNetMgr.conf.type == "zj_lao");
         wall.zIndex = -1; //压到座位层之下,防止墙牌盖住吃/碰/杠/过提示字
 
         this._brickDrawable = []; //可摸的47张:左侧31 → 对家前16
+        //无金2人场:场景左右二侧+对家共111张(LT 37 / U 36 / RT 38),开局全部可摸,不设置灰死墙
+        //以场景里是否摆了LT36/RT37判断(只有mjgame_wujin.fire补到了111张),其他场景仍走原逻辑
+        this._brick111 = !!(wall.getChildByName("LT36") && wall.getChildByName("RT37"));
+        if(this._brick111){
+            var wjOut = this._brickDrawable;
+            var wjLts = [];
+            for(var i = 0; i < 37; ++i){
+                var wjLt = wall.getChildByName("LT" + (i < 10 ? "0" : "") + i);
+                if(wjLt){ wjLts.push(wjLt); }
+            }
+            //左侧从最下面一墩开始往上摸(墩内先上层后下层),摸完左侧再摸对家,最后右侧从上往下
+            var wjStacks = [];
+            for(var i = 0; i < wjLts.length; i += 2){
+                var wjSt = [wjLts[i]];
+                if(wjLts[i + 1]){ wjSt.push(wjLts[i + 1]); }
+                wjStacks.push(wjSt);
+            }
+            wjStacks.reverse();
+            for(var i = 0; i < wjStacks.length; ++i){
+                wjStacks[i].sort(function(a, b){ return b.y - a.y; }); //每墩先上层后下层
+                for(var k = 0; k < wjStacks[i].length; ++k){ wjOut.push(wjStacks[i][k]); }
+            }
+            //对家墙:每墩先上层后下层(U01-U00-U03-U02...)
+            for(var i = 0; i < 36; i += 2){
+                var wjU1 = wall.getChildByName("U" + ((i + 1) < 10 ? "0" : "") + (i + 1));
+                var wjU0 = wall.getChildByName("U" + (i < 10 ? "0" : "") + i);
+                if(wjU1){ wjOut.push(wjU1); }
+                if(wjU0){ wjOut.push(wjU0); }
+            }
+            for(var i = 0; i < 38; ++i){
+                var wjRt = wall.getChildByName("RT" + (i < 10 ? "0" : "") + i);
+                if(wjRt){ wjOut.push(wjRt); }
+            }
+            this._brickDead = [];
+            //本轮牌墙墙尾被取走的张数(换花补牌/杠后补牌):只让墙尾少牌,墙头牌一张不动
+            this._brickTailGone = 0;
+            this.refreshBrickWall();
+            return;
+        }
         var lts = [];
         for(var i = 0; i < 31; ++i){
             var lt = wall.getChildByName("LT" + (i < 10 ? "0" : "") + i);
@@ -456,30 +499,16 @@ cc.Class({
                 for(var k = 0; k < upair.length; ++k){ out.push(upair[k]); }
             }
         } else {
-            //其他玩法:每墩按原有方向排列,但墩内一定先上层后下层
-            //注意:非诸暨玩法 refreshBrickWall 是从数组尾部开始隐藏(尾部=先被摸走),
-            //所以每墩必须把上层牌放到尾部:数组顺序为[下层,上层],即按y从小到大
-            var stacks = [];
-            for(var i = 0; i < lts.length; i += 2){
-                var st = [lts[i]];
-                if(lts[i + 1]){ st.push(lts[i + 1]); }
-                st.sort(function(a, b){ return a.y - b.y; });
-                stacks.push(st);
-            }
-            stacks.sort(function(p, q){ return p[p.length - 1].y - q[q.length - 1].y; });
-            for(var i = 0; i < stacks.length; ++i){
-                for(var k = 0; k < stacks[i].length; ++k){
-                    out.push(stacks[i][k]);
-                }
+            //所有玩法的墙牌都是同一份复刻,统一摸牌顺序:左侧从最下面一墩LT30依次往上到LT00,
+            //再对家U01-U00-U03-U02...U15-U14(每墩先上层后下层)
+            for(var i = lts.length - 1; i >= 0; --i){
+                out.push(lts[i]);
             }
             for(var i = 0; i < 16; i += 2){
-                var pair = [];
-                var u0 = wall.getChildByName("U" + (i < 10 ? "0" : "") + i);
-                var u1 = wall.getChildByName("U" + ((i + 1) < 10 ? "0" : "") + (i + 1));
-                if(u0){ pair.push(u0); }
-                if(u1){ pair.push(u1); }
-                pair.sort(function(a, b){ return a.y - b.y; }); //同上:上层放尾部,先被摸走
-                for(var k = 0; k < pair.length; ++k){ out.push(pair[k]); }
+                var fu1 = wall.getChildByName("U" + ((i + 1) < 10 ? "0" : "") + (i + 1));
+                var fu0 = wall.getChildByName("U" + (i < 10 ? "0" : "") + i);
+                if(fu1){ out.push(fu1); }
+                if(fu0){ out.push(fu0); }
             }
         }
         //初始置灰区26张(对家前 U16-U35 + 右侧 RT00-RT05),普通摸牌不可进入;
@@ -493,85 +522,121 @@ cc.Class({
             var drt = wall.getChildByName("RT0" + i);
             if(drt){ this._brickDead.push(drt); }
         }
+        //墙尾取走张数(换花补牌/杠后补牌)
+        this._brickTailGone = 0;
         this.refreshBrickWall();
     },
 
-    refreshBrickWall:function(){
-        if(!this._brickBuilt){ return; }
-        var nm = cc.vv.gameNetMgr;
-        var n = nm.numOfMJ;
-        if(n == null || n < 0){ n = 0; }
-        //场上总杠数(暗杠+点杠+弯杠):杠后补牌从死墙尾摸,可摸尾部 gang_liuju*杠数 张转死墙置灰
-        var gangs = 0;
-        var seats = nm.seats || [];
-        for(var si = 0; si < seats.length; ++si){
-            var st = seats[si];
-            if(!st) continue;
+    //墙尾被取走一张(换花补牌/杠后补牌):只记账,不在这里刷新。
+    //刷新统一由随后服务端下发的剩余牌数(mj_count)触发,否则杠通知先到时会把墙头牌错误地"补回来",
+    //看起来就是整面墙往前移了一格。
+    consumeBrickTail:function(cnt){
+        this._brickTailGone = Math.max(0, (this._brickTailGone || 0) + (cnt || 1));
+    },
+
+    //换花/杠补从墙尾取走的那张牌节点:它可能已经被隐藏,动画仍从它原来的位置飞出
+    getBrickTailNode:function(){
+        var all = (this._brickDrawable || []).concat(this._brickDead || []);
+        var total = all.length;
+        if(total === 0){ return null; }
+        if(this._brick111){
+            //最近一次墙尾取牌的节点 = 末尾往前数"墙尾已取走张数"张
+            var tg = Math.max(1, this._brickTailGone || 0);
+            var idx = total - tg;
+            if(idx >= 0 && idx < total && all[idx]){ return all[idx]; }
+        }
+        for(var i = total - 1; i >= 0; --i){
+            if(all[i] && all[i].active){ return all[i]; }
+        }
+        return null;
+    },
+
+    //开局(含重连补发)重置牌墙统计:本轮墙尾已取走张数 = 开局补花张数 + 已有杠数
+    resetBrickRound:function(){
+        //先确保墙已建好(否则拿不到 _brick111,墙尾取牌会算错)
+        if(!this._brickBuilt || !this._brickWall || !cc.isValid(this._brickWall)){
+            try{ this.initBrickWall(); }
+            catch(e){ console.error("[MJRoom] 补建牌墙异常:", (e && e.stack) ? e.stack : e); }
+        }
+        var nm = cc.vv ? cc.vv.gameNetMgr : null;
+        var seats = (nm && nm.seats) ? nm.seats : [];
+        var huaTotal = 0, gangs = 0;
+        for(var i = 0; i < seats.length; ++i){
+            var st = seats[i];
+            if(!st){ continue; }
+            if(st.hua && st.hua.length){ huaTotal += st.hua.length; }
             gangs += (st.gangs instanceof Array && st.gangs.length)
                 ? st.gangs.length
                 : ((st.angangs ? st.angangs.length : 0) + (st.diangangs ? st.diangangs.length : 0) + (st.wangangs ? st.wangangs.length : 0));
         }
-        var gangLiuju = (nm.conf && Number(nm.conf.gang_liuju)) || 0;
-        var extra = gangLiuju * gangs;
-        //死墙张数:后台"置灰不可摸数量"(liuju_left);未配置时沿用固定26张
+        //只有111张场景的墙牌节点与服务端剩余牌一一对应,开局补花/已有杠的墙尾取牌才能直接折算;
+        //其它场景墙牌节点数少于剩余牌数,从0开始按实际墙尾摸牌累计
+        this._brickTailGone = this._brick111 ? (huaTotal + gangs) : 0;
+        this.refreshBrickWall();
+    },
+
+    //全玩法统一牌墙模型:整副墙 = 墙头摸牌区 + 墙尾置灰死墙
+    //墙头:普通摸牌,只让墙头少牌;墙尾:换花补牌/杠后补牌,只让墙尾少牌;
+    //中间牌的位置/显隐一律不动(不会"整面墙往前移")
+    refreshBrickWall:function(){
+        //兜底:onLoad 里 initBrickWall 因任何原因没执行时这里补建,
+        //否则牌墙会一直保持场景默认全亮,表现就是"换牌、杠牌都没少牌"
+        if(!this._brickBuilt || !this._brickWall || !cc.isValid(this._brickWall)){
+            try{ this.initBrickWall(); }
+            catch(e){ console.error("[MJRoom] 补建牌墙异常:", (e && e.stack) ? e.stack : e); }
+        }
+        if(!this._brickBuilt){ return; }
+        var nm = cc.vv ? cc.vv.gameNetMgr : null;
+        if(!nm){ return; }
+        var n = (nm.numOfMJ != null) ? Number(nm.numOfMJ) : 0;
+        if(isNaN(n) || n < 0){ n = 0; }
+        //剩余牌数变大=新一局(或首次进房):重新统计本轮墙头/墙尾取牌
+        if(this._brickLastN == null || n > this._brickLastN){
+            this._brickLastN = n;
+            this.resetBrickRound(); //内部会再调用本方法
+            return;
+        }
+        this._brickLastN = n;
+        //死墙张数:后台"置灰不可摸数量"(liuju_left);未配置时固定26张
         var deadCount = 26;
         if(nm.conf && nm.conf.liuju_left != null){
             var confDead = Number(nm.conf.liuju_left);
             if(!isNaN(confDead)){ deadCount = Math.max(0, confDead); }
         }
-        //进房间(未开局,numOfMJ=0)隐藏;开局后剩余牌数>=死墙张数 时与墙牌一样显示
-        var showDead = (deadCount > 0 && n >= deadCount);
-        //所有玩法统一:不可摸的死墙一律置灰
-        var grayDeadWall = (deadCount > 0);
-        if(this._brickDead){
-            var keepDead = Math.min(deadCount, this._brickDead.length);
-            for(var i = 0; i < this._brickDead.length; ++i){
-                var dn = this._brickDead[i];
-                if(!dn) continue;
-                var on = showDead && i < keepDead;
-                dn.active = on;
-                dn.color = (grayDeadWall && on) ? new cc.Color(140, 140, 140, 255) : cc.Color.WHITE;
-            }
-        }
-        var drawable = this._brickDrawable;
-        if(!this._brickZJLao){
-            //其他玩法保持原逻辑
-            var d = Math.max(0, Math.min(n - deadCount - extra, drawable.length));
-            var hide = drawable.length - d;
-            var grayStart = drawable.length - extra;
-            var remain0 = 0;
-            for(var i = 0; i < drawable.length; ++i){
-                var node = drawable[i];
-                if(!node) continue;
-                node.active = (i >= hide);
-                var isGray0 = (extra > 0 && i >= grayStart);
-                node.color = isGray0 ? new cc.Color(140, 140, 140, 255) : cc.Color.WHITE;
-                if(node.active && !isGray0){ remain0++; }
-            }
-            this._brickRemainCount = remain0;
-            return;
-        }
-
-        //诸暨赖倒胡:普通摸牌从墙头隐藏;杠补从整个置灰区末尾隐藏
-        //补牌完成后,置灰区先向前补一张替代被摸走的牌,再新增本次杠的N张
-        var tailDraws = Math.max(0, gangs - (this._brickPendingTail ? 1 : 0));
-        var all = drawable.concat(this._brickDead || []);
+        var all = (this._brickDrawable || []).concat(this._brickDead || []);
         var total = all.length;
-        var tailStart = total - tailDraws;
-        var grayLimit = deadCount + gangLiuju * tailDraws;
-        var headHide = Math.max(0, Math.min(total, total - n - tailDraws));
-        var grayStart = tailStart - grayLimit;
+        if(total === 0){ return; }
+        //服务端 numOfMJ 已扣掉墙头普通摸牌和墙尾补花/杠补牌,总共该隐藏的张数
+        var gone = Math.max(0, Math.min(total, total - n));
+        //其中墙尾被取走的张数(换花/杠补)只能占这么多;
+        //墙尾先记了账(换花/杠补)而剩余牌数还没更新时,这些张数先算在墙头,等剩余数下降后自动转到墙尾
+        var tailGone = Math.max(0, Math.min(gone, this._brickTailGone || 0));
+        var headGone = gone - tailGone;
+        //可见区间 [headGone, visEnd)
+        var visEnd = total - tailGone;
+        //置灰死墙固定是墙尾的 deadCount 张:墙尾每被取走一张(换花/杠补),
+        //死墙整体向墙头方向挪一张,即墙尾少一张牌、内侧多一张变灰
+        var grayStart = total - deadCount - tailGone;
+        if(grayStart < headGone){ grayStart = headGone; }
+        var grayCount = Math.max(0, visEnd - grayStart);
         var remain = 0;
         for(var i = 0; i < total; ++i){
             var node = all[i];
-            if(!node) continue;
-            node.active = (i >= headHide && i < tailStart);
-            var isGray = (node.active && i >= grayStart);
-            node.color = isGray ? new cc.Color(140, 140, 140, 255) : cc.Color.WHITE;
-            if(node.active && !isGray){ remain++; }
+            if(!node){ continue; }
+            var on = (i >= headGone && i < visEnd);
+            if(node.active !== on){ node.active = on; }
+            var isGray = on && (i >= grayStart);
+            node.color = isGray ? new cc.Color(200, 200, 200, 255) : cc.Color.WHITE;
+            if(on && !isGray){ remain++; }
         }
-        //"剩余X张"用墙上还能摸的牌数(亮着的牌减掉置灰的死墙)
+        //"剩余X张"= 墙上还能摸的牌数(亮着的牌减掉置灰死墙)
         this._brickRemainCount = remain;
+        //状态变化时打一行日志,便于实机核对"换牌/杠牌到底少没少牌"
+        if(this._brickLogGone !== gone || this._brickLogTail !== tailGone){
+            this._brickLogGone = gone;
+            this._brickLogTail = tailGone;
+            console.log("[牌墙] 剩" + n + "张 隐藏" + gone + "(墙头" + headGone + "/墙尾" + tailGone + ") 置灰" + grayCount + " 可摸" + remain);
+        }
     },
 
     //自选麻将专用: 左侧牌墙从最下面一墩(LT30)开始, 每墩先上层后下层, 摸完左侧再摸对家墙从左到右
@@ -810,22 +875,6 @@ cc.Class({
             if(s){ s.emoji(data.content); }
         });
 
-        //需求2:剩余牌数变化时刷新牌墙(game_start/mj_count/game_mopai 都会更新 numOfMJ)
-        this.node.on('game_start',function(data){
-            self._brickPendingTail = false;
-            self.refreshBrickWall();
-        });
-        this.node.on('mj_count',function(data){ self.refreshBrickWall(); });
-        this.node.on('game_mopai',function(data){
-            if(self._brickZJLao){ self._brickPendingTail = false; }
-            self.refreshBrickWall();
-        });
-        //杠通知先到时保留即将补走的置灰牌;补牌推送后再隐藏并扩大置灰区
-        this.node.on('gang_notify',function(data){
-            if(self._brickZJLao){ self._brickPendingTail = true; }
-            self.refreshBrickWall();
-        });
-
         //需求1:在 notify 入口打印服务端下发的完整载荷(holds/pengs/chis/gangs),便于实机核对
         this.node.on('game_start',function(data){
             self._inGame = true;
@@ -834,7 +883,6 @@ cc.Class({
             for(var i = 0; i < seats.length; ++i){
                 self._logSeatPayload("game_start seat" + i, seats[i]);
             }
-            //game_start_push才携带button/laozhuang,开局后刷新座位显示庄家与老庄标识
             self.initSeats();
         });
         this.node.on('peng_notify',function(data){ self._logSeatPayload("peng_notify", data.detail); });
@@ -849,6 +897,26 @@ cc.Class({
             var s = cc.vv.gameNetMgr.seats ? cc.vv.gameNetMgr.seats[d.seatIndex] : null;
             self._logSeatPayload("game_mopai seat" + d.seatIndex, s);
         });
+    },
+
+    //牌墙刷新监听:与其它初始化分离单独注册,任意一步报错都不影响牌墙刷新,
+    //否则牌墙会一直保持场景默认状态,表现就是"换牌、杠牌都没少牌"
+    initBrickHandlers:function(){
+        if(this._brickHandlersReady){ return; }
+        this._brickHandlersReady = true;
+        var self = this;
+        //开局(含重连补发):重置本轮墙头/墙尾取牌统计
+        this.node.on('game_start',function(){ self.resetBrickRound(); });
+        //剩余牌数变化:服务端已把墙头摸牌、墙尾补花/杠补都算进 numofmj
+        this.node.on('mj_count',function(){ self.refreshBrickWall(); });
+        //换花:花牌亮出后从墙尾补一张,墙尾少一张
+        this.node.on('game_hua',function(){
+            self.consumeBrickTail(1);
+            self.refreshBrickWall();
+        });
+        //杠:杠后补牌从墙尾摸,只让墙尾少一张,墙头一张不动;
+        //这里只记账不刷新,等补牌推送(mj_count)到达后再从墙尾隐藏
+        this.node.on('gang_notify',function(){ self.consumeBrickTail(1); });
     },
     
     initSeats:function(){

@@ -22,39 +22,66 @@ function getBaseInfo(userid,callback){
         cc.vv.baseInfoMap = {};
     }
 
-    //缓存可能是俱乐部场景写的(只有 name/sex/url, 没有 localKey), 这种条目要重新拉, 否则内置头像会被当成远程地址加载失败
+    var now = Date.now();
     var cached = cc.vv.baseInfoMap[userid];
-    var fresh = cached != null && ("localKey" in cached || "url" in cached)
-        && (Date.now() - (cached.ts || 0) < BASE_INFO_TTL);
-    if(fresh){
+    //只有真正拿到头像地址(localKey/url)的缓存才算"新鲜":
+    //俱乐部场景写进来的精简条目(只有 name/sex/url:null)不能当成有效缓存,否则会一直显示默认头像
+    var hasKey = !!(cached && (cached.localKey || cached.url));
+    if(hasKey && (now - (cached.ts || 0) < BASE_INFO_TTL)){
         callback(userid,cached);
+        return;
     }
-    else{
-        cc.vv.http.sendRequest('/base_info',{userid:userid},function(ret){
-            if(!ret || ret.errcode){ callback(userid,{url:null,localKey:null}); return; }
-            var url = null;
-            var localKey = null;
-            if(ret.headimgurl){
-                if(/^avatar_\d{1,3}$/.test(ret.headimgurl)){
-                    localKey = ret.headimgurl; //内置头像key
-                }
-                else{
-                    url = ret.headimgurl + ".jpg"; //微信等远程头像
-                }
-            }
-            var info = {
-                name:ret.name,
-                sex:ret.sex,
-                url:url,
-                localKey:localKey,
-                ts:Date.now()
-            }
-            //没有头像地址的响应不缓存: 服务端可能正在补随机头像, 下次重新拉取就能拿到
-            if(url || localKey){ cc.vv.baseInfoMap[userid] = info; }
-            callback(userid,info);
+    //没拿到头像(服务端可能正在分配)时最多每5秒重试一次,避免座位反复刷新时刷屏请求
+    if(cached && cached._tryAt && (now - cached._tryAt) < 5000){
+        callback(userid,cached);
+        return;
+    }
+    if(cached){ cached._tryAt = now; }
+    else{ cc.vv.baseInfoMap[userid] = { _tryAt: now }; }
 
-        },cc.vv.http.master_url);
-    }
+    cc.vv.http.sendRequest('/base_info',{userid:userid},function(ret){
+        if(!ret || ret.errcode){
+            var bad = cc.vv.baseInfoMap[userid] || {};
+            bad._tryAt = Date.now();
+            cc.vv.baseInfoMap[userid] = bad;
+            callback(userid,{url:null,localKey:null});
+            return;
+        }
+        var url = null;
+        var localKey = null;
+        if(ret.headimgurl){
+            if(/^avatar_\d{1,3}$/.test(ret.headimgurl)){
+                localKey = ret.headimgurl; //内置头像key
+            }
+            else{
+                url = ret.headimgurl + ".jpg"; //微信等远程头像
+            }
+        }
+        var info = {
+            name:ret.name,
+            sex:ret.sex,
+            url:url,
+            localKey:localKey,
+            ts:Date.now(),
+            _tryAt: Date.now()
+        }
+        if(url || localKey){
+            cc.vv.baseInfoMap[userid] = info;
+        }
+        else{
+            //没头像地址:保留昵称/性别,记下这次请求时间,稍后再重试拉取
+            var keep = cc.vv.baseInfoMap[userid] || {};
+            keep.name = info.name;
+            keep.sex = info.sex;
+            keep.url = null;
+            keep.localKey = null;
+            keep.ts = keep.ts || info.ts;
+            keep._tryAt = info._tryAt;
+            cc.vv.baseInfoMap[userid] = keep;
+        }
+        callback(userid,info);
+
+    },cc.vv.http.master_url);
 };
 
 cc.Class({
@@ -91,6 +118,7 @@ cc.Class({
             return;
         }
         //座位节点会被复用: 记录当前要显示的用户, 异步回调回来时若座位已换人则丢弃, 避免把上一位玩家的头像贴到新玩家身上
+        if(this._userid !== uid){ this._avatarRetry = 0; } //换人才重置重试次数(同一人重试时保留计数,避免无限重试)
         this._userid = uid;
         this._spriteFrame = null;
         this._appliedKey = null;
@@ -122,6 +150,18 @@ cc.Class({
                 self._spriteFrame = spriteFrame;
                 self.setupSpriteFrame();
             });
+            return;
+        }
+        //没拿到头像地址(服务端可能还没分配/请求失败):过几秒自动重试,避免座位一直停在默认头像
+        if(this._avatarRetry == null){ this._avatarRetry = 0; }
+        if(this._avatarRetry < 3){
+            this._avatarRetry++;
+            var uid2 = uid;
+            setTimeout(function(){
+                if(!self.node || !cc.isValid(self.node)){ return; }
+                if(self._userid !== uid2 || self._spriteFrame){ return; }
+                self.setUserID(parseInt(uid2) || uid2);
+            }, 5200);
         }
     },
 

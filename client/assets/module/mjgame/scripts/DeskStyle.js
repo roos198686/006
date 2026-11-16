@@ -297,7 +297,8 @@ cc.Class({
         if (!this._baseScales) { this._baseScales = new Map(); }
         var self = this;
         var sides = ["myself"];
-        var subs = ["holds", "penggangs", "folds", "ChuPai"];
+        //弃牌区(folds)不参与缩放:槽位不是以容器原点为中心排布,缩放会整体往右偏,位置完全由场景控制
+        var subs = ["holds", "penggangs", "ChuPai"];
         for (var i = 0; i < sides.length; ++i) {
             var sideRoot = game.getChildByName(sides[i]);
             if (!sideRoot) { continue; }
@@ -324,6 +325,31 @@ cc.Class({
             var opsK = 1 + (k - 1) * 0.5;
             ops.scaleX = opsBase * opsK;
             ops.scaleY = opsBase * opsK;
+        }
+        //扑克玩法(跑得快/关牌): 自己的手牌区与出牌区跟随界面大小缩放
+        var gpParts = ["handArea", "cardsContainer"];
+        for (var g = 0; g < gpParts.length; ++g) {
+            var gpNode = game.getChildByName(gpParts[g]);
+            if (!gpNode) { continue; }
+            var gb = self._baseScales.get(gpNode.uuid);
+            if (gb == null) {
+                gb = gpNode.scaleX;
+                self._baseScales.set(gpNode.uuid, gb);
+            }
+            gpNode.scaleX = gb * k;
+            gpNode.scaleY = gb * k;
+        }
+        //宝宝牌: 自己的手牌容器(game/up/bbSeatN/bbCards)跟随设置缩放
+        var bsi = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.seatIndex != null) ? cc.vv.gameNetMgr.seatIndex : 0;
+        var bbCards = cc.find("Canvas/game/up/bbSeat" + bsi + "/bbCards");
+        if (bbCards) {
+            var bbBase = self._baseScales.get(bbCards.uuid);
+            if (bbBase == null) {
+                bbBase = bbCards.scaleX;
+                self._baseScales.set(bbCards.uuid, bbBase);
+            }
+            bbCards.scaleX = bbBase * k;
+            bbCards.scaleY = bbBase * k;
         }
     },
 

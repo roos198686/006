@@ -389,7 +389,14 @@ exports.doDissolve = function(roomId){
     for(var i = 0; i < roomInfo.seats.length; ++i){
         if(roomInfo.seats[i].userId > 0) userMgr.sendMsg(roomInfo.seats[i].userId, 'dispress_push', {});
     }
+    roomInfo.dr = null;
     delete games[roomId];
+    //之前这里只发了 dispress_push,既不清座位也不销毁房间,投票同意后房间一直占着座位。
+    //先让 dispress_push 发出去再销毁(立即销毁/踢人会丢包,客户端卡在房间),销毁内部会解绑牌桌并广播座位清空
+    setTimeout(function(){
+        try{ userMgr.kickAllInRoom(roomId); }catch(e){}
+        roomMgr.destroy(roomId);
+    }, 150);
 };
 
 exports.chupai = function(){};

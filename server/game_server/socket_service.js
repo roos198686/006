@@ -137,6 +137,12 @@ exports.start = function(conf,mgr){
 					try{
 						if(socket.userId != null){
 							userMgr.touchActivity(socket.userId);
+							//同时刷新所在房间的最后动作时间:房间级"长时间无操作"解散不依赖玩家在线状态
+							var rid = roomMgr.getUserRoom(socket.userId);
+							if(rid != null){
+								var rm = roomMgr.getRoom(rid);
+								if(rm){ rm.lastActiveAt = Date.now(); }
+							}
 						}
 					}catch(e){}
 					listener(data);
@@ -515,7 +521,12 @@ exports.start = function(conf,mgr){
 			if(typeof(chipai) == "string"){
 				try{ chipai = JSON.parse(chipai); }catch(e){ return; }
 			}
-			if(socket.gameMgr.chi){
+			try{
+				require('fs').appendFileSync(require('path').join(__dirname,'../logs/chi_debug.log'),
+					'[' + new Date().toISOString() + '][socket] recv uid=' + socket.userId + ' data=' + JSON.stringify(chipai) +
+					' mgr=' + (socket.gameMgr ? 'ok' : 'NULL') + '\n');
+			}catch(e){}
+			if(socket.gameMgr && socket.gameMgr.chi){
 				socket.gameMgr.chi(socket.userId, chipai);
 			}
 		});
@@ -804,21 +815,24 @@ exports.start = function(conf,mgr){
 		//解散房间
 		socket.on('dissolve_request',function(data){
 			var userId = socket.userId;
-			console.log(1);
-			if(userId == null){
-				console.log(2);
-				return;
-			}
+			if(userId == null){ console.log('[dissolve_request] 无userId'); return; }
 
 			var roomId = roomMgr.getUserRoom(userId);
-			if(roomId == null){
-				console.log(3);
-				return;
-			}
+			if(roomId == null){ console.log('[dissolve_request] 不在房间 user=' + userId); return; }
+			var voteRoom = roomMgr.getRoom(roomId);
+			if(voteRoom == null){ console.log('[dissolve_request] 房间不存在 room=' + roomId); return; }
+			console.log('[dissolve_request] user=' + userId + ' room=' + roomId + ' hasBegan=' + socket.gameMgr.hasBegan(roomId) + ' seats=' + (voteRoom.seats ? voteRoom.seats.length : -1));
 
-			//如果游戏未开始，则不可以
+			//对局未开始(含小局结算后 game.gameOver):直接整房解散,
+			//不然客户端发来解散请求服务端直接return,表现就是"点解散没任何反应、房间还占着"
 			if(socket.gameMgr.hasBegan(roomId) == false){
-				console.log(4);
+				userMgr.broacastInRoom('dispress_push',{},userId,true);
+				userMgr.sendMsg(userId,'dispress_push',{});
+				setTimeout(function(){
+					userMgr.kickAllInRoom(roomId);
+					roomMgr.destroy(roomId);
+				},150);
+				console.log('[dissolve_request] 未开局,直接整房解散 room=' + roomId);
 				return;
 			}
 
@@ -830,10 +844,12 @@ exports.start = function(conf,mgr){
 					time:ramaingTime,
 					states:dr.states
 				}
-				console.log(5);
+				//发起人也要收到投票面板:原来只推给其他人,发起人点完解散面板直接关掉、没有任何反馈,
+				//看起来就像"解散没生效"
 				userMgr.broacastInRoom('dissolve_notice_push',data,userId,true);
+				userMgr.sendMsg(userId,'dissolve_notice_push',data);
+				console.log('[dissolve_request] 发起投票 room=' + roomId + ' states=' + JSON.stringify(dr.states));
 			}
-			console.log(6);
 		});
 
 		socket.on('dissolve_agree',function(data){
@@ -858,8 +874,16 @@ exports.start = function(conf,mgr){
 				}
 				userMgr.broacastInRoom('dissolve_notice_push',data,userId,true);
 
+				//只有"坐着人"的座位才需要同意:空座位在 dr.states 里永远是 false,
+				//4/6人房只坐2个人时(俱乐部牌桌可配人数),只要有空位投票就永远通不过,
+				//表现就是双方都点同意了,房间却一直不释放、牌桌上仍占着座位
+				var voteRoom = roomMgr.getRoom(roomId);
 				var doAllAgree = true;
 				for(var i = 0; i < dr.states.length; ++i){
+					var voteSeat = (voteRoom && voteRoom.seats) ? voteRoom.seats[i] : null;
+					if(voteSeat == null || !(voteSeat.userId > 0)){
+						continue;
+					}
 					if(dr.states[i] == false){
 						doAllAgree = false;
 						break;
@@ -867,8 +891,15 @@ exports.start = function(conf,mgr){
 				}
 
 				if(doAllAgree){
+					console.log('[dissolve_agree] 全部同意,解散房间 room=' + roomId + ' states=' + JSON.stringify(dr.states));
 					socket.gameMgr.doDissolve(roomId);					
 				}
+				else{
+					console.log('[dissolve_agree] user=' + userId + ' 同意,等待其他人 room=' + roomId + ' states=' + JSON.stringify(dr.states));
+				}
+			}
+			else{
+				console.log('[dissolve_agree] 投票不存在或玩家不在座位上 user=' + userId + ' room=' + roomId);
 			}
 		});
 
@@ -887,6 +918,11 @@ exports.start = function(conf,mgr){
 			var ret = socket.gameMgr.dissolveAgree(roomId,userId,false);
 			if(ret != null){
 				userMgr.broacastInRoom('dissolve_cancel_push',{},userId,true);
+				//有人拒绝=本次投票作废,必须清掉投票缓存:
+				//否则下次再发起解散会沿用上一次的 states(发起人自己的状态可能是 false),
+				//而发起人收不到投票面板、无法点同意,投票永远通不过,房间一直占着座位
+				var rejRoom = roomMgr.getRoom(roomId);
+				if(rejRoom){ rejRoom.dr = null; }
 			}
 		});
 

@@ -1,5 +1,5 @@
 // 宝宝(6张) 客户端 —— 免摆/手摆 两种玩法共用
-// 场景: mjgame_bb_mian.fire / mjgame_bb_shou.fire (免摆/手摆两个独立场景), 本脚本共用
+// 场景: mjgame_bb_shou.fire (免摆/手摆共用), 本脚本共用
 // 牌 id: (rank-2)*4+suit, rank 2..14(JQKA=11..14), suit 0黑1红2梅3方
 // 服务端协议:
 //   bb_start_push  {maxPlayers,seats[{userid,name,seatindex,roomSeatIndex,count,arranged}],mySeat,
@@ -159,6 +159,13 @@ cc.Class({
 
     onLoad: function () {
         var nm = cc.vv.gameNetMgr;
+
+        //麻将同款设置逻辑(桌面背景/牌面大小/出牌手势): UI 已固化在场景 popups/settings 与 popups/bg_choose
+        try {
+            if (!this.getComponent("DeskStyle")) { this.addComponent("DeskStyle"); }
+        } catch (e) {
+            console.error("[BB] DeskStyle 挂载失败: " + (e && e.message || e));
+        }
 
         this._n = {};
         this._seatNodes = [];
@@ -523,6 +530,14 @@ cc.Class({
         this.bindButton(this._n.resultExitBtn, this.onExit, this);
         this.bindButton(this._n.dissolveAgreeBtn, this.onDissolveAgree, this);
         this.bindButton(this._n.dissolveRejectBtn, this.onDissolveReject, this);
+        // 设置面板:右上角设置按钮 -> 打开 popups/settings;桌面背景按钮 -> 背景选择弹窗(DeskStyle)
+        // 注意:findNode 只按节点名递归查找,不支持 "a/b/c" 这种路径写法,这里统一用 cc.find 取路径
+        var settingsRoot = cc.find("Canvas/popups/settings");
+        this._settingsRoot = settingsRoot;
+        this._deskBgBtn = settingsRoot ? settingsRoot.getChildByName("btn_desk_bg") : null;
+        this.bindButton(this._deskBgBtn, this.onDeskBgClick, this);
+        // 右上角设置按钮:场景里该按钮的 clickEvents 目标已丢失,运行时绑定
+        this.bindButton(cc.find("Canvas/btn_settings"), this.onBtnSettingsClicked, this);
         // 图四~图八新增: 规则弹窗 / 换桌 / 分享战绩 / 申请解散 / 摆牌行删除 / 全部取消
         this.bindButton(this._n.ruleBtn, this.onRuleOpen, this);
         this.bindButton(this._n.ruleClose, this.onRuleClose, this);
@@ -1491,8 +1506,19 @@ cc.Class({
 
     // 右上角设置按钮: 打开场景内popups/settings面板(音效/音乐开关由setting组件处理,btn_close自行关闭)
     onBtnSettingsClicked: function () {
-        var settings = this.findNode(this.node, "settings");
+        var settings = this._settingsRoot || cc.find("Canvas/popups/settings") || this.findNode(this.node, "settings");
         if (settings) settings.active = true;
+    },
+
+    // 设置面板「桌面背景」: 打开背景选择弹窗
+    onDeskBgClick: function () {
+        var ds = (cc.vv && cc.vv.deskStyle) || this.getComponent("DeskStyle");
+        if (!ds) {
+            //DeskStyle 没挂上时兜底补挂一次(挂到本脚本所在节点, 与 onLoad 一致)
+            try { ds = this.getComponent("DeskStyle") || this.addComponent("DeskStyle"); } catch (e) { ds = null; }
+        }
+        if (ds && ds.openBgChoose) { ds.openBgChoose(); }
+        else { console.warn("[BB] 打开背景选择失败: DeskStyle 不可用"); }
     },
 
     // ===== 牌面渲染 =====
@@ -1613,7 +1639,6 @@ cc.Class({
                     // 免摆玩家(系统自动摆三道): 只显示整手牌型名, 不显示乌龙/自动摆牌提示
                     if (p.mianFree) summary = p.typeName || "";
                     else if (p.wulong) summary = "乌龙(三道全输)";
-                    else if (p.auto) summary = "系统自动摆牌";
                 } else if (p.groups) {
                     for (var g = 0; g < p.groups.length; ++g) {
                         faces = faces.concat(p.groups[g] || []);
@@ -1631,14 +1656,19 @@ cc.Class({
 
             // 免摆牌型: 六张牌在场景里预留的一排牌位上一起展示(手摆里的免摆玩家 / 纯免摆局), 不再三排两列
             var rowMode = !!(p && shown >= 6 && (p.mianFree || (p.groups && !p.daos)));
+            // 免摆牌型未亮牌前也用"一排六张牌背": 不显示成三道(两列三排)的摆法,
+            // 亮牌开始时才整排一次性翻开(免摆是整手比大小, 没有三道结构)
+            var gsSeat = nm.bbSeats ? nm.bbSeats[gs] : null;
+            var isMianSeat = (this._gameType == "baobao_mian") || !!(gsSeat && gsSeat.mianFree);
+            var backRow = !!(isMianSeat && !p);
             if (rowMode) { labels = ["", "", ""]; summary = ""; }   // 一排展示时不再显示三道点数文字和 bbSummary(牌型名由 bbMb 横幅显示)
-            this._setMianRow(seat, rowMode, faces);
+            this._setMianRow(seat, rowMode || backRow, rowMode ? faces : null, backRow);
             // 一排亮牌和牌型横幅(bbMb 里的 bbMianType)始终同步: 重连恢复亮牌状态时也要补上
             if (rowMode && p && p.typeName && p.typeKey > 0) this._showMianTypeAtSeat(seatIdx, p.typeName);
             for (var s = 0; s < 6; ++s) {
                 var cardNode = seat.slots[s];
                 if (!cardNode) continue;
-                if (rowMode) { cardNode.active = false; continue; }
+                if (rowMode || backRow) { cardNode.active = false; continue; }
                 var sp = cardNode.getComponent(cc.Sprite);
                 cardNode.active = true;
                 if (backs || (p && s >= shown)) {
@@ -1661,13 +1691,21 @@ cc.Class({
 
     // 免摆整手展示: 场景里每个座位预留了一排六个牌位(bbRowCards/bbRowCard0~5)
     // 六张牌直接横向排开, 不再按三道两列叠放
-    _setMianRow: function (seat, on, faces) {
+    // asBack: 未亮牌时也占用这一排, 但六张全部显示牌背(免摆整手比大小, 不能摆成三道)
+    _setMianRow: function (seat, on, faces, asBack) {
         if (!seat || !seat.rowCards) return;   // 场景没配就保持原三排布局
         seat.rowCards.active = !!on;
         if (!on) return;
         for (var k = 0; k < 6; ++k) {
             var c = seat.rowSlots[k];
             if (!c) continue;
+            if (asBack) {
+                c.active = true;
+                c.color = cc.Color.WHITE;
+                var bsp = c.getComponent(cc.Sprite);
+                if (bsp) bsp.spriteFrame = this._cardBack || null;
+                continue;
+            }
             var face = faces ? faces[k] : null;
             if (face == null) { c.active = false; continue; }
             c.active = true;
@@ -2536,7 +2574,6 @@ cc.Class({
             this.showTip("请摆牌：拖手牌到前/中/后道位，道内牌可再拖动换位，点道内牌退回");
         }
         this._startCountdown(this._leftOf(this._arrangeRemain, this._arrangeRemainAt), this._arrangeCd, function () {
-            this.showTip("摆牌超时，系统自动摆牌");
             this.onAutoArrange();
         });
     },

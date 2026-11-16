@@ -1549,7 +1549,6 @@ var ZP_TAI_RULE_FIELDS = [
   {key:'an_gang', label:'暗杠台数', def:2},
   {key:'san_jin_dao', label:'三金倒台数', def:2},
   {key:'qiang_jin', label:'抢金台数', def:2},
-  {key:'qi_dui', label:'七对台数', def:3},
   {key:'hun_yise', label:'混一色台数', def:1},
   {key:'qing_yise', label:'清一色台数', def:3},
   {key:'gang_kai', label:'杠上开花台数', def:1},
@@ -1565,6 +1564,7 @@ var ZP_TAI_RULE_FIELDS = [
 ];
 // 漳浦无金麻将台数规则字段（wujin/wujin4 共用）
 var WUJIN_TAI_RULE_FIELDS = [
+  {key:'hua_tai', label:'每朵花台数', def:1},
   {key:'ping_hu', label:'平胡基础台(至少一顺)', def:1},
   {key:'zi_mo', label:'自摸加台', def:1},
   {key:'men_qing', label:'门清加台(暗杠保门清)', def:1},
@@ -1599,7 +1599,7 @@ var WUJIN_TAI_RULE_FIELDS = [
   {key:'remove_tiao', label:'二人去条(0留1去)', def:0},
   {key:'remove_zi', label:'去掉字牌东南西北中发白(0留1去)', def:0},
   {key:'chupai_timeout', label:'出牌超时(秒)', def:15},
-  {key:'liuju_left', label:'流局留牌数(剩N张荒庄,0=打完)', def:0},
+  {key:'liuju_left', label:'流局留牌数(剩N张荒庄,0=打完)', def:26},
   {key:'gang_liuju', label:'每杠增加不可摸数量', def:0},
   {key:'hu_delay', label:'胡牌后延时开结算(秒)', def:2}
 ];

@@ -19,6 +19,8 @@ function tintHandCard(node, isCs){
     }
 }
 
+var DiceRoll = require("DiceRoll");
+
 cc.Class({
     extends: cc.Component,
 
@@ -38,9 +40,7 @@ cc.Class({
         _chupaiSprite:[], //出牌数组
         _mjcount:null,
         _gamecount:null,
-        _hupaiTips:[],
         _playEfxs:[],
-        _opts:[], //胡牌自摸数组
         _chiPanel:null, //吃牌组合选择面板
         _chiSelect:null, //吃牌手牌二选状态 {pai,tiles:[]}
         _chiHint:null, //吃牌选牌提示Label节点
@@ -126,17 +126,6 @@ cc.Class({
             var side = cc.vv.mahjongmgr.getSide(i);
             var sideChild = gameChild.getChildByName(side);
             if(sideChild == null){ continue; }
-            this._hupaiTips.push(sideChild.getChildByName("HuPai"));
-
-            //获取胡后显示节点
-            var opt = sideChild.getChildByName("opt");
-            opt.active = false;
-            var sprite = opt.getChildByName("pai").getComponent(cc.Sprite);
-            var data = {
-                node:opt,
-                sprite:sprite
-            };
-            this._opts.push(data);
             this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
             //出牌数组将出牌节点获取进来
             this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
@@ -235,10 +224,15 @@ cc.Class({
         this.node.on('game_start',function(data){
             self.onGameBeign(true, data && data.detail);
             self.initCaishenTip();
+            //掷色子:色子播完才发牌(补发残局/回放不播)
+            try{
+                if(self._isFreshDeal()){ DiceRoll.play(self.node, function(){ DiceRoll.flushDeal(self); }); }
+            }catch(e){ console.error('[色子] 播放异常:', e); }
         });
 
         this.node.on('game_begin',function(data){
-            self.onGameBeign();
+            //game_begin 紧跟 game_start,会重新 initMahjongs 取消发牌动画;这里同样按开局处理
+            self.onGameBeign(true);
         });
 
         //出牌轮次切换
@@ -277,16 +271,11 @@ cc.Class({
             var data = data.detail;
             var seatIndex = data.si != null ? data.si : data.seatindex;
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
-            var hupai = self._hupaiTips[localIndex];
-            if(hupai){ hupai.active = true; }
-
             if(localIndex == 0){
                 self.hideOptions();
             }
             var seatData = cc.vv.gameNetMgr.seats[seatIndex];
             seatData.hued = true;
-            hupai.getChildByName("sprHu").active = !data.zimo;
-            hupai.getChildByName("sprZimo").active = !!data.zimo;
 
             self.initMopai(seatIndex,data.pai);
 
@@ -957,20 +946,6 @@ cc.Class({
             if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
-        if(cc.vv.gameNetMgr.seats){ //无房间数据时跳过,避免null.length崩溃
-        for(var i = 0; i < cc.vv.gameNetMgr.seats.length; ++i){
-            var seatData = cc.vv.gameNetMgr.seats[i];
-            var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
-            var hupai = this._hupaiTips[localIndex];
-            if(hupai){ hupai.active = seatData.hued;
-                if(seatData.hued){
-                    hupai.getChildByName("sprHu").active = !seatData.iszimo;
-                    hupai.getChildByName("sprZimo").active = seatData.iszimo;
-                }
-            }
-        }
-        }
-
         this.hideChupai();
         this.hideOptions();
         var gameChild = this.node.getChildByName("game");
@@ -1028,8 +1003,10 @@ cc.Class({
         }
         //开局首次发牌:手牌从牌墙依次飞出(仅game_start触发且本局无任何弃牌/副露/补花;断线重连保持瞬间渲染)
         if(fromGameStart && this._isFreshDeal()){
-            this._playDealAnim();
+            DiceRoll.deferDeal(this);   //色子播完再发牌
         }
+        //开局动画还没开始(色子滚动中):game_begin 等重绘会把手牌重新显示出来,这里重新隐藏,避免先亮牌再播动画
+        if(this._dealPending){ DiceRoll.hideHands(this); DiceRoll.setOpeningVisible(this, false); }
     },
 
     // ===== 开局发牌动画：手牌从牌墙依次飞出（仅开局首次发牌触发） =====
@@ -1047,7 +1024,7 @@ cc.Class({
             if(s.angangs instanceof Array && s.angangs.length > 0){ return false; }
             if(s.diangangs instanceof Array && s.diangangs.length > 0){ return false; }
             if(s.wangangs instanceof Array && s.wangangs.length > 0){ return false; }
-            if(s.hua instanceof Array && s.hua.length > 0){ return false; }
+            //注意:漳浦发完牌就补花,座位一开局就有hua,不能用hua判断"局已进行",否则发牌动画永远不播
         }
         return true;
     },

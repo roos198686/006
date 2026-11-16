@@ -20,6 +20,7 @@ function tintHandCard(node, isCs){
 }
 
 var OpTiles = require("OpTiles");
+var DiceRoll = require("DiceRoll");
 
 cc.Class({
     extends: cc.Component,
@@ -40,9 +41,7 @@ cc.Class({
         _chupaiSprite:[], //出牌数组
         _mjcount:null,
         _gamecount:null,
-        _hupaiTips:[],
         _playEfxs:[],
-        _opts:[], //胡牌自摸数组
         _chiPanel:null, //吃牌组合选择面板
         _chiSelect:null, //吃牌手牌二选状态 {pai,tiles:[]}
         _chiHint:null, //吃牌选牌提示Label节点
@@ -54,6 +53,11 @@ cc.Class({
         _dealAnimId:0,        //发牌动画令牌(防止过期的结束回调误清状态)
         _pendingPlans:null,   //自选财神待选方案
         _caishenPlanPanel:null, //自选财神选择面板节点
+        _csTimeSprite:null,   //面板倒计时进度(timeSprite)
+        _csTimeLabel:null,    //面板倒计时数字(timeSprite/time)
+        _csTimeLeft:0,        //面板倒计时剩余秒数
+        _csTimeTotal:0,       //面板倒计时总秒数
+        _csTick:null,         //面板倒计时tick函数
         // 出牌倒计时显示(绑定场景内已固化的 countdownLabel 节点,位置在编辑器里手动调整)
         _countdownLabel:null,
         _countdownId:null,
@@ -91,6 +95,9 @@ cc.Class({
         }
         this.initView();
         this.initEventHandlers();
+
+        //进房先把底框(Sprite01)/局数/余牌隐藏,发牌开始才显示
+        try{ DiceRoll.setOpeningVisible(this, false); }catch(e){}
 
         //场景里这两个引用可能丢失或被误指向子节点/组件(编辑器重存场景后常见),按名字纠正;
         //否则牌桌层(game)进房后不隐藏,一直显示默认牌面,且手牌触摸会吞掉退出按钮的点击
@@ -172,17 +179,6 @@ cc.Class({
             var side = cc.vv.mahjongmgr.getSide(i);
             var sideChild = gameChild.getChildByName(side);
             if(sideChild == null){ continue; }
-            this._hupaiTips.push(sideChild.getChildByName("HuPai"));
-
-            //获取胡后显示节点
-            var opt = sideChild.getChildByName("opt");
-            opt.active = false;
-            var sprite = opt.getChildByName("pai").getComponent(cc.Sprite);
-            var data = {
-                node:opt,
-                sprite:sprite
-            };
-            this._opts.push(data);
             this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
             //出牌数组将出牌节点获取进来
             this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
@@ -299,6 +295,10 @@ cc.Class({
         this.node.on('game_start',function(data){
             self.onGameBeign(true, data && data.detail);
             self.initCaishenTip();
+            //掷色子:色子播完才发牌(补发残局/回放不播)
+            try{
+                if(self._isFreshDeal()){ DiceRoll.play(self.node, function(){ DiceRoll.flushDeal(self); }); }
+            }catch(e){ console.error('[色子] 播放异常:', e); }
             //开局庄家直接出牌(无 game_mopai 事件),补启动倒计时
             if(cc.vv.gameNetMgr.turn == cc.vv.gameNetMgr.seatIndex){
                 self._startCountdown();
@@ -357,10 +357,6 @@ cc.Class({
             var data = data.detail;
             var seatIndex = data.si != null ? data.si : data.seatindex;
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
-            //座位旁的"胡/自摸"大字图片去掉(只保留spine特效那一套)
-            var hupai = self._hupaiTips[localIndex];
-            if(hupai){ hupai.active = false; }
-
             if(localIndex == 0){
                 self.hideOptions();
             }
@@ -585,15 +581,14 @@ cc.Class({
                     btn.active = true;
                     btn.pai = pai;
                     btn.chipai = chipai || null;
-                    //按钮上方显示可吃组合(每组三张:两张手牌+被吃的牌,缺的手牌用财神补位展示,按顺子排好)
+                    //按钮上方显示可吃组合(每组三张:两张手牌+被吃的牌,按顺子排好)
+                    //直接展示服务端下发的真实组合,不做财神补位(服务端吃牌要求真实牌)
                     var groups = [];
                     if(chipai && chipai.length){
                         for(var ci = 0; ci < chipai.length; ++ci){
                             var c = chipai[ci];
                             if(c && c.length >= 3){
-                                var tiles = OpTiles.build([c[0], c[1]]);
-                                tiles.push(c[2]);
-                                groups.push(tiles.sort(function(m, n){ return m - n; }));
+                                groups.push([c[0], c[1], c[2]].sort(function(m, n){ return m - n; }));
                             }
                         }
                     }
@@ -1145,16 +1140,6 @@ cc.Class({
             if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
-        if(cc.vv.gameNetMgr.seats){ //无房间数据时跳过,避免null.length崩溃
-        for(var i = 0; i < cc.vv.gameNetMgr.seats.length; ++i){
-            var seatData = cc.vv.gameNetMgr.seats[i];
-            var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
-            var hupai = this._hupaiTips[localIndex];
-            //胡牌座位不再显示"胡/自摸"大字图片(只保留spine特效)
-            if(hupai){ hupai.active = false; }
-        }
-        }
-
         this.hideChupai();
         this.hideOptions();
         var gameChild = this.node.getChildByName("game");
@@ -1221,8 +1206,11 @@ cc.Class({
         },0);
         //开局首次发牌:手牌从牌墙依次飞出(仅game_start触发且本局无任何弃牌/副露/补花;断线重连保持瞬间渲染)
         if(fromGameStart && this._isFreshDeal()){
-            this._playDealAnim();
+            DiceRoll.deferDeal(this);   //色子播完再发牌
         }
+        //开局动画还没开始(色子滚动中):game_begin 等重绘会把手牌重新显示出来,这里重新隐藏,避免先亮牌再播动画
+        if(this._dealPending){ DiceRoll.hideHands(this); DiceRoll.setOpeningVisible(this, false); }
+        else{ DiceRoll.setOpeningVisible(this, true); }
     },
 
     // ===== 开局发牌动画：手牌从牌墙依次飞出（仅开局首次发牌触发） =====
@@ -2092,47 +2080,37 @@ cc.Class({
             cc.vv.net.send("gang", t.targetPai);
         }
         else if(t.paiList){
-            //吃:组合按顺子面值展示,缺失面值需换成手中真实财神牌再发(服务端校验真实牌/财神)
-            var target = t.targetPai;
-            var send = [];
-            var sd = cc.vv.gameNetMgr.getSelfData();
-            var holds = (sd && sd.holds) ? sd.holds : [];
-            var conf = cc.vv.gameNetMgr.conf || {};
-            var cs = conf.caishen, cs2 = conf.caishen2;
-            for(var k = 0; k < t.paiList.length; ++k){
-                var f = t.paiList[k];
-                if(f == target){ continue; }
-                if(f != cs && f != cs2 && holds.indexOf(f) != -1){
-                    send.push(f);
-                }
-                else if(cs >= 0 && holds.indexOf(cs) != -1){
-                    send.push(cs);
-                }
-                else if(cs2 != null && cs2 >= 0 && holds.indexOf(cs2) != -1){
-                    send.push(cs2);
-                }
-            }
-            send.push(target);
-            if(send.length == 3){
-                cc.vv.net.send("chi", send);
-            }
+            //吃:直接发服务端下发的组合(服务端只认真实手牌)
+            this._sendChi(t.paiList);
         }
         this.hideChiPanel();
         this.hideOptions();
     },
 
-    //发吃牌请求:带2秒无响应超时反馈(服务端校验失败会重推操作栏,超时则静默)
+    //发吃牌请求:直接发服务端下发的组合(服务端校验三张都是手中真实牌,按顺子排序)
     _sendChi:function(combo){
-        this._chiJustSent = true;
-        var self = this;
-        this.scheduleOnce(function(){
-            if(self._chiJustSent){
-                self._chiJustSent = false;
-                OpTiles.toast(self, "吃牌超时,下次手快一点");
-            }
-        }, 2.0);
-        cc.vv.net.send("chi", combo.slice());
+        if(!combo || combo.length < 3){ this.hideOptions(); return; }
+        var send = combo.slice().sort(function(a, b){ return a - b; });
+        cc.vv.net.send("chi", send);
         this.hideOptions();
+    },
+
+    //点"吃"按钮:只有一组时直接吃, 多组时弹出组合选择面板
+    _onChiButton:function(btn){
+        var combos = (btn && btn.chipai) ? btn.chipai : [];
+        if(!combos.length){ return; }
+        if(combos.length == 1){
+            this._sendChi(combos[0]);
+            return;
+        }
+        var list = [];
+        for(var i = 0; i < combos.length; ++i){
+            var c = combos[i];
+            if(!c || c.length < 3){ continue; }
+            list.push({ pais: c.slice().sort(function(a, b){ return a - b; }), type: "chi", pai: btn.pai });
+        }
+        if(!list.length){ return; }
+        this.showChiPanel(list);
     },
 
     //碰杠过胡 点击事件
@@ -2142,7 +2120,8 @@ cc.Class({
         if(btn == null){ return; }
         var name = btn.name;
         if(name == "btnChi"){
-            //吃按钮仅作展示,不响应点击:只能点按钮上方的组合牌吃
+            //直接点"吃"按钮也要能吃:单组直接吃,多组弹组合面板
+            this._onChiButton(btn);
             return;
         }
         this.cancelChiSelect();
@@ -2205,6 +2184,18 @@ cc.Class({
         if(root){
             this._caishenPlanPanel = root;
             root.active = false;
+            //倒计时节点: 场景内 timeSprite(进度) + timeSprite/time(纯数字秒数)
+            var tsNode = root.getChildByName("timeSprite");
+            if(tsNode){
+                this._csTimeSprite = tsNode.getComponent(cc.Sprite);
+                //时钟底图常显,不做填充裁剪
+                if(this._csTimeSprite){
+                    this._csTimeSprite.type = cc.Sprite.Type.SIMPLE;
+                    this._csTimeSprite.fillRange = 1;
+                }
+                var tNode = tsNode.getChildByName("time");
+                if(tNode){ this._csTimeLabel = tNode.getComponent(cc.Label); }
+            }
             //按钮走场景内 clickEvents 绑定(btnQihu→onQihuClicked, btnSetCaishen→onSetCaishenClicked),代码不再重复绑定
         }
     },
@@ -2261,6 +2252,7 @@ cc.Class({
         var plans = this._pendingPlans || [];
         if(plans.length === 0){ return; }
         var best = plans[0];
+        this.startCaishenPlanCountdown();
 
         var taiLbl = panel.getChildByName("taiLabel");
         if(taiLbl){
@@ -2292,7 +2284,49 @@ cc.Class({
         }
     },
 
+    //面板倒计时:与服务端出牌倒计时同源(chupaiTimeout,后台可配,缺省15秒),提前1秒结束,
+    //到点仍未点"确定"则自动按最高台方案胡牌
+    startCaishenPlanCountdown:function(){
+        this.stopCaishenPlanCountdown();
+        var sec = cc.vv.gameNetMgr ? cc.vv.gameNetMgr.chupaiTimeout : 15;
+        if(sec == null || sec <= 0){ sec = 15; }
+        sec = Math.max(3, sec - 1);
+        this._csTimeTotal = sec;
+        this._csTimeLeft = sec;
+        this._refreshCaishenPlanTime();
+        var self = this;
+        this._csTick = function(){
+            self._csTimeLeft -= 0.2;
+            if(self._csTimeLeft <= 0){
+                self._csTimeLeft = 0;
+                self._refreshCaishenPlanTime();
+                self.stopCaishenPlanCountdown();
+                //时间到未点确定:自动胡牌(按最高台方案)
+                if(self._caishenPlanPanel && self._caishenPlanPanel.active){
+                    self.onSetCaishenClicked();
+                }
+                return;
+            }
+            self._refreshCaishenPlanTime();
+        };
+        this.schedule(this._csTick, 0.2);
+    },
+
+    stopCaishenPlanCountdown:function(){
+        if(this._csTick){
+            this.unschedule(this._csTick);
+            this._csTick = null;
+        }
+    },
+
+    //刷新倒计时显示:timeSprite是时钟底图保持不动,只更新time纯数字秒数
+    _refreshCaishenPlanTime:function(){
+        var left = Math.max(0, this._csTimeLeft);
+        if(this._csTimeLabel){ this._csTimeLabel.string = "" + Math.ceil(left); }
+    },
+
     hideCaishenPlanPanel:function(){
+        this.stopCaishenPlanCountdown();
         if(this._caishenPlanPanel){
             this._caishenPlanPanel.active = false;
         }

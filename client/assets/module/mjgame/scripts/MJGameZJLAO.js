@@ -19,6 +19,8 @@ function tintHandCard(node, isCs){
     }
 }
 
+var DiceRoll = require("DiceRoll");
+
 cc.Class({
     extends: cc.Component,
 
@@ -93,6 +95,9 @@ cc.Class({
         //无论上面哪一步抛错,事件注册都必须执行,否则整局都收不到服务端事件
         try{
             this.initEventHandlers();
+
+        //进房先把底框(Sprite01)/局数/余牌隐藏,发牌开始才显示
+        try{ DiceRoll.setOpeningVisible(this, false); }catch(e){}
         }catch(e){
             console.error('[ZJLAO] initEventHandlers 异常:', (e && e.stack) ? e.stack : e);
         }
@@ -270,6 +275,10 @@ cc.Class({
             //onGameBeign任何异常都不能影响财神区刷新,否则财神永远不显示
             try{ self.onGameBeign(true, data && data.detail); }catch(e){ console.error('[ZJLAO] onGameBeign error:', e); }
             self.initCaishenTip();
+            //掷色子:色子播完才发牌(补发残局/回放不播)
+            try{
+                if(self._isFreshDeal()){ DiceRoll.play(self.node, function(){ DiceRoll.flushDeal(self); }); }
+            }catch(e){ console.error('[色子] 播放异常:', e); }
             //开局:显示剩余张数/局数
             self._setCountVisible(true);
             self._updateMjCount();
@@ -519,15 +528,14 @@ cc.Class({
                     btn.active = true;
                     btn.pai = pai;
                     btn.chipai = chipai || null;
-                    //按钮上方显示可吃组合(每组三张:两张手牌+被吃的牌,缺的手牌用财神补位展示,按顺子排好),没有组合数据时只显示被吃的牌
+                    //按钮上方显示可吃组合(每组三张:两张手牌+被吃的牌,按顺子排好),没有组合数据时只显示被吃的牌
+                    //直接展示服务端下发的真实组合,不做财神补位(服务端吃牌要求真实牌)
                     var groups = [];
                     if(chipai && chipai.length){
                         for(var ci = 0; ci < chipai.length; ++ci){
                             var c = chipai[ci];
                             if(c && c.length >= 3){
-                                var tiles = this._buildOpTiles([c[0], c[1]]);
-                                tiles.push(c[2]);
-                                groups.push(tiles.sort(function(m, n){ return m - n; }));
+                                groups.push([c[0], c[1], c[2]].sort(function(m, n){ return m - n; }));
                             }
                         }
                     }
@@ -815,19 +823,30 @@ cc.Class({
         }
     },
 
-    //发吃牌请求:带2秒无响应超时反馈(服务端校验失败会重推操作栏,超时则静默)
+    //发吃牌请求:直接发服务端下发的组合(服务端校验三张都是手中真实牌,按顺子排序)
     _sendChi:function(combo){
-        console.log("[chi] send", combo[0], combo[1], combo[2]);
-        this._chiJustSent = true;
-        var self = this;
-        this.scheduleOnce(function(){
-            if(self._chiJustSent){
-                self._chiJustSent = false;
-                self._toast("吃牌超时,下次手快一点");
-            }
-        }, 2.0);
-        cc.vv.net.send("chi", combo.slice());
+        if(!combo || combo.length < 3){ this.hideOptions(); return; }
+        var send = combo.slice().sort(function(a, b){ return a - b; });
+        cc.vv.net.send("chi", send);
         this.hideOptions();
+    },
+
+    //点"吃"按钮:只有一组时直接吃, 多组时弹出组合选择面板
+    _onChiButton:function(btn){
+        var combos = (btn && btn.chipai) ? btn.chipai : [];
+        if(!combos.length){ return; }
+        if(combos.length == 1){
+            this._sendChi(combos[0]);
+            return;
+        }
+        var list = [];
+        for(var i = 0; i < combos.length; ++i){
+            var c = combos[i];
+            if(!c || c.length < 3){ continue; }
+            list.push({ pais: c.slice().sort(function(a, b){ return a - b; }), type: "chi", pai: btn.pai });
+        }
+        if(!list.length){ return; }
+        this.showChiPanel(list);
     },
 
     //按钮上方组合牌闪烁提示(多个可吃/可杠组合时点按钮本身的反馈)
@@ -1107,8 +1126,11 @@ cc.Class({
         }
         //开局首次发牌:手牌从牌墙依次飞出(仅game_start触发且本局无任何弃牌/副露/补花;断线重连保持瞬间渲染)
         if(fromGameStart && this._isFreshDeal()){
-            this._playDealAnim();
+            DiceRoll.deferDeal(this);   //色子播完再发牌
         }
+        //开局动画还没开始(色子滚动中):game_begin 等重绘会把手牌重新显示出来,这里重新隐藏,避免先亮牌再播动画
+        if(this._dealPending){ DiceRoll.hideHands(this); DiceRoll.setOpeningVisible(this, false); }
+        else{ DiceRoll.setOpeningVisible(this, true); }
     },
 
     // ===== 开局发牌动画：手牌从牌墙依次飞出（仅开局首次发牌触发） =====
@@ -1427,15 +1449,6 @@ cc.Class({
             this.cancelChiSelect();
             this.hideOptions();
             console.log("[chi] send", p0, p1, target);
-            //发包后2秒内既没吃成功(chi_notify)也没被拒(重推操作栏):多半是操作超时被服务端自动过掉,给明确反馈
-            this._chiJustSent = true;
-            var self = this;
-            this.scheduleOnce(function(){
-                if(self._chiJustSent){
-                    self._chiJustSent = false;
-                    self._toast("吃牌超时,下次手快一点");
-                }
-            }, 2.0);
             cc.vv.net.send("chi", [p0, p1, target]);
         }
     },
@@ -1919,30 +1932,8 @@ cc.Class({
             cc.vv.net.send("gang", t.targetPai);
         }
         else if(t.paiList){
-            //吃:组合按顺子面值展示,缺失面值需换成手中真实财神牌再发(服务端校验真实牌/财神)
-            var target = t.targetPai;
-            var send = [];
-            var sd = cc.vv.gameNetMgr.getSelfData();
-            var holds = (sd && sd.holds) ? sd.holds : [];
-            var conf = cc.vv.gameNetMgr.conf || {};
-            var cs = conf.caishen, cs2 = conf.caishen2;
-            for(var k = 0; k < t.paiList.length; ++k){
-                var f = t.paiList[k];
-                if(f == target){ continue; }
-                if(f != cs && f != cs2 && holds.indexOf(f) != -1){
-                    send.push(f);
-                }
-                else if(cs >= 0 && holds.indexOf(cs) != -1){
-                    send.push(cs);
-                }
-                else if(cs2 != null && cs2 >= 0 && holds.indexOf(cs2) != -1){
-                    send.push(cs2);
-                }
-            }
-            send.push(target);
-            if(send.length == 3){
-                cc.vv.net.send("chi", send);
-            }
+            //吃:直接发服务端下发的组合(服务端只认真实手牌)
+            this._sendChi(t.paiList);
         }
         this.hideChiPanel();
         this.hideOptions();
@@ -1954,7 +1945,8 @@ cc.Class({
         if(btn == null){ return; }
         var name = btn.name;
         if(name == "btnChi"){
-            //吃按钮仅作展示,不响应点击:只能点按钮上方的组合牌吃
+            //直接点"吃"按钮也要能吃:单组直接吃,多组弹组合面板
+            this._onChiButton(btn);
             return;
         }
         this.cancelChiSelect();

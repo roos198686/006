@@ -27,21 +27,16 @@ cc.Class({
         this.initAllFolds();
     },
 
-    //方向标(baoqei_a图集)定位最新弃牌:仅诸暨赖倒胡启用,Folds为各玩法共用
+    //方向标(baoqei_a图集)定位最新弃牌:所有麻将玩法共用
     _initDirMarker:function(){
         this._dirFrame = null;
         this._dirMarker = null;
-        if(this.node.getComponent("MJGameZJLAO") == null){ return; }
         var self = this;
         cc.loader.loadRes("images/atlas/baoqei_a", cc.SpriteAtlas, function(err, atlas){
             if(err || !atlas){ console.warn("[folds] 方向标图集加载失败", err); return; }
             self._dirFrame = atlas.getSpriteFrame("方向标"); //Cocos图集帧名不带扩展名
             console.log("[folds] 方向标图集加载完成 frame=", !!self._dirFrame);
         });
-    },
-
-    _isZjlao:function(){
-        return this.node.getComponent("MJGameZJLAO") != null;
     },
     
     initView:function(){
@@ -241,9 +236,9 @@ cc.Class({
         return null;
     },
 
-    //方向标:显示在刚打出的牌正上方,上下自动跳动(仅诸暨赖倒胡)
+    //方向标:显示在刚打出的牌正上方,上下自动跳动(所有麻将玩法)
     _showDirMarker:function(targetNode){
-        if(!this._isZjlao() || !this._dirFrame){ return; }
+        if(!this._dirFrame){ return; }
         this._hideDirMarker();
         if(!targetNode || !targetNode.active){ return; }
         var m = new cc.Node("dirMarker");
@@ -257,7 +252,6 @@ cc.Class({
         var baseY = targetNode.y + th / 2 + 48 / 2 + 4;
         m.setPosition(targetNode.x, baseY);
         this._dirMarker = m;
-        console.log("[folds] 方向标显示 side parent=", targetNode.parent.name, "x=", targetNode.x, "y=", baseY);
         cc.tween(m)
             .repeatForever(
                 cc.tween()

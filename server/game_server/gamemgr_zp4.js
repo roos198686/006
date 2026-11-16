@@ -5,7 +5,7 @@
  * 2. 庄家17张、闲家16张；摸到花牌亮出并从牌墙尾部补牌
  * 3. 开金：补花完成后从牌尾翻牌(花牌重翻)，翻开的牌即金牌(百搭)；金牌是万筒条时白板也能当金牌用
  * 4. 打出的金牌任何人不可吃/碰/杠/胡；吃碰杠仅限真实牌(金不代牌)
- * 5. 胡牌：5组面子+1对将(17张)，金可代；七对=7对子+1刻
+ * 5. 胡牌：5组面子+1对将(17张)，金可代(无七对)
  * 6. 特色：三金倒(手牌>=3金直接胡,按自摸付)、抢金(开金后无人吃碰前听牌可拿金牌胡)、
  *    游金(成型后将=金+普通牌,打出普通牌后每摸必胡,逐级翻倍,期间他人只能自摸)
  * 7. 手里>=2张金牌时禁止点炮胡(只能自摸/游金)
@@ -19,6 +19,11 @@ var db = require("../utils/db");
 
 var games = {};
 var SEAT_COUNT = 4;
+
+//给单个玩家弹提示(客户端 NoticeTip 监听 push_notice),用于吃牌被更高优先级操作挡住时给出反馈
+function notifyTip(userId, info, sec){
+    try{ userMgr.sendMsg(userId, 'push_notice', { info: info, time: sec || 2 }); }catch(e){}
+}
 
 // 牌值编码：0-8筒 9-17条 18-26万 27中28发29白30东31南32西33北 34-41花(梅兰竹菊春夏秋冬)
 var FLOWER_START = 34;
@@ -106,23 +111,49 @@ function mopai(game, seatIndex, fromTail){
         data.hua.push(pai);
         // 记录本回合补出的花，推送由调用方统一发
         game.pendingHua.push({si:seatIndex, pai:pai});
-        return mopai(game, seatIndex, fromTail);
+        return mopai(game, seatIndex, true); // 补花固定从牌墙尾部补
     }
     data.holds.push(pai);
     return pai;
 }
 
-// 发牌：闲16庄17；翻金在开金函数
+// 补花：花牌移出手牌亮在自己面前，去牌墙尾部补一张；补出来还是花继续补，直到普通牌
+function buHua(game, seatIndex){
+    var data = game.gameSeats[seatIndex];
+    var left = [];
+    var flowers = 0;
+    for(var i = 0; i < data.holds.length; ++i){
+        var p = data.holds[i];
+        if(isFlower(p)){ data.hua.push(p); flowers++; }
+        else{ left.push(p); }
+    }
+    data.holds = left;
+    while(flowers > 0){
+        flowers--;
+        var p2 = drawTail(game);
+        if(p2 == -1) return;
+        if(isFlower(p2)){ data.hua.push(p2); flowers++; }
+        else{ data.holds.push(p2); }
+    }
+}
+
+// 发牌：闲16庄17；发完牌从庄家开始补花；翻金在开金函数
 function deal(game){
     game.currentIndex = 0;
     game.tailIndex = game.mahjongs.length - 1;
     var si = game.button;
     for(var r = 0; r < 16; ++r){
         for(var k = 0; k < SEAT_COUNT; ++k){
-            mopai(game, (si + k) % SEAT_COUNT, false);
+            var p = drawHead(game);
+            if(p != -1) game.gameSeats[(si + k) % SEAT_COUNT].holds.push(p);
         }
     }
-    mopai(game, game.button, false); // 庄家第17张
+    var pz = drawHead(game);
+    if(pz != -1) game.gameSeats[game.button].holds.push(pz); // 庄家第17张
+    for(var k2 = 0; k2 < SEAT_COUNT; ++k2){
+        buHua(game, (si + k2) % SEAT_COUNT);
+    }
+    game.pendingHua = []; // 开局补花随 game_start 的 seats 下发,不单独推
     game.turn = game.button;
 }
 
@@ -558,16 +589,10 @@ function doUserMoPai(game){
 }
 
 // ===== 结算 =====
-// 牌型台：清一色/混一色/七对（基于真实牌判定）
+// 牌型台：清一色/混一色（基于真实牌判定）
 function patternTai(game, seatData, sp){
     var tai = 0;
     var logs = [];
-    // 七对
-    if(checkQiDui(sp.cm, sp.wilds)){
-        var t0 = taiRule(game, 'qi_dui', 3);
-        if(t0 > 0){ tai += t0; logs.push("七对+" + t0); }
-        return {tai:tai, logs:logs}; // 七对不再算一色
-    }
     // 一色判定（真实牌）
     var suitSet = {};
     for(var k in sp.cm){
@@ -631,7 +656,7 @@ function calculateTai(game, seatData, opts){
         if(opts.extra.qiangGang){ var t6 = taiRule(game, 'qiang_gang', 1); tai += t6; tailog.push("抢杠胡+" + t6); }
     }
 
-    // 牌型（七对/清一色/混一色）
+    // 牌型（清一色/混一色）
     var pt = patternTai(game, seatData, sp);
     tai += pt.tai; tailog = tailog.concat(pt.logs);
 
@@ -1081,17 +1106,18 @@ exports.chi = function(userId, chiPais){
     if(others.length != 2) return;
     p1 = others[0]; p2 = others[1];
     if(isWild(game, p1) || isWild(game, p2) || isWild(game, target)) return;
+    //手牌数组顺序是摸牌顺序,不能要求小牌排在大牌前面;两张都在手里即可
     var i1 = seatData.holds.indexOf(p1);
-    var i2 = i1 == -1 ? -1 : seatData.holds.indexOf(p2, i1 + 1);
-    if(p1 == p2){ i2 = seatData.holds.indexOf(p2, i1 + 1); }
+    var i2 = seatData.holds.indexOf(p2);
     if(i1 == -1 || i2 == -1) return;
     // 顺子校验
     var arr = [p1, p2, target].sort(function(a,b){ return a-b; });
     if(getMJType(arr[0]) != getMJType(arr[2])) return;
     if(arr[1] != arr[0] + 1 || arr[2] != arr[0] + 2) return;
 
-    seatData.holds.splice(i2, 1);
-    seatData.holds.splice(i1, 1);
+    var hi = Math.max(i1, i2), lo = Math.min(i1, i2);
+    seatData.holds.splice(hi, 1);
+    seatData.holds.splice(lo, 1);
     seatData.chis.push(arr);
     rebuildCountMap(seatData);
     var discarder = game.gameSeats[game.turn];
@@ -1541,7 +1567,6 @@ exports.__calculateTai = calculateTai;
 exports.__internals = {
     canFormMelds: canFormMelds,
     checkHuStructure: checkHuStructure,
-    checkQiDui: checkQiDui,
     canDianPao: canDianPao,
     canQiangJin: canQiangJin,
     findYouJinDiscards: findYouJinDiscards,

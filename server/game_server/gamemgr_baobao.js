@@ -1730,6 +1730,7 @@ exports.doDissolve = function(roomId){
     if(game && game.arrangeTimer){ clearTimeout(game.arrangeTimer); }
     roomInfo.dr = null;
     delete games[roomId];
+    console.log('[baobao.doDissolve] 解散并销毁房间 room=' + roomId + ' seats=' + roomInfo.seats.length);
     roomMgr.destroy(roomId);
 };
 

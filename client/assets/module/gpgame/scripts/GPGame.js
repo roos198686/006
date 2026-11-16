@@ -8,6 +8,16 @@ cc.Class({
         maxPlayers: {
             default: 3,
             type: cc.Integer
+        },
+        //选中手牌时的上移像素(在编辑器组件面板里调, 手牌位置本身由场景 handSlot 决定)
+        selectUpOffset: {
+            default: 28,
+            type: cc.Float
+        },
+        //小局结算弹窗倒计时(秒), 到 0 自动准备下一局
+        settleCountdown: {
+            default: 15,
+            type: cc.Integer
         }
     },
 
@@ -25,7 +35,7 @@ cc.Class({
         this._deadline = 0;
         this._over = false;
         this._final = false;
-        this._selectUpOffset = 28;
+        this._selectUpOffset = (this.selectUpOffset != null) ? this.selectUpOffset : 28;
         this._gpConf = {}; // 关牌玩法配置(来自服务端 gp_start)
         // 开局发牌动画状态
         this._dealAnimating = false;
@@ -53,6 +63,12 @@ cc.Class({
         }
 
         this.initView();
+        //房间个性化(桌面背景/界面大小/出牌手势)复用麻将的 DeskStyle 组件,场景没挂时运行时补挂
+        //注意: cc.vv 是跨场景全局, 上个场景残留的 deskStyle 可能已被销毁, 必须判有效
+        if (!cc.vv.deskStyle || !cc.isValid(cc.vv.deskStyle)) {
+            var DeskCls = cc.js.getClassByName('DeskStyle');
+            if (DeskCls) { this.node.addComponent(DeskCls); }
+        }
         this.initEvents();
         this.refreshFromState();
         //对局背景音乐(与麻将一致)
@@ -86,12 +102,15 @@ cc.Class({
         this._n = {};
         var names = ["bg", "game", "prepare", "titleLabel", "roundLabel", "tipLabel", "countdownLabel", "handArea", "playArea",
             "playOwnerLabel", "cardsContainer", "playBtn", "passBtn", "hintBtn", "readyBtn", "exitBtn", "dissolveBtn",
-            "prepareInfo", "settlePanel", "settleTitle", "settleContent", "settleAgainBtn", "settleAgainLabel",
+            "prepareInfo", "toprepareInfo", "settlePanel", "settleTitle", "settleContent", "settleAgainBtn", "settleAgainLabel", "settleTime",
             "settleCloseBtn",
             "settleExitBtn", "finalSettlePanel", "finalSettleTitle", "finalSettleContent", "finalSettleExitBtn", "dissolvePanel", "dissolveLabel", "dissolveAgreeBtn", "dissolveRejectBtn"];
         for (var i = 0; i < names.length; ++i) {
             this._n[names[i]] = this.findNode(this.node, names[i]);
         }
+        //跑得快布局全部固化在场景里, 代码只写文字/显隐, 不再创建节点或改位置尺寸
+        this._n.bombMulLabel = this._n.playArea ? this.findNode(this._n.playArea, "bombMulLabel") : null;
+        this._n.frameEfx = this._n.playArea ? this.findNode(this._n.playArea, "frameEfx") : null;
 
         this._seatViews = [];
         for (var s = 0; s < 3; ++s) {
@@ -115,6 +134,19 @@ cc.Class({
         // 显示索引→实际座位索引的映射。seatInfo0(下方)永远是自己, seatInfo1/2(上方)永远是对家
         this._seatMap = null;
 
+        //出牌倒计时:game/myself/timeSprite 是自己出牌倒计时, game/up/timeSprite 是对家出牌倒计时
+        var upRoot = this._n.game ? this._n.game.getChildByName("up") : null;
+        var myRoot = this._n.game ? this._n.game.getChildByName("myself") : null;
+        this._n.upTimer = upRoot ? upRoot.getChildByName("timeSprite") : null;
+        this._n.myTimer = myRoot ? myRoot.getChildByName("timeSprite") : null;
+        this._n.upTimerLabel = this._n.upTimer ? this._n.upTimer.getChildByName("countdownLabel") : null;
+        this._n.myTimerLabel = this._n.myTimer ? this._n.myTimer.getChildByName("countdownLabel") : null;
+        //Canvas 下那张全局倒计时不再使用, 直接隐藏
+        var globalTimer = this.node.getChildByName("timeSprite");
+        if (globalTimer) globalTimer.active = false;
+        this._n.countdownLabel = null;
+        this.showSeatTimers(false, false, 0);
+
         this._refreshTitle();
         if (this._n.settleAgainBtn) {
             this._n.settleAgainLabel = this.findNode(this._n.settleAgainBtn, "settleAgainBtnLabel");
@@ -129,6 +161,7 @@ cc.Class({
         if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
         this._n.dissolvePanel.active = false;
         this._n.prepareInfo.active = false;
+        if (this._n.toprepareInfo) this._n.toprepareInfo.active = false;
         // 准备阶段全部隐藏:等 gp_start_push → updateTurnUI 才显示
         var ops = this.findNode(this.node, "ops");
         if (ops) ops.active = false;
@@ -140,7 +173,6 @@ cc.Class({
         var arrowNode = this.findNode(this.node, "arrow");
         if (arrowNode) arrowNode.active = false;
         this.setStr(this._n.tipLabel, "");
-        this.setStr(this._n.countdownLabel, "");
         this.setStr(this._n.playOwnerLabel, "");
 
         // 桌中央方位箭头+倒计时
@@ -179,6 +211,7 @@ cc.Class({
         // 手牌位/出牌位均为场景预置节点，JS 只填牌面与显隐，不创建/移动节点
         this._handSlots = [];
         this._playSlots = [];
+        this._playFlies = [];
         var self2 = this;
         for (var si = 0; si < 16; ++si) {
             var hs = this.findNode(this._n.handArea, "handSlot" + si);
@@ -198,11 +231,22 @@ cc.Class({
                 // 隐藏选中钩标记，选中态仅靠牌面上移表示
                 var mk = hs.getChildByName("selMark");
                 if (mk) mk.active = false;
+                // 记录场景里摆好的原始位置: 布局全部由场景控制, 代码只在选中时按该基准上移
+                hs._baseY = hs.y;
                 this._handSlots.push(hs);
             }
             var ps = this.findNode(this._n.cardsContainer, "playSlot" + si);
             if (ps) this._playSlots.push(ps);
+            // 出牌飞行牌也是场景预置节点, 记录场景位置作为落点
+            var pf = this.findNode(this._n.cardsContainer, "playFly" + si);
+            if (pf) {
+                pf._home = pf.position.clone();
+                pf.active = false;
+                this._playFlies.push(pf);
+            }
         }
+        //槽位按场景 x 从左到右排序: 居中时只用"中间一段"槽位, 不改任何节点坐标
+        this._handSlots.sort(function (a, b) { return a.x - b.x; });
         //兜底:如果 cardsContainer 找不到或 playSlots 为空,直接从场景根节点找
         if (this._playSlots.length == 0) {
             for (var si2 = 0; si2 < 16; ++si2) {
@@ -234,8 +278,9 @@ cc.Class({
             this.bindButton(this._n.btnSettingsClose, this.onBtnSettingsClose, this);
             this.bindButton(this._n.btnSettingsDissolve, this.onBtnSettingsDissolve, this);
             this.bindButton(this._n.btnSettingsExit, this.onExit, this);
-            // 出牌手势设置: 手势多选开关
-            this._buildGestureToggle();
+            // 桌面背景切换:弹出场景固化的 bg_choose 选择窗(DeskStyle 负责选项点击与换图)
+            this._n.btnDeskBg = this.findNode(this._n.settingsPanel, "btn_desk_bg");
+            this.bindButton(this._n.btnDeskBg, this.onBtnDeskBg, this);
         }
         // 聊天面板内的按钮（发送/快捷语/表情）
         if (this._n.chatPanel) {
@@ -327,14 +372,30 @@ cc.Class({
         if (this._n.historyBtn) { this._n.historyBtn.active = false; this.bindButton(this._n.historyBtn, this.onHistoryBtn, this); }
         if (this._n.historyPanel) this._n.historyPanel.active = false;
 
-        // 整场结算弹窗:直接使用场景自带的 game_result 节点(底图+关闭按钮已固化),内容由数据生成
+        // 整场结算弹窗:复刻麻将的"全部牌局结束"面板(game_result: 玩家卡片+大赢家+倒计时+退出房间)
         this._n.gameResult = this.node.getChildByName("game_result");
         if (this._n.gameResult) {
             this._n.gameResult.active = false;
+            //退出房间按钮(麻将脚本的回调要清掉,改绑 GPGame)
             var grShare = this._n.gameResult.getChildByName("btnShare");
-            if (grShare) this.bindButton(grShare, this.onExit, this);
+            if (grShare) {
+                var grShareBtn = grShare.getComponent(cc.Button);
+                if (grShareBtn) grShareBtn.clickEvents = [];
+                this.bindButton(grShare, this.onExit, this);
+            }
             var grClose = this._n.gameResult.getChildByName("btnClose");
-            if (grClose) { grClose.active = false; this.bindButton(grClose, this.onExit, this); }
+            if (grClose) grClose.active = false;
+            this._n.resultCountdown = this._n.gameResult.getChildByName("countdown");
+            //大赢家卡片背景在 baoqei_f 图集里,加载到后如果面板正显示就重绘一次
+            var self0 = this;
+            this._winBgFrame = null;
+            cc.resources.load("images/atlas/baoqei_f", cc.SpriteAtlas, function (err, atlas) {
+                if (err || !atlas) return;
+                var fr = atlas.getSpriteFrame("大赢家.png") || atlas.getSpriteFrame("大赢家");
+                if (!fr) return;
+                self0._winBgFrame = fr;
+                if (self0._n.gameResult && self0._n.gameResult.active) self0._showFinalResult(null, self0._finalEndinfo);
+            });
         }
 
         // 关键:准备阶段按钮状态(未准备→退出,已准备→解散)
@@ -808,7 +869,7 @@ cc.Class({
         this.node.on('gp_newround', function (d) { self.onGpNewRound(d && d.detail); });
         this.node.on('gp_error', function (d) { self.showTip((d && d.detail && d.detail.msg) || "操作失败"); });
         this.node.on('game_over', function (d) { self.onGameOver(d && d.detail); });
-        this.node.on('game_end', function (d) { self.onGameEnd(d && d.detail); });
+        this.node.on('game_end', function (d) { self.onGameEnd(d && (d.detail || d)); });
         this.node.on('game_begin', function () { self.onNewGameBegin(); });
         this.node.on('game_num', function () { self.updateRoundLabel(); });
         this.node.on('user_ready', function (d) { self.onUserReady(d && d.detail); });
@@ -872,11 +933,9 @@ cc.Class({
                         sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
                     }
                 }
-                var w = Math.min(420, Math.max(80, String(content).length * 26 + 36));
-                bg.setContentSize(w, 52);
+                //气泡大小跟随场景里 ChatBubble/chatbg_ld 的 Widget 配置, 代码不再改尺寸
                 bg.color = cc.color(45, 40, 38, 210); // 半透明深底, 白字可读
             }
-            if (bubble.getContentSize().width < 10) bubble.setContentSize(220, 68);
             self._chatBubbleTimers = self._chatBubbleTimers || {};
             if (self._chatBubbleTimers[seatIdx]) clearTimeout(self._chatBubbleTimers[seatIdx]);
             self._chatBubbleTimers[seatIdx] = setTimeout(function () { bubble.active = false; }, 3000);
@@ -950,8 +1009,7 @@ cc.Class({
         var selfSeat = nm.seats ? nm.seats[nm.seatIndex] : null;
         if (selfSeat && selfSeat.ready) {
             this._n.readyBtn.active = false;
-            this._n.prepareInfo.active = true;
-            this.setLabel(this._n.prepareInfo, "已准备，等待其他玩家…");
+            this._n.prepareInfo.active = this._canShowPrepareImg();
         }
         if (nm.numOfGames >= nm.maxNumOfGames && nm.maxNumOfGames > 0) {
             this._final = true;
@@ -972,6 +1030,7 @@ cc.Class({
         this._selected = {};
         this._n.readyBtn.active = false;
         this._n.prepareInfo.active = false;
+        if (this._n.toprepareInfo) this._n.toprepareInfo.active = false;
         //单局结算弹窗不自动关闭(只由玩家点关闭按钮收起),新一局开始也不覆盖
         if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
         this._n.handArea.active = true;
@@ -986,9 +1045,21 @@ cc.Class({
         //这里按玩法配置恢复记牌按钮显隐,不再只依赖 gp_start
         this._showHistoryIfEnabled();
         this.checkAutoPass();
-        // 开局首次发牌:手牌从桌中央依次飞出(仅 gp_start 触发且无任何出牌记录;断线重连保持瞬间渲染)
-        if (fromStart && this._isFreshDeal()) {
-            this._playDealAnim();
+        // 开局首次发牌:先播"开始 GAME START"动画(resources/efx/daqiang),播完再逐张飞牌
+        // (和宝宝一致:开局动画不能和发牌同时开始)
+        if (fromStart && this._isFreshDeal() && !this._startSeqPlaying) {
+            this._startSeqPlaying = true;
+            var selfStart = this;
+            // 动画期间先藏起手牌,动画播完再落牌
+            for (var hi = 0; hi < this._handSlots.length; ++hi) { this._handSlots[hi].active = false; }
+            if (cc.vv.audioMgr) cc.vv.audioMgr.playSFX("start_game.mp3");
+            this._playStartAnim(function () {
+                if (!cc.isValid(selfStart.node)) { return; }
+                selfStart._startSeqPlaying = false;
+                if (selfStart._over) { return; }
+                selfStart.renderHand();
+                selfStart._playDealAnim();
+            });
         }
     },
 
@@ -1147,28 +1218,180 @@ cc.Class({
         this.renderLastPlay();
         this._flyPlayCards(d);
         this._playTypeEfx(d);
+        // 有人出完手牌(全垒打): 播全垒打动画
+        var allSeats = d.seats || cc.vv.gameNetMgr.gpSeats;
+        if (allSeats) {
+            for (var qi = 0; qi < allSeats.length; ++qi) {
+                var qs = allSeats[qi];
+                if (qs && qs.seatindex === d.seatIndex && qs.finished) {
+                    this._playScreenFrames("images/bbfx_qld", 0.06); //全垒打(宝宝那套, 19帧@60ms)
+                    break;
+                }
+            }
+        }
         // 出牌语音(报点数/牌型) + 剩1/2张报警
         this._playPlayVoice(d);
     },
 
-    // 牌型特效: 炸弹/顺子/连对/三带/飞机(gamepdk spine,资源未导入时静默跳过)
+    // 牌型特效: 炸弹/王炸/飞机用导入的序列帧, 顺子/连对/三带用 spine(跑得快场景没挂 MahjongMgr, 这里自行加载)
     _playTypeEfx: function (d) {
         if (!d || !d.type) return;
+        if (d.type === 'bomb') {
+            // A炸(四大天王) / 四张炸弹 / 五张炸弹 各一套序列帧, 统一播在屏幕中央
+            if (d.bombLevel >= 2) this._playScreenFrames("efx/wangzha", 0.042, null, 0.7);
+            else if (d.bombLevel >= 1) this._playScreenFrames("efx/zhadan1", 0.042, null, 0.7);
+            else this._playScreenFrames("efx/zhadan", 0.045, null, 0.7);
+            return;
+        }
+        if (d.type === 'triple_straight') { this._playScreenFrames("efx/feiji", 0.042, null, 0.7); return; }
         var key = null;
-        if (d.type === 'bomb') key = (d.bombLevel >= 2) ? "dazhadan" : "xiaozhadan";
-        else if (d.type === 'straight') key = "shunzi";
+        if (d.type === 'straight') key = "shunzi";
         else if (d.type === 'pair_straight') key = "liandui";
         else if (d.type === 'triple_one' || d.type === 'triple_pair') key = "sandaier";
-        else if (d.type === 'triple_straight') key = "DDZ_feiji";
-        if (!key || !cc.vv.mahjongmgr) return;
-        cc.vv.mahjongmgr.playSpineEfx(this._n.playArea || this.node, key);
+        if (key) this._spineEfx(this.node, key);
     },
 
-    // 出牌飞行: 从出牌人位置飞临时牌到出牌槽位(真实牌槽由 renderLastPlay 渲染)
+    //spine 特效(不依赖 cc.vv.mahjongmgr: 跑得快场景没有挂 MahjongMgr)
+    _spineEfx: function (parentNode, key) {
+        if (!parentNode || !cc.isValid(parentNode) || typeof sp === "undefined") { return; }
+        var self = this;
+        var cache = this._spineCache || (this._spineCache = {});
+        var old = parentNode.getChildByName("gp_spine");
+        if (old) { old.destroy(); }
+        var play = function (sd) {
+            if (!sd || !cc.isValid(parentNode)) { return; }
+            var n = new cc.Node("gp_spine");
+            n.layer = parentNode.layer;
+            parentNode.addChild(n);
+            n.setPosition(0, 0);
+            var sk = n.addComponent(sp.Skeleton);
+            sk.skeletonData = sd;
+            sk.premultipliedAlpha = false;
+            //动画名必须和资源里的完全一致, 否则 spine 只显示静态造型:
+            //shunzi/liandui 同名, 三带二资源里叫 you/zuo, 春天叫 Spring, 报警叫 animation
+            var SPINE_ANIM = {
+                shunzi: "shunzi", liandui: "liandui", sandaier: "you",
+                baojing: "animation", chuntian: "Spring"
+            };
+            sk.setAnimation(0, SPINE_ANIM[key] || "animation", false);
+            //各种骨骼原始尺寸差很多(报单70px、顺子914px), 按目标宽度缩放: 桌中央≤860, 座位上的报单260
+            var SPINE_W = { shunzi: 914, liandui: 962, sandaier: 380, baojing: 70, chuntian: 930 };
+            var sw = SPINE_W[key] || 0;
+            var targetW = (parentNode === self.node) ? Math.min(cc.winSize.width * 0.45, 860) : 260;
+            if (sw > 0) { n.setScale(Math.min(targetW / sw, 3)); }
+            self.scheduleOnce(function () { if (cc.isValid(n)) { n.destroy(); } }, 1.6);
+        };
+        if (cache[key]) { play(cache[key]); return; }
+        cc.resources.load("spine/" + key + "/" + key, sp.SkeletonData, function (err, sd) {
+            if (err || !sd) { console.log("[GP] spine特效加载失败:", key, err); return; }
+            cache[key] = sd;
+            play(sd);
+        });
+    },
+
+    // 开局动画: 直接用宝宝那套 resources/images/bbfx_start(20帧@50ms), 播完回调
+    _playStartAnim: function (done) {
+        this._playScreenFrames("images/bbfx_start", 0.05, done);
+    },
+
+    // 屏幕居中大动画(宝宝的做法): 按屏幕比例缩放(默认0.9), 逐帧播放, 播完自动隐藏
+    _playScreenFrames: function (dir, interval, done, fit) {
+        var self = this;
+        var show = function (frames) {
+            if (!cc.isValid(self.node)) { if (done) { done(); } return; }
+            var node = self._startFxNode;
+            if (!node || !node.isValid) {
+                node = new cc.Node("screenFx");
+                self.node.addChild(node);
+                node.zIndex = 999;
+                node.addComponent(cc.Sprite);
+                self._startFxNode = node;
+            }
+            var sp = node.getComponent(cc.Sprite);
+            sp.sizeMode = cc.Sprite.SizeMode.TRIMMED;
+            sp.spriteFrame = frames[0];
+            var fw = frames[0].getOriginalSize().width, fh = frames[0].getOriginalSize().height;
+            var sc = Math.min(cc.winSize.width / fw, cc.winSize.height / fh) * (fit || 0.9);
+            node.setPosition(0, 0);
+            node.setScale(sc);
+            node.active = true;
+            node.stopAllActions();
+            var seq = [];
+            for (var i = 0; i < frames.length; ++i) {
+                (function (fr) {
+                    seq.push(cc.callFunc(function () { if (sp && sp.isValid) { sp.spriteFrame = fr; } }));
+                    seq.push(cc.delayTime(interval || 0.05));
+                })(frames[i]);
+            }
+            seq.push(cc.callFunc(function () {
+                if (node && node.isValid) { node.active = false; }
+                if (done) { done(); }
+            }));
+            node.runAction(cc.sequence(seq));
+        };
+        var cache = this._screenFramesCache || (this._screenFramesCache = {});
+        if (cache[dir] && cache[dir].length > 0) { show(cache[dir]); return; }
+        cc.resources.loadDir(dir, cc.SpriteFrame, function (err, frames) {
+            if (err || !frames || frames.length === 0) { if (done) { done(); } return; }
+            frames.sort(function (a, b) {
+                var na = parseInt(a.name, 10), nb = parseInt(b.name, 10);
+                if (!isNaN(na) && !isNaN(nb)) { return na - nb; }
+                return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
+            });
+            cache[dir] = frames;
+            show(frames);
+        });
+    },
+
+    //序列帧特效: 资源在 resources/efx/<key>/f001.png..., 逐帧播在出牌区上; done 可选, 播完回调
+    _playFrameEfx: function (key, fps, done) {
+        this._playFrameDir("efx/" + key, fps, done);
+    },
+
+    //按目录播序列帧, 资源目录任意(如宝宝那套 images/bbfx_qld)
+    _playFrameDir: function (dir, fps, done) {
+        var self = this;
+        var cache = this._frameEfxCache || (this._frameEfxCache = {});
+        if (cache[dir] && cache[dir].length > 0) { this._runFrameEfx(cache[dir], fps, done); return; }
+        cc.resources.loadDir(dir, cc.SpriteFrame, function (err, frames) {
+            if (err || !frames || frames.length === 0) { if (done) done(); return; }
+            frames.sort(function (a, b) {
+                var na = parseInt(a.name, 10), nb = parseInt(b.name, 10);
+                if (!isNaN(na) && !isNaN(nb)) { return na - nb; }
+                return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
+            });
+            cache[dir] = frames;
+            self._runFrameEfx(frames, fps, done);
+        });
+    },
+
+    _runFrameEfx: function (frames, fps, done) {
+        //特效节点固化在场景 playArea/frameEfx, 位置/尺寸由场景控制
+        var node = this._n ? this._n.frameEfx : null;
+        if (!node || !cc.isValid(node)) { if (done) done(); return; }
+        node.active = true;
+        node.stopAllActions();
+        var sp = node.getComponent(cc.Sprite);
+        var interval = 1 / (fps || 24);
+        var seq = [];
+        for (var f = 0; f < frames.length; ++f) {
+            (function (fr) {
+                seq.push(cc.callFunc(function () { if (sp && sp.isValid) { sp.spriteFrame = fr; } }));
+                seq.push(cc.delayTime(interval));
+            })(frames[f]);
+        }
+        seq.push(cc.callFunc(function () {
+            if (node && node.isValid) { node.active = false; }
+            if (done) { done(); }
+        }));
+        node.runAction(cc.sequence(seq));
+    },
+
+    // 出牌飞行: 用场景预置的 playFly0~15 从出牌人位置飞到各自场景落点(真实牌槽由 renderLastPlay 渲染)
     _flyPlayCards: function (d) {
         var container = this._n.cardsContainer;
         if (!container || !d || !d.pais || d.pais.length === 0) return;
-        if (this._playSlots.length === 0) return;
+        if (this._playFlies.length === 0) return;
         var nm = cc.vv.gameNetMgr;
         var startWorld = null;
         if (d.seatIndex === nm.gpMySeat) {
@@ -1183,24 +1406,26 @@ cc.Class({
         }
         if (!startWorld) return;
         var start = container.convertToNodeSpaceAR(startWorld);
-        var n = Math.min(d.pais.length, this._playSlots.length);
+        var n = Math.min(d.pais.length, this._playFlies.length);
         for (var i = 0; i < n; ++i) {
             (function (self, idx) {
-                var slot = self._playSlots[idx];
-                var fly = new cc.Node("play_fly");
-                container.addChild(fly);
-                fly.zIndex = 999;
+                var fly = self._playFlies[idx];
+                if (!fly || !cc.isValid(fly)) return;
+                var home = fly._home;
+                fly.stopAllActions();
+                fly.active = true;
+                fly.opacity = 255;
                 fly.setPosition(start);
-                fly.setContentSize(slot.getContentSize());
-                fly.scaleX = slot.scaleX;
-                fly.scaleY = slot.scaleY;
-                var sp = fly.addComponent(cc.Sprite);
-                sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-                sp.spriteFrame = self.frameOf(d.pais[idx]);
+                var sp = fly.getComponent(cc.Sprite);
+                if (sp) sp.spriteFrame = self.frameOf(d.pais[idx]);
                 cc.tween(fly)
                     .delay(idx * 0.04)
-                    .to(0.16, { position: slot.position }, { easing: "quadOut" })
-                    .call(function () { if (cc.isValid(fly)) fly.destroy(); })
+                    .to(0.16, { position: home }, { easing: "quadOut" })
+                    .call(function () {
+                        if (!cc.isValid(fly)) return;
+                        fly.active = false;
+                        fly.setPosition(home);
+                    })
                     .start();
             })(this, i);
         }
@@ -1253,8 +1478,10 @@ cc.Class({
         this._selected = {};
         //单局结算弹窗不自动关闭:只由玩家点击右上角关闭按钮收起
         if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
+        this._stopResultCountdown();
         if (this._n.gameResult) this._n.gameResult.active = false; //新一场开始,收起整场结算
         this._n.prepareInfo.active = false;
+        if (this._n.toprepareInfo) this._n.toprepareInfo.active = false;
         this._n.readyBtn.active = false;
         this._n.handArea.active = true;
         this._n.playArea.active = true;
@@ -1354,37 +1581,36 @@ cc.Class({
         this._playVoice(this._sexOfSeat(seatIndex), "buyao" + (1 + Math.floor(Math.random() * 4)), 150);
     },
 
-    // ===== 手势多选(客户端房间设置 gesture_multi_select) =====
-    _isGestureMultiSelect: function () {
+    // ===== 出牌手势(客户端房间设置): 滑动多选 / 上滑出牌 / 单击·双击出牌 =====
+    _getGestureSettings: function () {
+        var ds = cc.vv && cc.vv.deskStyle;
+        if (ds && ds.getGestureSettings) { return ds.getGestureSettings(); }
+        // 兜底: 直接读 localStorage(与麻将同一套 key)
         try {
-            return !!JSON.parse(cc.sys.localStorage.getItem("gesture_multi_select") || "false");
+            return {
+                multiSelect: !!JSON.parse(cc.sys.localStorage.getItem("gesture_multi_select") || "false"),
+                swipeUp: !!JSON.parse(cc.sys.localStorage.getItem("mj_gesture_swipe_up") || "false"),
+                playMode: JSON.parse(cc.sys.localStorage.getItem("mj_play_mode") || '"single"')
+            };
         } catch (e) {
-            return false;
+            return { multiSelect: false, swipeUp: false, playMode: "single" };
         }
     },
 
-    // 绑定设置面板里的"手势多选"开关(控件已固化在场景 settings/gesture_multi_toggle, check子节点为勾选态, 位置在场景里调)
-    _buildGestureToggle: function () {
-        var panel = this._n.settingsPanel;
-        if (!panel) return;
-        var node = panel.getChildByName("gesture_multi_toggle");
-        if (!node) {
-            console.warn("[GP] 场景缺少 settings/gesture_multi_toggle, 手势多选开关不可用(请在场景中补节点)");
-            return;
-        }
-        var self = this;
-        var check = node.getChildByName("check");
-        if (check) check.active = this._isGestureMultiSelect();
-        node.on(cc.Node.EventType.TOUCH_END, function () {
-            var nv = !self._isGestureMultiSelect();
-            try { cc.sys.localStorage.setItem("gesture_multi_select", JSON.stringify(nv)); } catch (e) { }
-            if (check) check.active = nv;
-        });
+    _isGestureMultiSelect: function () {
+        return !!this._getGestureSettings().multiSelect;
+    },
+
+    // 设置面板: 桌面背景切换(背景选择弹窗由 DeskStyle 绑定并换图)
+    onBtnDeskBg: function () {
+        if (cc.vv.deskStyle) cc.vv.deskStyle.openBgChoose();
     },
 
     // 根据世界坐标查找命中的手牌槽
+    // 手牌是叠着摆的(后一张压在前一张上面), 命中要取"最上层"的那张:
+    // 从右往左找, 否则相邻牌的包围盒重叠时, 滑到第二张会命中第一张
     _findSlotAtPos: function (worldPos) {
-        for (var i = 0; i < this._handSlots.length; ++i) {
+        for (var i = this._handSlots.length - 1; i >= 0; --i) {
             var slot = this._handSlots[i];
             if (!slot || !slot.active) continue;
             var box = slot.getBoundingBoxToWorld();
@@ -1401,15 +1627,25 @@ cc.Class({
         }
         if (!this.isMyTurn() || this._over) return;
         var p = e.getLocation();
-        this._gpGestureStart = { x: p.x, y: p.y, slot: slot };
+        this._gpGestureStart = { x: p.x, y: p.y, t: Date.now(), slot: slot };
         this._gpGestureMoved = false;
+        this._gpGesturePlayed = false;
     },
 
     onSlotTouchMove: function (slot, e) {
-        if (!this._gpGestureStart) return;
-        if (!this._isGestureMultiSelect()) return;
+        if (!this._gpGestureStart || this._gpGesturePlayed) return;
+        var gs = this._getGestureSettings();
         var p = e.getLocation();
         var dx = p.x - this._gpGestureStart.x;
+        var dy = p.y - this._gpGestureStart.y;
+        // 上滑出牌: 在手牌上向上滑动直接出牌(设置的阈值与麻将一致)
+        if (gs.swipeUp && dy < -30) {
+            this._playGestureCards(this._gpGestureStart.slot);
+            this._gpGesturePlayed = true;
+            e.stopPropagation();
+            return;
+        }
+        if (!gs.multiSelect) return;
         if (Math.abs(dx) > 8) {
             if (!this._gpGestureMoved) {
                 // 首次检测到滑动: 先选中起始牌
@@ -1436,13 +1672,45 @@ cc.Class({
         }
         var start = this._gpGestureStart;
         this._gpGestureStart = null;
+        if (this._gpGesturePlayed) { return; }
         if (this._gpGestureMoved) {
             // 滑动多选: 保持选中状态, 刷新出牌按钮
             this.updateTurnUI();
             return;
         }
-        // 单击: 切换选中
+        var gs = this._getGestureSettings();
+        var now = Date.now();
+        var isDouble = (this._lastTapSlot === start.slot) && (now - this._lastTapTime < 320);
+        this._lastTapSlot = start.slot;
+        this._lastTapTime = now;
+        if (gs.playMode === "double" && isDouble) {
+            // 双击出牌: 第一次单击只选中, 第二次点同一张牌直接出牌
+            this._playGestureCards(start.slot);
+            return;
+        }
+        // 单击: 切换选中(需要出牌时点"出牌"按钮)
         this.onSlotTouched(start.slot);
+    },
+
+    // 手势出牌: 优先打出已选中的牌; 没有选中时打出该槽位的单张
+    _playGestureCards: function (slot) {
+        if (!this.isMyTurn() || this._over) return;
+        var hasSel = false;
+        var cards = this._cards || [];
+        for (var k in this._selected) {
+            if (!this._selected[k]) continue;
+            //剔除已经不在手里的残留选中(上一轮出掉的牌)
+            if (cards.indexOf(parseInt(k, 10)) < 0) { this._selected[k] = false; continue; }
+            hasSel = true;
+        }
+        if (!hasSel) {
+            if (!slot || slot._cardId == null) return;
+            this._selected = {};
+            this._selected[slot._cardId] = true;
+            this._setSlotY(slot, this._selectUpOffset);
+            this.updateTurnUI();
+        }
+        this.onPlay();
     },
 
     onSlotTouched: function (slot) {
@@ -1461,57 +1729,32 @@ cc.Class({
         this.updateTurnUI(); //选牌/取消选牌后刷新出牌按钮显隐
     },
 
-    //手牌选中弹起/落下动画(仅交互时调用,renderHand 布局重排不经过这里)
-    _setSlotY: function (slot, y) {
+    //手牌选中弹起/落下动画(仅交互时调用; 位置以场景摆放的基准为准, 只叠加抬升量)
+    _setSlotY: function (slot, lift) {
         if (!slot || !cc.isValid(slot)) return;
         cc.Tween.stopAllByTarget(slot);
-        cc.tween(slot).to(0.07, { y: y }, { easing: "quadOut" }).start();
+        cc.tween(slot).to(0.07, { y: (slot._baseY || 0) + (lift || 0) }, { easing: "quadOut" }).start();
     },
 
-    // 炸弹倍数显示: 有炸弹时出牌区上方显示 炸弹×2^N
+    // 炸弹倍数显示: 有炸弹时出牌区上方显示 炸弹×2^N(节点在场景 playArea/bombMulLabel)
     _updateBombMul: function () {
-        var parent = this._n.playArea || this.node;
-        var lab = this._bombMulLabel;
+        var lab = (this._n && this._n.bombMulLabel) ? this._n.bombMulLabel.getComponent(cc.Label) : null;
+        if (!lab) return;
         var cnt = this._bombCount || 0;
         if (cnt <= 0) {
-            if (lab && cc.isValid(lab.node)) lab.node.active = false;
+            lab.node.active = false;
             return;
-        }
-        if (!lab || !cc.isValid(lab.node)) {
-            var n = new cc.Node("bombMulLabel");
-            parent.addChild(n);
-            n.setPosition(0, 110);
-            n.zIndex = 60;
-            lab = n.addComponent(cc.Label);
-            lab.fontSize = 34;
-            n.color = cc.color(255, 200, 60);
-            var ol = n.addComponent(cc.LabelOutline);
-            ol.color = cc.color(120, 30, 10);
-            ol.width = 3;
-            this._bombMulLabel = lab;
         }
         lab.string = "炸弹×" + Math.pow(2, cnt);
         lab.node.active = true;
     },
 
-    // 报单标识: 某座位剩1张牌时在其上方显示脉冲红标
+    // 报单标识: 某座位剩1张牌时在其上方显示脉冲红标(节点在场景 seatInfo/warnBadge)
     _updateWarnBadge: function (root, remainCount) {
         if (!root) return;
         var badge = root.getChildByName("warnBadge");
+        if (!badge) return;
         if (remainCount === 1) {
-            if (!badge) {
-                badge = new cc.Node("warnBadge");
-                root.addChild(badge);
-                badge.setPosition(0, 58);
-                badge.zIndex = 50;
-                var lab = badge.addComponent(cc.Label);
-                lab.string = "报单";
-                lab.fontSize = 32;
-                badge.color = cc.color(255, 60, 60);
-                var ol = badge.addComponent(cc.LabelOutline);
-                ol.color = cc.color(255, 235, 120);
-                ol.width = 3;
-            }
             if (!badge.active) {
                 badge.active = true;
                 badge.scale = 1;
@@ -1522,10 +1765,10 @@ cc.Class({
                             .to(0.45, { scale: 1.0 }, { easing: "sineInOut" })
                     )
                     .start();
-                // 报单瞬间播放报警动画(资源未导入时静默跳过)
-                if (cc.vv.mahjongmgr) cc.vv.mahjongmgr.playSpineEfx(root, "baojing");
+                // 报单瞬间播放报警动画
+                this._spineEfx(root, "baojing");
             }
-        } else if (badge) {
+        } else if (badge.active) {
             cc.Tween.stopAllByTarget(badge);
             badge.active = false;
         }
@@ -1548,23 +1791,27 @@ cc.Class({
             var r = self.rankOf(a) - self.rankOf(b);
             return r != 0 ? r : (self.suitOf(a) - self.suitOf(b));
         });
-        // 手牌始终居中: 间距 60px, N 张时从 -(N-1)/2*60 开始
+        // 手牌位置/间距由场景 handSlot0~15 摆好; 居中靠"用中间的一段槽位"实现, 不改任何节点坐标
         var N = ids.length;
+        var total = this._handSlots.length;
+        var start = Math.floor((total - N) / 2);
+        if (start < 0) start = 0;
         var selfDbg = this;
         var dbg = ids.map(function (cid) {
             var fr = selfDbg.frameOf(cid);
             return cid + '=' + (fr ? fr.name : 'NULL');
         });
-        console.log('[GP] renderHand N=' + N + ' slots=' + this._handSlots.length + ' 牌=' + dbg.join(' | '));
-        for (var i = 0; i < this._handSlots.length; ++i) {
+        console.log('[GP] renderHand N=' + N + ' slots=' + total + ' start=' + start + ' 牌=' + dbg.join(' | '));
+        for (var i = 0; i < total; ++i) {
             var slot = this._handSlots[i];
-            if (i < N) {
-                var id = ids[i];
+            var idx = i - start;
+            if (idx >= 0 && idx < N) {
+                var id = ids[idx];
                 slot._cardId = id;
                 slot.getComponent(cc.Sprite).spriteFrame = this.frameOf(id);
                 slot.active = true;
-                slot.x = (i - (N - 1) / 2) * 60;
-                slot.y = this._selected[id] ? this._selectUpOffset : 0;
+                // 选中态: 场景基准位置 + 上移量; 未选中回到场景基准位置
+                slot.y = (slot._baseY || 0) + (this._selected[id] ? this._selectUpOffset : 0);
             } else {
                 slot._cardId = null;
                 slot.active = false;
@@ -1665,6 +1912,15 @@ cc.Class({
         return "玩家" + (idx + 1);
     },
 
+    //准备提示图(prepareInfo/toprepareInfo)只在进房、正式开局前显示;开局后(含局间准备)保持隐藏
+    _canShowPrepareImg: function () {
+        var nm = cc.vv.gameNetMgr;
+        if (!nm) return false;
+        if (nm.gamestate == "begin") return false;   // 已开局
+        if ((nm.numOfGames || 0) > 0) return false;  // 已打过至少一局
+        return true;
+    },
+
     renderSeats: function () {
         this._cancelDealAnim(); // 座位/对家牌背重绘到来即终止发牌动画并归位
         var nm = cc.vv.gameNetMgr;
@@ -1732,9 +1988,38 @@ cc.Class({
                 this.setStr(v.state, state);
                 v.state.color = (seatIdx == this._turn && playing && !this._over) ? cc.color(255, 230, 90) : cc.color(200, 200, 200);
             }
+            //昵称/积分框(场景里 userSprite 默认关闭): 有人才显示
+            var userSprite = this.findNode(v.root, "userSprite");
+            if (userSprite) userSprite.active = hasUser;
+            //头像: icon 节点上挂 ImageLoader 按 userid 拉真实头像(场景里 icon 只是默认图)
+            var uid = 0;
+            if (playing) {
+                var gsu = gpSeats ? gpSeats[seatIdx] : null;
+                uid = (gsu && gsu.userid) ? gsu.userid : 0;
+            } else {
+                var rsu = roomSeats ? roomSeats[seatIdx] : null;
+                uid = (rsu && rsu.userid > 0) ? rsu.userid : 0;
+            }
+            var iconNode = this.findNode(v.root, "icon");
+            if (iconNode && uid > 0) {
+                var il = iconNode.getComponent("ImageLoader");
+                if (!il) { try { il = iconNode.addComponent("ImageLoader"); } catch (e) { il = null; } }
+                if (il && il.setUserID) il.setUserID(uid);
+            }
             // 报单标识: 剩1张时座位上方脉冲红标
             this._updateWarnBadge(v.root, (playing && gs) ? (gs.count || 0) : -1);
         }
+        //准备提示图只在进房、正式开局前显示;开局后(含局间准备)一律隐藏
+        var oppReady = false;
+        var myId = cc.vv.userMgr ? cc.vv.userMgr.userId : null;
+        if (roomSeats && this._canShowPrepareImg()) {
+            for (var ri = 0; ri < roomSeats.length; ++ri) {
+                var rs2 = roomSeats[ri];
+                if (!rs2 || !(rs2.userid > 0) || !rs2.ready) continue;
+                if (rs2.userid != myId) { oppReady = true; break; }
+            }
+        }
+        if (this._n.toprepareInfo) this._n.toprepareInfo.active = oppReady;
         this.renderOppHands(gpSeats, playing);
         this.updateTurnUI();
     },
@@ -1792,7 +2077,7 @@ cc.Class({
         if (this._n.handArea) this._n.handArea.active = false;
         if (this._n.playArea) this._n.playArea.active = false;
         if (this._n.cardsContainer) this._n.cardsContainer.active = false;
-        if (this._n.countdownLabel) this.setStr(this._n.countdownLabel, "");
+        this.showSeatTimers(false, false, 0);
         if (this._n.playOwnerLabel) this.setStr(this._n.playOwnerLabel, "");
         if (this._n.tipLabel) this.setStr(this._n.tipLabel, "");
     },
@@ -1828,9 +2113,13 @@ cc.Class({
         this._n.playBtn.opacity = 255;
         this._n.playBtn.zIndex = 999; // 确保不被遮挡
         this.setBtnEnabled(this._n.playBtn, hasSel);
-        // 过:轮到自己且非自由出牌时显示
-        this._n.passBtn.active = myTurn && !this._freePlay;
-        if (this._n.passBtn) { this._n.passBtn.opacity = 255; this._n.passBtn.zIndex = 999; }
+        // 过:轮到自己就显示,自由出牌时置灰不可用(与提示一致,不再隐藏)
+        this._n.passBtn.active = myTurn;
+        if (this._n.passBtn) {
+            this._n.passBtn.opacity = 255;
+            this._n.passBtn.zIndex = 999;
+            this.setBtnEnabled(this._n.passBtn, myTurn && !this._freePlay);
+        }
         // 提示:轮到自己就显示(非自由出牌时才有用,自由出牌时也显示但置灰)
         if (this._n.hintBtn) {
             this._n.hintBtn.opacity = 255;
@@ -1919,9 +2208,10 @@ cc.Class({
     },
 
     update: function () {
+        this._tickSettleCountdown(); //小局结算弹窗倒计时(与出牌倒计时互不影响)
         if (this._over || this._deadline <= 0) {
             this.setArrowTime("");
-            if (this._n.countdownLabel) this.setStr(this._n.countdownLabel, "");
+            this.showSeatTimers(false, false, 0);
             return;
         }
         var remain = Math.ceil((this._deadline - Date.now()) / 1000);
@@ -1938,7 +2228,21 @@ cc.Class({
         var s = String(remain);
         if (s.length < 2) s = "0" + s;
         this.setArrowTime(s);
-        this.setStr(this._n.countdownLabel, String(remain)); //倒计时只显示秒数
+        //自家出牌倒计时显示在 myself 头像下, 对家出牌倒计时显示在 up 头像下
+        var mine = (this._turn != null && this._turn === cc.vv.gameNetMgr.gpMySeat);
+        this.showSeatTimers(mine, !mine, remain);
+    },
+
+    //出牌倒计时显隐: 只显示当前出牌那一方(自己走 myself, 对家走 up)
+    showSeatTimers: function (showMine, showOpp, remain) {
+        if (this._n.myTimer) {
+            this._n.myTimer.active = !!showMine;
+            if (showMine) this.setStr(this._n.myTimerLabel, String(remain));
+        }
+        if (this._n.upTimer) {
+            this._n.upTimer.active = !!showOpp;
+            if (showOpp) this.setStr(this._n.upTimerLabel, String(remain));
+        }
     },
 
     showTip: function (msg) {
@@ -1974,17 +2278,19 @@ cc.Class({
 
     // ===== 准备流程 =====
     showPrepare: function () {
+        this._stopSettleCountdown();
         this.restoreSettleBg();
         //准备界面必须干净:手牌/对家牌背/出牌区/倒计时一律清空(准备层与对局层互斥)
         this._clearBoard();
         this._n.readyBtn.active = true;
         this._n.prepareInfo.active = false;
+        if (this._n.toprepareInfo) this._n.toprepareInfo.active = false;
         this._n.handArea.active = false;
         this._n.playArea.active = false;
         this._n.playBtn.active = false;
         this._n.passBtn.active = false;
         if (this._n.hintBtn) this._n.hintBtn.active = false;
-        this.setStr(this._n.countdownLabel, "");
+        this.showSeatTimers(false, false, 0);
         this.setStr(this._n.tipLabel, "等待所有玩家准备后开始");
         if (this._n.historyBtn) this._n.historyBtn.active = false;
         if (this._n.historyPanel) this._n.historyPanel.active = false;
@@ -1994,32 +2300,37 @@ cc.Class({
     onReady: function () {
         cc.vv.net.send("ready");
         this._n.readyBtn.active = false;
-        this._n.prepareInfo.active = true;
-        this.setLabel(this._n.prepareInfo, "已准备，等待其他玩家…");
-        this.setStr(this._n.tipLabel, "已准备，等待其他玩家…");
+        //准备提示是自己准备好后显示的图片,不写文字;只在正式开局前显示
+        this._n.prepareInfo.active = this._canShowPrepareImg();
         this.updateActionBtns();
     },
 
     onUserReady: function (d) {
         if (!d) return;
         this.renderSeats();
-        if (d.userid == cc.vv.userMgr.userId) {
+        var isMe = (d.userid == cc.vv.userMgr.userId);
+        var canShow = this._canShowPrepareImg();
+        //对家准备提示图直接按推送的 ready 显示,不依赖座位表是否已同步
+        if (!isMe && this._n.toprepareInfo) {
+            this._n.toprepareInfo.active = !!d.ready && canShow;
+        }
+        if (isMe) {
             this._n.readyBtn.active = false;
-            this._n.prepareInfo.active = true;
-            this.setLabel(this._n.prepareInfo, "已准备，等待其他玩家…");
+            this._n.prepareInfo.active = canShow;
         }
         this.updateActionBtns();
     },
 
     onSettleAgain: function () {
+        this._stopSettleCountdown();
         if (this._final) {
             cc.vv.net.send("exit");
             return;
         }
         this._n.settlePanel.active = false;
         this._n.readyBtn.active = false;
-        this._n.prepareInfo.active = true;
-        this.setLabel(this._n.prepareInfo, "已准备，等待其他玩家…");
+        this._n.prepareInfo.active = this._canShowPrepareImg();
+        if (this._n.toprepareInfo) this._n.toprepareInfo.active = false;
         this.restoreSettleBg(); // 结算时 prepare 被整体隐藏,收起结算后必须恢复,否则退出/解散按钮永久消失
         this._over = false;
         this.updateActionBtns();
@@ -2028,6 +2339,7 @@ cc.Class({
 
     //单局结算关闭:收起弹窗后才向服务端准备,开始下一局
     onSettleClose: function () {
+        this._stopSettleCountdown();
         if (this._n.settlePanel) this._n.settlePanel.active = false;
         if (this._final) return;
         this.setStr(this._n.tipLabel, "等待其他玩家准备…");
@@ -2054,14 +2366,14 @@ cc.Class({
         if (this._n.hintBtn) this._n.hintBtn.active = false;
         if (this._n.arrow) this._n.arrow.active = false;
         this.setStr(this._n.tipLabel, "");
-        this.setStr(this._n.countdownLabel, "");
+        this.showSeatTimers(false, false, 0);
         // 春天特效: 有玩家被全关时屏幕中央播放(资源未导入时静默跳过)
         var hasChuntian = false;
         for (var ci = 0; ci < results.length; ++ci) {
             if (results[ci].allClosed) { hasChuntian = true; break; }
         }
-        if (hasChuntian && cc.vv.mahjongmgr) {
-            cc.vv.mahjongmgr.playSpineEfx(this.node, "chuntian");
+        if (hasChuntian) {
+            this._spineEfx(this.node, "chuntian");
         }
         //结算输赢音效(按本人本局分数)
         var myDelta = 0;
@@ -2108,15 +2420,121 @@ cc.Class({
             return;
         }
         this.setBlackStr(this._n.settleTitle, "本局结算");
-        this.setBlackStr(this._n.settleContent, lines.join("\n"));
+        //每家一行 + 总分行都是场景 settleContent 下的节点, 这里只填文字
+        if (!this._fillRoundRows(results)) {
+            this.setBlackStr(this._n.settleContent, lines.join("\n")); //兜底:场景里没有行节点时仍用整段文字
+        }
         //结算弹窗保留"准备下一局"按钮:玩家点它(或右上角关闭)后才准备下一局
         if (this._n.settleAgainBtn) this._n.settleAgainBtn.active = true;
         if (this._n.settleExitBtn) this._n.settleExitBtn.active = false;
         if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
         this._n.settlePanel.active = true;
+        //面板顶部 yesSprite/noSprite: 这一小局自己赢了显示 yes, 输了显示 no
+        var mySeatIdx = (nm.gpMySeat != null) ? nm.gpMySeat : nm.seatIndex;
+        var myWin = false;
+        for (var wi = 0; wi < results.length; ++wi) {
+            var wr = results[wi];
+            if (!wr) continue;
+            if (wr.seatindex == mySeatIdx || (wr.userid && wr.userid == cc.vv.userMgr.userId)) {
+                myWin = !!wr.isWinner;
+                break;
+            }
+        }
+        var yesNode = this._n.settlePanel.getChildByName("yesSprite");
+        var noNode = this._n.settlePanel.getChildByName("noSprite");
+        if (yesNode) yesNode.active = myWin;
+        if (noNode) noNode.active = !myWin;
         this._popIn(this._n.settlePanel);
+        this._startSettleCountdown(); //结算弹窗倒计时(默认15秒),超时自动准备下一局
         if (this._n.settleNewBtn) this._n.settleNewBtn.active = true; //关闭按钮必须可见
         this.setStr(this._n.tipLabel, "本局结束");
+    },
+
+    // 小局结算:每家一行(row1~row3)+ 总分行(total)都固化在场景 settleContent 下, 代码只填文字/显隐
+    _fillRoundRows: function (results) {
+        var cont = this._n.settleContent;
+        if (!cont) return false;
+        var row1 = cont.getChildByName("row1");
+        if (!row1) return false;
+        var seats = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.seats) || [];
+        for (var i = 0; i < 3; ++i) {
+            var node = cont.getChildByName("row" + (i + 1));
+            if (!node) continue;
+            var r = results ? results[i] : null;
+            node.active = !!r;
+            if (!r) continue;
+            var nameNode = node.getChildByName("name");
+            if (nameNode) this.setStr(nameNode, r.name || ("玩家" + ((r.seatindex || 0) + 1)));
+            var detail = node.getChildByName("detail");
+            if (detail) {
+                //detail只显示剩余张数,不再带"出完手牌"/"全关×2"等玩家信息
+                var remain = Number(r.remain);
+                if (!(remain >= 0)) remain = 0;
+                this.setStr(detail, "剩" + remain + "张");
+            }
+            var scoreNode = node.getChildByName("score");
+            if (scoreNode) {
+                var d = Number(r.delta) || 0;
+                //文字颜色由场景里 Label 自己决定, 代码只写内容
+                this.setStr(scoreNode, (d > 0 ? "+" + d : "" + d) + "分");
+            }
+            var win = node.getChildByName("win");
+            if (win) win.active = !!r.isWinner;
+            var av = node.getChildByName("avatar");
+            var st = seats[r.seatindex || 0];
+            var uid = (st && st.userid) || r.userid;
+            if (av && uid) {
+                var il = av.getComponent("ImageLoader");
+                if (!il) { try { il = av.addComponent("ImageLoader"); } catch (e) { il = null; } }
+                if (il) il.setUserID(uid);
+            }
+        }
+        var total = cont.getChildByName("total");
+        if (total) {
+            var parts = [];
+            for (var k = 0; results && k < results.length; ++k) {
+                var rr = results[k] || {};
+                parts.push((rr.name || ("玩家" + ((rr.seatindex || 0) + 1))) + " " + (rr.totalscore != null ? rr.totalscore : rr.score));
+            }
+            this.setStr(total, "总分：" + parts.join("   "));
+        }
+        return true;
+    },
+
+    // ===== 小局结算倒计时 =====
+    _startSettleCountdown: function () {
+        var sec = (this.settleCountdown > 0) ? this.settleCountdown : 15;
+        this._stopSettleCountdown(true); //先停掉上一轮的计时,保留文字
+        this._settleDeadline = Date.now() + sec * 1000;
+        this._settleLeft = sec;
+        this.setStr(this._n.settleTime, "" + sec);
+    },
+
+    //由 update 每帧驱动(不依赖 schedule, 弹窗显示期间一定会跳秒)
+    _tickSettleCountdown: function () {
+        if (!this._settleDeadline) return;
+        if (!(this._n.settlePanel && this._n.settlePanel.active)) {
+            //弹窗已收起,停掉计时
+            this._stopSettleCountdown();
+            return;
+        }
+        var left = Math.ceil((this._settleDeadline - Date.now()) / 1000);
+        if (left > 0) {
+            if (left !== this._settleLeft) {
+                this._settleLeft = left;
+                this.setStr(this._n.settleTime, "" + left);
+            }
+            return;
+        }
+        this._stopSettleCountdown();
+        this.onSettleAgain(); //超时自动准备
+    },
+
+    // keepText: 只停计时,保留秒数字样(开始新一轮时用)
+    _stopSettleCountdown: function (keepText) {
+        this._settleDeadline = 0;
+        this._settleLeft = 0;
+        if (!keepText) this.setStr(this._n.settleTime, "");
     },
 
     //结算弹窗弹入动画:从60%缩小+透明回弹到正常大小
@@ -2135,12 +2553,25 @@ cc.Class({
     // 整场结束:关闭单局弹窗,弹出独立的整场结算弹窗(仅"退出房间",不含"准备下一局")
     onGameEnd: function (d) {
         this._final = true;
+        this._stopSettleCountdown();
         var nm = cc.vv.gameNetMgr;
+        //整场结束数据来自 game_end_push.endinfo([{userid,name,score}]), 此时座位表可能已清空
+        var endinfo = (d && d.endinfo && d.endinfo.length) ? d.endinfo : null;
+        this._finalEndinfo = endinfo;
         var totals = [];
-        var seats = nm.seats || [];
-        for (var k = 0; k < seats.length; ++k) {
-            var sd = seats[k];
-            if (sd && sd.userid > 0) totals.push((sd.name || "玩家") + " " + (sd.score > 0 ? "+" + sd.score : sd.score));
+        if (endinfo) {
+            for (var e = 0; e < endinfo.length; ++e) {
+                var ep = endinfo[e] || {};
+                if (!(ep.userid > 0)) continue;
+                var es = Number(ep.score) || 0;
+                totals.push((ep.name || "玩家") + " " + (es > 0 ? "+" + es : es));
+            }
+        } else {
+            var seats0 = nm.seats || [];
+            for (var k0 = 0; k0 < seats0.length; ++k0) {
+                var sd0 = seats0[k0];
+                if (sd0 && sd0.userid > 0) totals.push((sd0.name || "玩家") + " " + (sd0.score > 0 ? "+" + sd0.score : sd0.score));
+            }
         }
         // 最终总分放最前,其后是逐局明细
         var lines = ["最终总分：" + totals.join("   ")];
@@ -2158,7 +2589,7 @@ cc.Class({
         }
         var content = lines.join("\n");
         //整场结算用场景自带的 game_result 弹窗(内容按数据生成),不再新增面板节点
-        if (this._showFinalResult(lines)) {
+        if (this._showFinalResult(lines, endinfo)) {
             if (this._n.settlePanel) this._n.settlePanel.active = false;
             if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
             this.setStr(this._n.tipLabel, "整场结束");
@@ -2190,39 +2621,111 @@ cc.Class({
         this.setStr(this._n.tipLabel, "整场结束");
     },
 
-    // 整场结算:写入场景自带的 game_result 弹窗(内容按行数据生成,黑字居中),返回是否可用
-    _showFinalResult: function (lines) {
+    // 整场结算:复刻麻将的 game_result 面板 —— 每家一张卡片(头像/昵称/ID/总分/大赢家) + 顶部信息条 + 倒计时
+    _showFinalResult: function (lines, list) {
         var root = this._n.gameResult;
         if (root == null) return false;
-        var old = root.getChildByName("resultList");
-        if (old) old.destroy();
-        var maxW = 0;
-        for (var i = 0; i < lines.length; ++i) {
-            var w = 0, str = lines[i] || "";
-            for (var j = 0; j < str.length; ++j) { w += str.charCodeAt(j) > 255 ? 2 : 1; }
-            if (w > maxW) maxW = w;
+        //场景里按 card0/card1... 取玩家卡片(跑得快 2 家)
+        var cards = [];
+        for (var ci = 0; ci < root.childrenCount; ++ci) {
+            var cn = root.children[ci];
+            if (cn && /^card\d+$/.test(cn.name)) cards.push(cn);
         }
-        //同时受面板宽(860)和高(480)限制,避免局数多时超出底图
-        var fs = maxW > 0 ? Math.floor(860 / maxW) : 30;
-        var byH = Math.floor(480 / Math.max(1, lines.length) / 1.3);
-        if (fs > byH) fs = byH;
-        if (fs > 30) fs = 30;
-        if (fs < 14) fs = 14;
-        var node = new cc.Node("resultList");
-        var lb = node.addComponent(cc.Label);
-        lb.string = lines.join("\n");
-        lb.fontSize = fs;
-        lb.lineHeight = fs + 10;
-        lb.enableWrapText = false;
-        lb.overflow = cc.Label.Overflow.NONE;
-        lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-        lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
-        node.color = cc.color(0, 0, 0, 255);
-        node.setPosition(0, 20);
-        root.addChild(node);
+        if (cards.length === 0) return false;
+        var seats = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.seats) || [];
+        //玩家数据优先用 game_end 的 endinfo(整场结束时座位表可能已清空),
+        //其次用座位表里还有 userid 的座位,最后用上次缓存的 endinfo(场景重载后补显示)
+        var players = null;
+        if (list && list.length) {
+            players = [];
+            for (var pi = 0; pi < list.length; ++pi) {
+                if (list[pi] && list[pi].userid > 0) players.push(list[pi]);
+            }
+        }
+        if (!players || players.length === 0) {
+            players = this._finalEndinfo || [];
+            if (players.length === 0) {
+                players = [];
+                for (var si = 0; si < seats.length; ++si) {
+                    if (seats[si] && seats[si].userid > 0) players.push(seats[si]);
+                }
+            }
+        }
+        //大赢家 = 总分最高且为正
+        var maxScore = -Infinity;
+        for (var q = 0; q < players.length; ++q) {
+            var v = players[q] ? (Number(players[q].score) || 0) : 0;
+            if (v > maxScore) maxScore = v;
+        }
+        for (var k = 0; k < cards.length; ++k) {
+            var card = cards[k];
+            var st = players[k];
+            card.active = !!st;
+            if (!st) continue;
+            var sc = Number(st.score) || 0;
+            var isWin = (sc > 0 && sc === maxScore);
+            //卡片背景:赢家用"大赢家",其余按输赢调色
+            var bg = card.getChildByName("bbCardBg");
+            if (bg) {
+                var sp = bg.getComponent(cc.Sprite);
+                if (sp) {
+                    if (!bg._gpBgFrame) bg._gpBgFrame = sp.spriteFrame;
+                    if (this._winBgFrame) sp.spriteFrame = isWin ? this._winBgFrame : bg._gpBgFrame;
+                }
+                bg.color = isWin ? cc.color(255, 255, 255) : (sc > 0 ? cc.color(255, 132, 112) : (sc < 0 ? cc.color(128, 166, 255) : cc.color(235, 235, 235)));
+            }
+            var av = card.getChildByName("bbAvatar");
+            if (av && st.userid) {
+                var il = av.getComponent("ImageLoader");
+                if (!il) { try { il = av.addComponent("ImageLoader"); } catch (e) { il = null; } }
+                if (il && il.setUserID) il.setUserID(st.userid);
+            }
+            this.setStr(card.getChildByName("bbPName"), st.name || "");
+            this.setStr(card.getChildByName("bbPId"), (st.userid != null) ? ("ID:" + st.userid) : "");
+            var sn = card.getChildByName("bbPScore");
+            this.setStr(sn, sc > 0 ? "+" + sc : "" + sc);
+            if (sn) sn.color = sc > 0 ? cc.color(255, 212, 70) : (sc < 0 ? cc.color(92, 232, 160) : cc.color(240, 240, 255));
+            var win = card.getChildByName("bbWinTag");
+            if (win) win.active = isWin;
+        }
+        //顶部信息条:房号 + 玩法 + 时间
+        var bar = root.getChildByName("infoBar");
+        var info = bar ? bar.getChildByName("infoLabel") : null;
+        if (info) {
+            var nm = cc.vv.gameNetMgr || {};
+            var wanfa = (nm.getWanfa ? (nm.getWanfa() || "") : "");
+            var d = new Date();
+            var pad = function (x) { return x < 10 ? ("0" + x) : ("" + x); };
+            this.setStr(info, "房号：" + (nm.roomId || "") + "   " + wanfa + "   " +
+                d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate() + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()));
+        }
         root.active = true;
-        this._popIn(root);
+        this._startResultCountdown();
         return true;
+    },
+
+    // ===== 整场结算倒计时(默认15秒), 归零自动退出房间 =====
+    _startResultCountdown: function () {
+        if (!this._n.resultCountdown) return;
+        var sec = (this.settleCountdown > 0) ? this.settleCountdown : 15;
+        this._stopResultCountdown(true);
+        this._resultDeadline = Date.now() + sec * 1000;
+        this.setStr(this._n.resultCountdown, "" + sec);
+        this.schedule(this._tickResultCountdown, 0.2);
+    },
+
+    _tickResultCountdown: function () {
+        if (!this._resultDeadline) return;
+        var left = Math.ceil((this._resultDeadline - Date.now()) / 1000);
+        if (left > 0) { this.setStr(this._n.resultCountdown, "" + left); return; }
+        this._stopResultCountdown();
+        this.onExit();
+    },
+
+    _stopResultCountdown: function (keepText) {
+        this.unschedule(this._tickResultCountdown);
+        this._resultDeadline = 0;
+        if (!keepText && this._n && this._n.resultCountdown) this.setStr(this._n.resultCountdown, "");
     },
 
     // 结算内容按最长行自动缩字号,避免整场明细超出弹窗
@@ -2260,6 +2763,9 @@ cc.Class({
     // 设置面板：关闭
     onBtnSettingsClose: function () {
         if (this._n.settingsPanel) this._n.settingsPanel.active = false;
+        //背景选择窗是设置面板上的二级弹窗,一起收起
+        var bg = this.findNode(this.node, "bg_choose");
+        if (bg) bg.active = false;
     },
 
     // 设置面板：申请解散房间(与麻将一致,不区分房主)
@@ -2318,6 +2824,7 @@ cc.Class({
             if (btns[k]) btns[k].active = false;
         }
         if (this._n.prepareInfo) this._n.prepareInfo.active = false;
+        if (this._n.toprepareInfo) this._n.toprepareInfo.active = false;
     },
 
     // 新一局/回到准备页时恢复被结算隐藏的元素

@@ -20,6 +20,7 @@ function tintHandCard(node, isCs){
 }
 
 var OpTiles = require("OpTiles");
+var DiceRoll = require("DiceRoll");
 
 cc.Class({
     extends: cc.Component,
@@ -40,9 +41,7 @@ cc.Class({
         _chupaiSprite:[], //出牌数组
         _mjcount:null,
         _gamecount:null,
-        _hupaiTips:[],
         _playEfxs:[],
-        _opts:[], //胡牌自摸数组
         _chiPanel:null, //吃牌组合选择面板
         _chiSelect:null, //吃牌手牌二选状态 {pai,tiles:[]}
         _chiHint:null, //吃牌选牌提示Label节点
@@ -135,17 +134,6 @@ cc.Class({
             var side = cc.vv.mahjongmgr.getSide(i);
             var sideChild = gameChild.getChildByName(side);
             if(sideChild == null){ continue; }
-            this._hupaiTips.push(sideChild.getChildByName("HuPai"));
-
-            //获取胡后显示节点
-            var opt = sideChild.getChildByName("opt");
-            opt.active = false;
-            var sprite = opt.getChildByName("pai").getComponent(cc.Sprite);
-            var data = {
-                node:opt,
-                sprite:sprite
-            };
-            this._opts.push(data);
             this._playEfxs.push(sideChild.getChildByName("play_efx").getComponent(cc.Animation));
             //出牌数组将出牌节点获取进来
             this._chupaiSprite.push(sideChild.getChildByName("ChuPai").children[0].getComponent(cc.Sprite));
@@ -176,6 +164,7 @@ cc.Class({
         }
         this.hideOptions();
         this.hideChupai();
+        this._loadMjEmptyAtlas();
     },
 
     //剩余张数 = 牌墙上还亮着的牌减掉置灰不可摸的死墙(即还能摸几张),由MJRoom刷新牌墙时算好
@@ -248,10 +237,16 @@ cc.Class({
         this.node.on('game_start',function(data){
             self.onGameBeign(true, data && data.detail);
             self.initCaishenTip();
+            //掷色子:色子播完才发牌(补发残局/回放不播)
+            try{
+                if(self._isFreshDeal()){ DiceRoll.play(self.node, function(){ DiceRoll.flushDeal(self); }); }
+            }catch(e){ console.error('[色子] 播放异常:', e); }
         });
 
         this.node.on('game_begin',function(data){
-            self.onGameBeign();
+            //game_begin 紧跟在 game_start 之后,会重新 initMahjongs 并取消 game_start 时的发牌动画,
+            //所以把 here 也标记为开局,让发牌动画在最后一次渲染之后重新播一遍
+            self.onGameBeign(true);
         });
 
         //出牌轮次切换
@@ -294,16 +289,11 @@ cc.Class({
             var data = data.detail;
             var seatIndex = data.si != null ? data.si : data.seatindex;
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
-            var hupai = self._hupaiTips[localIndex];
-            if(hupai){ hupai.active = true; }
-
             if(localIndex == 0){
                 self.hideOptions();
             }
             var seatData = cc.vv.gameNetMgr.seats[seatIndex];
             seatData.hued = true;
-            hupai.getChildByName("sprHu").active = !data.zimo;
-            hupai.getChildByName("sprZimo").active = !!data.zimo;
 
             self.initMopai(seatIndex,data.pai);
             //对家胡牌亮明牌:把上下翻转的牌背(scaleY=-1)翻回正向并显示真实牌面
@@ -342,8 +332,8 @@ cc.Class({
         this.node.on('game_hua',function(data){
             var d = data.detail;
             if(!d){ return; }
-            self.initHuaArea(d.si);
-            self._updateMjCount();
+            self._playHuaHaixiu(d.si); //换牌表情动画(同座位一次换多张只播一次)
+            self.playHuaExchange(d); //换花动画:花牌飞入亮牌区 + 牌墙最后一张飞回手牌位
         });
 
         //漳浦:游金等级通知 {si,level}
@@ -515,15 +505,14 @@ cc.Class({
                     btn.active = true;
                     btn.pai = pai;
                     btn.chipai = chipai || null;
-                    //按钮上方显示可吃组合(每组三张:两张手牌+被吃的牌,缺的手牌用财神补位展示,按顺子排好)
+                    //按钮上方显示可吃组合(每组三张:两张手牌+被吃的牌,按顺子排好)
+                    //注意:直接展示服务端下发的真实组合,不做财神补位(服务端吃牌校验不允许财神参与)
                     var groups = [];
                     if(chipai && chipai.length){
                         for(var ci = 0; ci < chipai.length; ++ci){
                             var c = chipai[ci];
                             if(c && c.length >= 3){
-                                var tiles = OpTiles.build([c[0], c[1]]);
-                                tiles.push(c[2]);
-                                groups.push(tiles.sort(function(m, n){ return m - n; }));
+                                groups.push([c[0], c[1], c[2]].sort(function(m, n){ return m - n; }));
                             }
                         }
                     }
@@ -542,6 +531,9 @@ cc.Class({
     getChiButton:function(opChild){
         var btn = opChild.getChildByName("btnChi");
         if(btn){
+            //场景底图(吃-1.png)本身已带"吃"字, 场景里的 btnLabel 再叠一层会重复, 统一隐藏
+            var lbl = btn.getChildByName("btnLabel");
+            if(lbl){ lbl.active = false; }
             //场景固化的btnChi首用时补挂点击事件,防重复绑定
             if(!btn._chiBound){
                 btn._chiBound = true;
@@ -730,11 +722,6 @@ cc.Class({
     },
     //显示动作
     showAction:function(data){
-        //刚发过吃牌请求又收到带chi的操作推送:服务端判组合不合法,给个可见反馈(否则玩家以为点了没反应)
-        if(data && data.chi && this._chiJustSent){
-            this._chiJustSent = false;
-            OpTiles.toast(this, "这两张不能吃,请重选");
-        }
         if(this._options.active){
             this.hideOptions();
         }
@@ -833,7 +820,26 @@ cc.Class({
         return area;
     },
 
-    //按座位当前 hua 数组重绘花牌区(花牌美术来自 resources/images/MJ/hua,加载中先占位)
+    //花牌真牌面(带牌体): 34-41 → 梅兰竹菊春夏秋冬, 图集里是带牌体的完整牌面
+    //方位对应图集: myself=M_(Z_my)  left=L_(Z_left)  right=R_(Z_right); 对家(up)优先 B_(Z_bottom),
+    //B_ 图集只有部分花牌, 缺的用 M_ 牌面(与对家亮明牌一致, 正立显示)
+    _huaFrame:function(side, idx){
+        var names = ["plum","orchid","bamboo","chrysanthemum","spring","summer","autumn","winter"];
+        var name = names[idx];
+        var mgr = cc.vv.mahjongmgr;
+        if(name == null || mgr == null){ return null; }
+        if(side == "up"){
+            var bAtlas = mgr.bottomFoldAtlas;
+            var bsf = bAtlas ? bAtlas.getSpriteFrame("B_" + name) : null;
+            if(bsf){ return bsf; }
+            return mgr.bottomAtlas ? mgr.bottomAtlas.getSpriteFrame("M_" + name) : null;
+        }
+        var pre = (side == "left") ? "L_" : ((side == "right") ? "R_" : "M_");
+        var atlas = (pre == "L_") ? mgr.leftAtlas : ((pre == "R_") ? mgr.rightAtlas : mgr.bottomAtlas);
+        return atlas ? atlas.getSpriteFrame(pre + name) : null;
+    },
+
+    //按座位当前 hua 数组重绘花牌区(直接用图集里的真花牌, 带牌体)
     initHuaArea:function(seatIndex){
         var seat = cc.vv.gameNetMgr.seats ? cc.vv.gameNetMgr.seats[seatIndex] : null;
         if(seat == null){ return; }
@@ -842,28 +848,46 @@ cc.Class({
         area.removeAllChildren();
         var hua = seat.hua || [];
         if(hua.length == 0){ return; }
-        var TW = 55, TH = 66, GAP = 2;
+        var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
+        var side = cc.vv.mahjongmgr.getSide(localIndex);
+        var TW = 55, TH = 83, GAP = 4, GW = TW + 4, GH = TH + 4;
         for(var i = 0; i < hua.length; ++i){
             var idx = hua[i] - 34;
             var tn = new cc.Node("hua" + i);
-            tn.setContentSize(TW, TH);
-            tn.setPosition(i * (TW + GAP) + TW / 2, 0);
+            tn.setContentSize(GW, GH);
+            tn.setPosition(i * (GW + GAP) + GW / 2, 0);
             area.addChild(tn);
-            var sp = tn.addComponent(cc.Sprite);
+            //金色牌框:整张花牌外圈描金,让亮出的花牌更醒目
+            var gn = new cc.Node("gold");
+            var g = gn.addComponent(cc.Graphics);
+            g.fillColor = cc.color(255, 205, 80);
+            g.strokeColor = cc.color(255, 246, 205);
+            g.lineWidth = 2;
+            g.roundRect(-GW / 2, -GH / 2, GW, GH, 5);
+            g.fill();
+            g.stroke();
+            tn.addChild(gn);
+            var cn = new cc.Node("card");
+            cn.setContentSize(TW, TH);
+            tn.addChild(cn);
+            var sp = cn.addComponent(cc.Sprite);
             sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-            this._fillHuaSprite(tn, sp, idx);
+            //花牌美术是整张牌(已含牌面/牌体), 直接用一张图铺满槽位, 不再叠牌底
+            sp.spriteFrame = this._huaFrame(side, idx); //先占位, 图片加载完成后替换
+            this._fillHuaSprite(cn, sp, idx, side);
         }
     },
 
-    //花牌贴图异步填充;资源缺失时兜底显示牌底+花名
-    _fillHuaSprite:function(node, sprite, idx){
+    //花牌贴图(整张牌一张图);资源缺失时退回图集空白牌体 + 花名文字
+    _fillHuaSprite:function(node, sprite, idx, side){
+        var self = this;
         cc.vv.mahjongmgr.getHuaSpriteFrame(idx, function(sf){
             if(!cc.isValid(node) || !cc.isValid(sprite)){ return; }
             if(sf != null){
                 sprite.spriteFrame = sf;
                 return;
             }
-            sprite.spriteFrame = cc.vv.mahjongmgr.getEmptySpriteFrame("myself");
+            sprite.spriteFrame = self._huaFrame(side, idx);
             var ln = new cc.Node("name");
             node.addChild(ln);
             var lb = ln.addComponent(cc.Label);
@@ -877,6 +901,156 @@ cc.Class({
             ln.color = cc.color(220, 40, 40);
             ln.setPosition(0, 0);
         });
+    },
+
+    //补花提示:翻牌音效 + 新亮出的花牌弹出一下
+    playHuaTip:function(seatIndex){
+        cc.vv.audioMgr.playSFX("fanpai.mp3");
+        var area = this.getHuaArea(seatIndex);
+        if(area == null || area.childrenCount == 0){ return; }
+        var node = area.children[area.childrenCount - 1];
+        if(node == null){ return; }
+        node.stopAllActions();
+        node.opacity = 160;
+        node.scale = 1.45;
+        node.runAction(cc.sequence(
+            cc.fadeIn(0.12),
+            cc.scaleTo(0.14, 1).easing(cc.easeBackOut())
+        ));
+    },
+
+    //底牌(牌背)帧: 优先取麻将管理器的置灰图集, 没绑定时用 resources/images/MJ/mjEmpty 兜底
+    _tileBackFrame:function(side){
+        var sf = null;
+        try{ sf = cc.vv.mahjongmgr.getEmptySpriteFrame(side); }catch(e){ sf = null; }
+        if(sf != null){ return sf; }
+        var atlas = this._mjEmptyAtlas;
+        if(atlas == null){ return null; }
+        var names = { up: "e_mj_b_up", myself: "e_mj_b_bottom", left: "e_mj_b_left", right: "e_mj_b_right" };
+        return atlas.getSpriteFrame(names[side] || "e_mj_b_up");
+    },
+
+    _loadMjEmptyAtlas:function(){
+        if(this._mjEmptyAtlas != null || this._mjEmptyLoading){ return; }
+        this._mjEmptyLoading = true;
+        var self = this;
+        cc.resources.load("images/MJ/mjEmpty", cc.SpriteAtlas, function(err, atlas){
+            self._mjEmptyLoading = false;
+            if(!err && atlas != null){ self._mjEmptyAtlas = atlas; }
+        });
+    },
+
+    //换牌表情动画(害羞贴图):一个玩家一次补多张花只播一次(同座位1.6秒内的后续补花不再重复播)
+    _playHuaHaixiu:function(seatIndex){
+        if(!this._haixiuUntil){ this._haixiuUntil = {}; }
+        var now = Date.now();
+        var key = (seatIndex == null) ? -1 : seatIndex;
+        if(this._haixiuUntil[key] && now < this._haixiuUntil[key]){ return; }
+        this._haixiuUntil[key] = now + 2400;
+        var self = this;
+        var play = function(sf){
+            if(!sf || !cc.isValid(self.node)){ return; }
+            var n = new cc.Node("huaHaixiu");
+            var sp = n.addComponent(cc.Sprite);
+            sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+            sp.spriteFrame = sf;
+            var rect = sf.getRect();
+            var w = 300;
+            var h = Math.round(w * rect.height / rect.width);
+            n.setContentSize(w, h);
+            n.setPosition(0, 120);
+            n.scale = 0.4;
+            n.opacity = 0;
+            self.node.addChild(n);
+            n.setSiblingIndex(self.node.childrenCount - 1);
+            cc.tween(n)
+                .to(0.35, { scale: 1.1, opacity: 255 }, { easing: 'backOut' })
+                .to(0.15, { scale: 1.0 })
+                .delay(1.0)
+                .to(0.35, { opacity: 0, position: cc.v3(0, 160, 0) })
+                .call(function(){ if(cc.isValid(n)){ n.destroy(); } })
+                .start();
+        };
+        if(this._haixiuFrame){ play(this._haixiuFrame); return; }
+        cc.resources.load("images/MJ/hua/haixiu", cc.SpriteFrame, function(err, sf){
+            if(err || !sf){ return; }
+            self._haixiuFrame = sf;
+            play(sf);
+        });
+    },
+
+    //补花换牌动画: 花牌从手牌位飞进亮牌区, 牌墙最后一张同时飞回手牌位; 结束时同步花牌区与牌墙张数
+    playHuaExchange:function(d){
+        var gameChild = this.node.getChildByName("game");
+        if(gameChild == null || d == null){ return; }
+        var self = this;
+        var seatIndex = d.si;
+        var localIndex = cc.vv.gameNetMgr.getLocalIndex(seatIndex);
+        var side = cc.vv.mahjongmgr.getSide(localIndex);
+        var sideNode = gameChild.getChildByName(side);
+        var holds = sideNode ? sideNode.getChildByName("holds") : null;
+        var handPos = holds ? cc.v2(holds.x, holds.y) : cc.v2(0, 0);
+        //换牌动画终点: 亮牌区里"下一张花牌"的槽位(按 initHuaArea 的排版公式算, 当前children数即新花牌下标)
+        var area = this.getHuaArea(seatIndex);
+        var areaPos = area ? cc.v2(area.x, area.y) : cc.v2(0, 0);
+        var endPos = areaPos;
+        if(area != null){
+            var idx = area.childrenCount;
+            endPos = cc.v2(area.x + idx * 63 + 29.5, area.y);
+        }
+        //换牌动画起点: 牌墙最末端
+        var room = this.getComponent("MJRoom");
+        var tailNode = room ? room.getBrickTailNode() : null;
+        var tailPos = null;
+        if(tailNode != null && tailNode.parent != null){
+            var wp = tailNode.parent.convertToWorldSpaceAR(cc.v2(tailNode.x, tailNode.y));
+            tailPos = gameChild.convertToNodeSpaceAR(wp);
+        }
+        //1)花牌(图集真牌面, 自带牌体)从手牌位飞入亮牌区, 放慢并留出停顿, 让人看清"补到的是哪张花"
+        var hIdx = (d.pai != null) ? (d.pai - 34) : -1;
+        var fx = new cc.Node("huaFx");
+        var bsp = fx.addComponent(cc.Sprite);
+        bsp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+        fx.setContentSize(55, 83);
+        var huaFrame = this._huaFrame(side, hIdx);
+        if(huaFrame != null){ bsp.spriteFrame = huaFrame; }
+        //整张花牌一张图:加载完成后直接替换
+        this._fillHuaSprite(fx, bsp, hIdx, side);
+        fx.setPosition(handPos.x, handPos.y);
+        fx.scale = 0.9;
+        gameChild.addChild(fx);
+        //2)牌墙最后一张飞回手牌位:排在花牌落位之后播, 两段各自看得清
+        var flyBack = function(){
+            if(tailPos == null){
+                self._updateMjCount();
+                return;
+            }
+            var back = self._tileBackFrame(side);
+            var fly = new cc.Node("huaDraw");
+            var dsp = fly.addComponent(cc.Sprite);
+            dsp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+            fly.setContentSize(55, 83);
+            fly.setPosition(tailPos.x, tailPos.y);
+            if(back != null){ dsp.spriteFrame = back; }
+            gameChild.addChild(fly);
+            cc.tween(fly)
+                .to(0.85, { position: cc.v3(handPos.x, handPos.y, 0) }, { easing: 'quadInOut' })
+                .call(function(){
+                    if(cc.isValid(fly)){ fly.destroy(); }
+                    self._updateMjCount();
+                })
+                .start();
+        };
+        cc.tween(fx)
+            .to(0.9, { position: cc.v3(endPos.x, endPos.y, 0), scale: 1.05 }, { easing: 'quadOut' })
+            .call(function(){
+                if(cc.isValid(fx)){ fx.destroy(); }
+                self.initHuaArea(seatIndex);
+                self.playHuaTip(seatIndex);
+            })
+            .delay(0.35)
+            .call(flyBack)
+            .start();
     },
 
     //开局/重连时全量重绘所有座位花牌区与游金等级
@@ -1029,20 +1203,6 @@ cc.Class({
             if(this._playEfxs[i] && this._playEfxs[i].node){ this._playEfxs[i].node.active = false; }
         }
 
-        if(cc.vv.gameNetMgr.seats){ //无房间数据时跳过,避免null.length崩溃
-        for(var i = 0; i < cc.vv.gameNetMgr.seats.length; ++i){
-            var seatData = cc.vv.gameNetMgr.seats[i];
-            var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
-            var hupai = this._hupaiTips[localIndex];
-            if(hupai){ hupai.active = seatData.hued;
-                if(seatData.hued){
-                    hupai.getChildByName("sprHu").active = !seatData.iszimo;
-                    hupai.getChildByName("sprZimo").active = seatData.iszimo;
-                }
-            }
-        }
-        }
-
         this.hideChupai();
         this.hideOptions();
         var gameChild = this.node.getChildByName("game");
@@ -1100,12 +1260,48 @@ cc.Class({
         }
         //开局首次发牌:手牌从牌墙依次飞出(仅game_start触发且本局无任何弃牌/副露/补花;断线重连保持瞬间渲染)
         if(fromGameStart && this._isFreshDeal()){
-            this._playDealAnim();
+            DiceRoll.deferDeal(this);   //色子播完再发牌
+            //开局补花:发牌动画结束后花牌依次弹出,补上"补花换牌"的过程感
+            this._huaPopId = (this._huaPopId || 0) + 1;
+            var popId = this._huaPopId;
+            var selfPop = this;
+            this.scheduleOnce(function(){
+                if(selfPop._huaPopId == popId){ selfPop._popInitialHua(); }
+            }, 3.25);   //色子约2.15s + 发牌1.1s
         }
+        //开局动画还没开始(色子滚动中):game_begin 等重绘会把手牌重新显示出来,这里重新隐藏,避免先亮牌再播动画
+        if(this._dealPending){ DiceRoll.hideHands(this); DiceRoll.setOpeningVisible(this, false); }
+    },
+
+    //开局补花提示:每个花牌按顺序弹出(与 playHuaTip 同款动效,音效只播一次)
+    _popInitialHua:function(){
+        //开局一次性补多张花:整批只播一次换牌表情动画
+        this._playHuaHaixiu(-1);
+        var seats = cc.vv.gameNetMgr.seats || [];
+        var played = 0;
+        for(var i = 0; i < seats.length; ++i){
+            var area = this.getHuaArea(i);
+            if(area == null || area.childrenCount == 0){ continue; }
+            for(var k = 0; k < area.childrenCount; ++k){
+                var n = area.children[k];
+                if(n == null){ continue; }
+                n.stopAllActions();
+                n.opacity = 0;
+                n.scale = 0.6;
+                n.runAction(cc.sequence(
+                    cc.delayTime(k * 0.22),
+                    cc.fadeIn(0.22),
+                    cc.scaleTo(0.28, 1).easing(cc.easeBackOut())
+                ));
+                played++;
+            }
+        }
+        if(played > 0){ cc.vv.audioMgr.playSFX("fanpai.mp3"); }
     },
 
     // ===== 开局发牌动画：手牌从牌墙依次飞出（仅开局首次发牌触发） =====
-    //是否本局首次发牌:全场无弃牌/无吃碰杠/无人补花,且非回放。断线重连局已进行时返回false,保持瞬间渲染
+    //是否本局首次发牌:全场无弃牌/无吃碰杠,且非回放。断线重连局已进行时返回false,保持瞬间渲染
+    //(漳浦发完牌就补花,开局势位一进场就有hua,所以不能用花牌判断)
     _isFreshDeal:function(){
         if(cc.vv.replayMgr && cc.vv.replayMgr.isReplay()){ return false; }
         var seats = cc.vv.gameNetMgr ? cc.vv.gameNetMgr.seats : null;
@@ -1119,7 +1315,7 @@ cc.Class({
             if(s.angangs instanceof Array && s.angangs.length > 0){ return false; }
             if(s.diangangs instanceof Array && s.diangangs.length > 0){ return false; }
             if(s.wangangs instanceof Array && s.wangangs.length > 0){ return false; }
-            if(s.hua instanceof Array && s.hua.length > 0){ return false; }
+            //注意:漳浦发完牌就补花,座位一开局就有hua,不能用hua判断"局已进行",否则发牌动画永远不播
         }
         return true;
     },
@@ -1535,7 +1731,14 @@ cc.Class({
         else if(pai >= 0){
             nc.active = true;
             var sprite = nc.getComponent(cc.Sprite);
-            sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,pai);
+            if(pai >= 34 && pai <= 41){
+                //花牌(34-41)不在普通牌名表里: 用整张花牌图, 否则摸到花牌时牌槽是空白
+                sprite.spriteFrame = this._huaFrame(side, pai - 34);
+                this._fillHuaSprite(nc, sprite, pai - 34, side);
+            }
+            else{
+                sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID(pre,pai);
+            }
             //自己的摸牌若为财神同样金色区分
             if(localIndex == 0){
                 var conf = cc.vv.gameNetMgr.conf || {};
@@ -1936,47 +2139,39 @@ cc.Class({
             cc.vv.net.send("gang", t.targetPai);
         }
         else if(t.paiList){
-            //吃:组合按顺子面值展示,缺失面值需换成手中真实财神牌再发(服务端校验真实牌/财神)
-            var target = t.targetPai;
-            var send = [];
-            var sd = cc.vv.gameNetMgr.getSelfData();
-            var holds = (sd && sd.holds) ? sd.holds : [];
-            var conf = cc.vv.gameNetMgr.conf || {};
-            var cs = conf.caishen, cs2 = conf.caishen2;
-            for(var k = 0; k < t.paiList.length; ++k){
-                var f = t.paiList[k];
-                if(f == target){ continue; }
-                if(f != cs && f != cs2 && holds.indexOf(f) != -1){
-                    send.push(f);
-                }
-                else if(cs >= 0 && holds.indexOf(cs) != -1){
-                    send.push(cs);
-                }
-                else if(cs2 != null && cs2 >= 0 && holds.indexOf(cs2) != -1){
-                    send.push(cs2);
-                }
-            }
-            send.push(target);
-            if(send.length == 3){
-                cc.vv.net.send("chi", send);
-            }
+            //吃:直接发服务端下发的组合(财神不能参与吃)
+            this._sendChi(t.paiList);
+            return;
         }
         this.hideChiPanel();
         this.hideOptions();
     },
 
-    //发吃牌请求:带2秒无响应超时反馈(服务端校验失败会重推操作栏,超时则静默)
+    //发吃牌请求:服务端三张都校验为手中真实牌且不含财神, 直接按顺子发原组合
     _sendChi:function(combo){
-        this._chiJustSent = true;
-        var self = this;
-        this.scheduleOnce(function(){
-            if(self._chiJustSent){
-                self._chiJustSent = false;
-                OpTiles.toast(self, "吃牌超时,下次手快一点");
-            }
-        }, 2.0);
-        cc.vv.net.send("chi", combo.slice());
+        if(!combo || combo.length < 3){ this.hideOptions(); return; }
+        //服务端校验:三张都要是手中真实牌且不含财神, 所以直接把服务端下发的组合按顺子发出去,不做任何替换
+        var send = combo.slice().sort(function(a, b){ return a - b; });
+        cc.vv.net.send("chi", send);
         this.hideOptions();
+    },
+
+    //点"吃"按钮:只有一组时直接吃, 多组时弹出组合选择面板
+    _onChiButton:function(btn){
+        var combos = (btn && btn.chipai) ? btn.chipai : [];
+        if(!combos.length){ return; }
+        if(combos.length == 1){
+            this._sendChi(combos[0]);
+            return;
+        }
+        var list = [];
+        for(var i = 0; i < combos.length; ++i){
+            var c = combos[i];
+            if(!c || c.length < 3){ continue; }
+            list.push({ pais: c.slice().sort(function(a, b){ return a - b; }), type: "chi", pai: btn.pai });
+        }
+        if(!list.length){ return; }
+        this.showChiPanel(list);
     },
 
     //碰杠过胡 点击事件
@@ -1985,7 +2180,8 @@ cc.Class({
         if(btn == null){ return; }
         var name = btn.name;
         if(name == "btnChi"){
-            //吃按钮仅作展示,不响应点击:只能点按钮上方的组合牌吃
+            //直接点"吃"按钮也要能吃:单组直接吃,多组弹组合面板
+            this._onChiButton(btn);
             return;
         }
         this.cancelChiSelect();

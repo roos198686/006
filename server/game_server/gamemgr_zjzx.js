@@ -126,11 +126,19 @@ function fanCaishen(game){
     game.mahjongs.push(fanPai);
 }
 
-function mopai(game, seatIndex) {
-    if(game.currentIndex >= game.mahjongs.length) return -1;
+function mopai(game, seatIndex, fromTail) {
     var data = game.gameSeats[seatIndex];
-    var pai = game.mahjongs[game.currentIndex];
-    game.currentIndex++;
+    if(game.tailIndex == null) game.tailIndex = game.mahjongs.length;
+    var pai;
+    if(fromTail){
+        //杠后补牌从牌墙末尾取
+        if(game.tailIndex <= game.currentIndex) return -1;
+        pai = game.mahjongs[--game.tailIndex];
+    }
+    else{
+        if(game.currentIndex >= game.tailIndex) return -1;
+        pai = game.mahjongs[game.currentIndex++];
+    }
     data.holds.push(pai);
     data.countMap[pai] = (data.countMap[pai] || 0) + 1;
     return pai;
@@ -138,6 +146,7 @@ function mopai(game, seatIndex) {
 
 function deal(game){
     game.currentIndex = 0;
+    game.tailIndex = game.mahjongs.length; //墙尾指针:杠后补牌从牌尾摸
     game.caishen = -1;
     game.caishen2 = -1;
     game.caishenMode = -1; //重置自选财神模式
@@ -597,6 +606,13 @@ function scheduleTurnTimeout(game, seatIndex, isAction){
         var sd = game.gameSeats[seatIndex];
         if(!sd || sd.userId <= 0) return;
         if(isAction){
+            //自选财神弹窗超时:按最高台方案自动胡牌(不记漏胡)
+            if(sd.selectingCaishen && sd.pendingPlans && sd.pendingPlans.length > 0){
+                var bestPl = sd.pendingPlans[0];
+                console.log("[托管] 财神方案选择超时自动胡牌 userId=", sd.userId, "mode=", bestPl.mode);
+                exports.hu(sd.userId, {c1: bestPl.c1, c2: bestPl.c2, mode: bestPl.mode});
+                return;
+            }
             if(hasOperations(sd)){
                 console.log("[托管] 操作超时自动过 userId=", sd.userId);
                 exports.guo(sd.userId);
@@ -935,12 +951,13 @@ function doUserMoPai(game){
     // 摸牌前先计算听牌表（此时 holds=13），摸牌后直接 checkCanHu 判断自摸
     rebuildCountMap(turnSeat);
     checkTingPai(turnSeat, game.caishen, game.caishen2);
-    // 牌墙剩余<=不可摸张数(后台liuju_left+每杠gang_liuju*杠数)时荒庄（流局）
-    if(game.mahjongs.length - game.currentIndex <= mjwall.deadLimit(game)){
+    // 普通摸牌剩余<=不可摸张数(后台liuju_left+每杠gang_liuju*杠数)时荒庄(流局);杠后补牌仍从置灰区最尾摸一张
+    if(game.gangBuPai !== true && (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex <= mjwall.deadLimit(game)){
         doGameOver(game);
         return;
     }
-    var pai = mopai(game, game.turn);
+    var pai = mopai(game, game.turn, game.gangBuPai === true);
+    game.gangBuPai = false;
     if(pai == -1){
         doGameOver(game);
         return;
@@ -966,7 +983,7 @@ function doUserMoPai(game){
 
     // 逐个发送，摸牌者收到真实手牌和牌，其他人只收到数量
     var roomId = roomMgr.getRoomIdOfUser(turnSeat.userId);
-    var numofmj = game.mahjongs.length - game.currentIndex;
+    var numofmj = (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex;
     for(var i = 0; i < 2; ++i){
         var sd = game.gameSeats[i];
         var isTurn = (i === game.turn);
@@ -1415,6 +1432,7 @@ exports.gang = function(userId, pai){
 
     // 标记杠上开花
     seatData.lastGangHua = true;
+    game.gangBuPai = true; //杠后补牌从牌尾摸
 
     game.turn = seatIndex;
 
@@ -1775,6 +1793,7 @@ exports.guo = function(userId){
                 game.qiangGangContext = null;
                 doWanGang(game, gangSd, ctxQG.pai);
                 gangSd.lastGangHua = true;
+                game.gangBuPai = true; //杠后补牌从牌尾摸
                 game.turn = ctxQG.gangSeatIndex;
                 // 逐个推送
                 var roomIdQG = roomMgr.getRoomIdOfUser(gangSd.userId);
@@ -2448,7 +2467,7 @@ exports.start = function(roomInfo){
         liuju_left: mjwall.liujuLeft(game),
         gang_liuju: mjwall.gangLiuju(game),
         hu_delay: getHuDelay(game),
-        numofmj: game.mahjongs.length - game.currentIndex,
+        numofmj: (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex,
         seats: []
     };
     for(var i = 0; i < 2; ++i){
@@ -2531,7 +2550,7 @@ exports.resendGameState = function(roomId, userId){
         liuju_left: mjwall.liujuLeft(game),
         gang_liuju: mjwall.gangLiuju(game),
         hu_delay: getHuDelay(game),
-        numofmj: game.mahjongs.length - game.currentIndex,
+        numofmj: (game.tailIndex != null ? game.tailIndex : game.mahjongs.length) - game.currentIndex,
         seats: []
     };
     for(var i = 0; i < 2; ++i){

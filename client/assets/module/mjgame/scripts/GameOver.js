@@ -1,4 +1,4 @@
-cc.Class({
+﻿﻿﻿﻿cc.Class({
     extends: cc.Component,
 
     properties: {
@@ -158,6 +158,8 @@ cc.Class({
         //新一局结算开始:复位关闭标记,保证本局整场结算仍要等小局弹窗关闭
         this._roundSettleClosed = false;
         this._pendingGameEnd = false;
+        //庄位要在 GameNetMgr.reset() 之前记下来:延时弹窗时 button 已经被清成 -1
+        this._roundButton = cc.vv.gameNetMgr ? cc.vv.gameNetMgr.button : -1;
         var delay = this._getHuDelay();
         console.log('[GameOver] 收到小局结算, hu_delay=' + delay + ', rows=' + (data ? data.length : 0));
         if(delay > 0){
@@ -769,26 +771,40 @@ cc.Class({
             if(seatView && seatView.username && seatView.username.node && seatView.username.node.parent){
                 seatView.username.node.parent.active = (i < rowCount);
             }
-            if(i >= rowCount || !seatView || !seatView.hupai || !userData || !userData.huinfo){ continue; }
+            if(i >= rowCount || !seatView || !userData){ continue; }
             var hued = false;
             var actionArr = [];
             var is7pairs = false;
             var ischadajiao = false;
+            //玩家基础信息不依赖胡牌数据:没胡/流局的玩家也必须填名字、分数、庄、头像,
+            //不能因为缺少 huinfo 就跳过整行,那样这一行会停留在场景默认内容
+            var seatInfo = cc.vv.gameNetMgr.seats ? cc.vv.gameNetMgr.seats[i] : null;
+            if(seatView.username){ seatView.username.string = (seatInfo && seatInfo.name) || userData.name || ""; }
+            if(seatView.zhuang){ seatView.zhuang.active = ((this._roundButton != null ? this._roundButton : -1) == i); }
+            if(seatView.score){ seatView.score.string = (userData.score > 0) ? ("+" + userData.score) : ("" + (userData.score || 0)); }
+            if(seatView.hu){ seatView.hu.active = false; }
+            this.setAvatar(seatView.avatar, userData.userid);
+
             var hupaiRoot = seatView.hupai;
-            
-            for(var j = 0; j < hupaiRoot.children.length; ++j){
-                hupaiRoot.children[j].active = false;
+            var huinfo = userData.huinfo || [];
+            //每一行单独兜底:某一行数据/节点异常不能中断循环,否则后面的玩家行会停留在场景默认内容
+            try{
+            if(hupaiRoot){
+                for(var j = 0; j < hupaiRoot.children.length; ++j){
+                    hupaiRoot.children[j].active = false;
+                }
             }
             
             var hi = 0;
-            for(var j = 0; j < userData.huinfo.length; ++j){
-                var info = userData.huinfo[j];
+            for(var j = 0; j < huinfo.length; ++j){
+                var info = huinfo[j];
                 hued = hued || info.ishupai;
                 if(info.ishupai){
-                    if(hi < hupaiRoot.children.length){
+                    if(hupaiRoot && hi < hupaiRoot.children.length){
                         var hupaiView = hupaiRoot.children[hi]; 
                         hupaiView.active = true;
-                        hupaiView.getComponent(cc.Sprite).spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID("B_",info.pai);
+                        //胡牌展示用和手牌一致的 M_ 牌面,避免与手牌字号不一致(最后一张显得过大)
+                        hupaiView.getComponent(cc.Sprite).spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID("M_",info.pai);
                         hi++;   
                     }
                 }
@@ -811,10 +827,18 @@ cc.Class({
                         str = "被查大叫";
                     }
                     
-                    dataseat = data[info.target];
+                    //服务端 fangpaoInfo.target 存的是放炮者的 userId(不是数组下标),
+                    //直接 data[info.target] 会取不到数据,后面访问字段抛错导致该行碰/杠/吃不渲染
+                    dataseat = null;
+                    for(var di = 0; di < data.length; ++di){
+                        if(data[di] && data[di].userid == info.target){ dataseat = data[di]; break; }
+                    }
+                    if(dataseat == null && data[info.target]){ dataseat = data[info.target]; }
                     var tinfo = (dataseat && dataseat.huinfo) ? dataseat.huinfo[info.index] : null;
                     if(tinfo == null){ continue; }
-                    info = tinfo;
+                    //输家只显示"放炮/杠上炮/被抢杠"和自己的番数,不再重复胡家的牌型(平胡/清一色等)
+                    actionArr.push(str + "(" + (tinfo.fan || 0) + "番)");
+                    continue;
                 }
                 else{
                     if(info.action == "hu"){
@@ -841,6 +865,7 @@ cc.Class({
                 }
                 
                 str += "(";
+                var headStr = str;
                 
                 if(info.pattern == "7pairs"){
                     str += "七对";
@@ -878,22 +903,22 @@ cc.Class({
                     sep = "、";
                 }
                 
-                if(dataseat.qingyise){
+                if(dataseat && dataseat.qingyise){
                     str += sep + "清一色";
                     sep = "、";
                 }
                 
-                if(dataseat.menqing){
+                if(dataseat && dataseat.menqing){
                     str += sep + "门清";
                     sep = "、";
                 }
                 
-                if(dataseat.jingouhu){
+                if(dataseat && dataseat.jingouhu){
                     str += sep + "金钩胡";
                     sep = "、";
                 }
                          
-                if(dataseat.zhongzhang){
+                if(dataseat && dataseat.zhongzhang){
                     str += sep + "中张";
                     sep = "、";
                 }
@@ -903,62 +928,73 @@ cc.Class({
                     sep = "、"; 
                 }
                 
-                if(sep == ""){
-                    str += "平胡";
+                if(info.tailog && info.tailog.length){
+                    //服务端 tailog 已包含台数来源明细,直接展示,避免与客户端牌型标签重复
+                    str = headStr + info.fan + "番：" + info.tailog.join("、") + ")";
                 }
-                
-                str += "、" + info.fan + "番";
-                
-                str += ")";
+                else{
+                    if(sep == ""){
+                        str += "平胡";
+                    }
+                    str += "、" + info.fan + "番)";
+                }
                 actionArr.push(str);
             }
             
-            seatView.hu.active = hued;
+            if(seatView.hu){ seatView.hu.active = hued; }
+
+            var angangs = userData.angangs || [];
+            var diangangs = userData.diangangs || [];
+            var wangangs = userData.wangangs || [];
+            var pengs0 = userData.pengs || [];
+            var chis0 = userData.chis || [];
+            var holds = userData.holds || [];
             
-            if(userData.angangs.length){
-                actionArr.push("暗杠x" + userData.angangs.length);
+            if(angangs.length){
+                actionArr.push("暗杠x" + angangs.length);
             }
             
-            if(userData.diangangs.length){
-                actionArr.push("明杠x" + userData.diangangs.length);
+            if(diangangs.length){
+                actionArr.push("明杠x" + diangangs.length);
             }
             
-            if(userData.wangangs.length){
-                actionArr.push("巴杠x" + userData.wangangs.length);
+            if(wangangs.length){
+                actionArr.push("巴杠x" + wangangs.length);
             }
 
-            seatView.username.string = cc.vv.gameNetMgr.seats[i].name;
-            seatView.zhuang.active = cc.vv.gameNetMgr.button == i;
-            seatView.reason.string = actionArr.join("、");
-            
-            //
-            if(userData.score > 0){
-                seatView.score.string = "+" + userData.score;    
+            //胡牌时显示本局摸到的花牌数量
+            var huaArr = userData.hua || [];
+            if(hued && huaArr.length){
+                actionArr.push("花x" + huaArr.length);
             }
-            else{
-                seatView.score.string = userData.score;
-            }
+
+            if(seatView.reason){ seatView.reason.string = actionArr.join("、"); }
            
             //隐藏所有牌
-            for(var k = 0; k < seatView.mahjongs.childrenCount; ++k){
-                var n = seatView.mahjongs.children[k];
-                n.active = false;
+            var piaoRoot = seatView.mahjongs;
+            if(piaoRoot){
+                for(var k = 0; k < piaoRoot.childrenCount; ++k){
+                    var n = piaoRoot.children[k];
+                    n.active = false;
+                }
             }
             
-            cc.vv.mahjongmgr.sortMJ(userData.holds,userData.dingque);
+            cc.vv.mahjongmgr.sortMJ(holds,userData.dingque);
             
-            var numOfGangs = userData.angangs.length + userData.wangangs.length + userData.diangangs.length;
+            var numOfGangs = angangs.length + wangangs.length + diangangs.length;
            
-            var lackingNum = (userData.pengs.length + numOfGangs)*3; 
+            var lackingNum = (pengs0.length + numOfGangs + chis0.length)*3; 
             //显示相关的牌
-            for(var k = 0; k < userData.holds.length; ++k){
-                var pai = userData.holds[k];
-                var n = seatView.mahjongs.children[k + lackingNum];
+            for(var k = 0; piaoRoot && k < holds.length; ++k){
+                var pai = holds[k];
+                var n = piaoRoot.children[k + lackingNum];
+                if(n == null){ continue; }
                 n.active = true;
                 var sprite = n.getComponent(cc.Sprite);
                 sprite.spriteFrame = cc.vv.mahjongmgr.getSpriteFrameByMJID("M_",pai);
             }
             
+
             
             for(var k = 0; k < seatView._pengandgang.length; ++k){
                 seatView._pengandgang[k].active = false;
@@ -966,35 +1002,37 @@ cc.Class({
             
             //初始化杠牌
             var index = 0;
-            var gangs = userData.angangs;
-            for(var k = 0; k < gangs.length; ++k){
-                var mjid = gangs[k];
-                this.initPengAndGangs(seatView,index,mjid,"angang");
-                index++;    
+            for(var k = 0; k < angangs.length; ++k){
+                this.initPengAndGangs(seatView,index,angangs[k],"angang");
+                index++;
             }
             
-            var gangs = userData.diangangs;
-            for(var k = 0; k < gangs.length; ++k){
-                var mjid = gangs[k];
-                this.initPengAndGangs(seatView,index,mjid,"diangang");
-                index++;    
+            for(var k = 0; k < diangangs.length; ++k){
+                this.initPengAndGangs(seatView,index,diangangs[k],"diangang");
+                index++;
             }
             
-            var gangs = userData.wangangs;
-            for(var k = 0; k < gangs.length; ++k){
-                var mjid = gangs[k];
-                this.initPengAndGangs(seatView,index,mjid,"wangang");
-                index++;    
+            for(var k = 0; k < wangangs.length; ++k){
+                this.initPengAndGangs(seatView,index,wangangs[k],"wangang");
+                index++;
             }
             
             //初始化碰牌
-            var pengs = userData.pengs
-            if(pengs){
-                for(var k = 0; k < pengs.length; ++k){
-                    var mjid = pengs[k];
-                    this.initPengAndGangs(seatView,index,mjid,"peng");
-                    index++;    
-                }    
+            for(var k = 0; k < pengs0.length; ++k){
+                this.initPengAndGangs(seatView,index,pengs0[k],"peng");
+                index++;
+            }
+
+            //初始化吃牌(chis为二维数组,每组3张平铺显示)
+            for(var k = 0; k < chis0.length; ++k){
+                var chiArr = chis0[k];
+                if(chiArr && chiArr.length > 0){
+                    this.initChisGroup(seatView,index,chiArr);
+                    index++;
+                }
+            }
+            }catch(e){
+                console.error('[GameOver] 第' + (i + 1) + '行结算填充异常:', (e && e.stack) ? e.stack : e);
             }
         }
         //小局结算倒计时(最后一局也走,到0关闭弹窗再弹整场结算)

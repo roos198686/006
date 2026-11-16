@@ -1726,9 +1726,19 @@ cc.Class({
             }
         }
         //点击进桌(拖动滚动时不触发)
+        //必须真的在本卡片上按下过才算点击:切场景(如解散房间回俱乐部)时系统可能补发一次 TOUCH_END,
+        //没有按下就进桌会被当成"刚解散又自动建房",牌桌座位一直显示占着
+        card.on(cc.Node.EventType.TOUCH_START,function(){
+            self._clubCardTouchAt = Date.now();
+        });
+        card.on(cc.Node.EventType.TOUCH_CANCEL,function(){
+            self._clubCardTouchAt = 0;
+        });
         card.on(cc.Node.EventType.TOUCH_END,function(){
-            if(self._clubTablesScrollMoved){ self._clubTablesScrollMoved = false; return; }
-            self._clubEnterTable(t);
+            var dt = Date.now() - (self._clubCardTouchAt || 0);
+            if(self._clubTablesScrollMoved){ self._clubTablesScrollMoved = false; self._clubCardTouchAt = 0; return; }
+            if(dt <= 0 || dt > 2000){ return; } //没有按下过:忽略这种"凭空"的抬起事件
+            self._clubEnterTable(t); //时间戳保留给 _doEnterTable 校验"本次是真实点击"
         });
         return card;
     },
@@ -2275,6 +2285,9 @@ cc.Class({
         var opt = cc.vv.autoQuickJoin;
         cc.vv.autoQuickJoin = null;
         var wantType = (typeof opt === "object") ? (opt.gameType || null) : null; //只进和上一局同玩法的房间
+        //没有明确玩法就不自动进桌:否则上一局残留的快速加入标记会把"任意一张空桌"当成目标,
+        //表现为"刚解散退出房间,又自动建出一间新房、牌桌座位一直占着"
+        if(!wantType){ return; }
         var self = this;
         var pick = null;
         for(var i = 0; i < tables.length; ++i){
@@ -2288,11 +2301,11 @@ cc.Class({
         }
         if(!pick) return;
         console.log("[club] 快速加入: 自动进入未满桌 " + (pick.name || pick.id || ""));
-        setTimeout(function(){ if(cc.vv && self._clubEnterTable) self._clubEnterTable(pick); }, 300);
+        setTimeout(function(){ if(cc.vv && self._clubEnterTable) self._clubEnterTable(pick, true); }, 300);
     },
 
     //点击桌面进入游戏(服务端复用未满房间或自动建房)
-    _clubEnterTable:function(t){
+    _clubEnterTable:function(t, auto){
         var self = this;
         var wc = cc.vv.wc;
         //前置校验:宝宝豆为0不能进房间(具体最低宝宝豆由服务端牌桌配置校验,不足时回包提示)
@@ -2305,7 +2318,7 @@ cc.Class({
                 self._clubShowConfirm("提示","宝宝豆不足，无法进入桌面",null); //弹窗提示,需点击确定关闭
                 return;
             }
-            self._doEnterTable(t);
+            self._doEnterTable(t, !!auto);
         };
         if(cached && now - cached.at < 5000){
             checkAndEnter(cached.gems);
@@ -2319,25 +2332,42 @@ cc.Class({
         });
     },
 
-    _doEnterTable:function(t){
+    _doEnterTable:function(t, auto){
         var self = this;
         var wc = cc.vv.wc;
+        //只允许"真实点击牌桌"或"结算弹窗快速回入"两种进桌;其余自动调用一律拦掉:
+        //解散/退房后若还有代码路径自动进桌,会在空桌上立刻建一间新房,表现为"解散了座位还占着"
+        if(!auto){
+            var lastTouch = this._clubCardTouchAt || 0;
+            if(!lastTouch || (Date.now() - lastTouch) > 8000){
+                console.log("[进入房间]拦截非点击进桌 tableid=" + (t ? t.id : "?"));
+                return;
+            }
+        }
         wc.show("正在进入「" + t.name + "」");
         console.log("[进入房间]请求桌面 tableid=" + t.id + " name=" + t.name);
+        //排查用:把调用栈一起发给服务端,区分"真人点击"和"脚本自动进桌"(服务端会打进日志)
+        var dbgStack = "";
+        try{ dbgStack = String((new Error()).stack || "").split("\n").slice(1,4).join(" <- ").replace(/\s+/g," ").substring(0,200); }catch(e){}
+        console.log("[进入房间]触发来源:" + dbgStack);
         //看门狗:12秒内若仍未进入游戏场景,则隐藏遮罩并给出可见原因,避免永久卡住
         var guard = setTimeout(function(){
             if(cc.vv.wc !== wc){ return; }
+            wc.hide(); //超时也要收起遮罩,否则"正在进入房间"会一直挂着
             wc.showError("进入房间失败,请重试(服务未响应)");
         },12000);
         cc.vv.http.sendRequest("/club_enter_table",{
             account:cc.vv.userMgr.account,
             sign:cc.vv.userMgr.sign,
-            tableid:t.id
+            tableid:t.id,
+            dbg:dbgStack
         },function(ret){
             try{
                 if(ret == null || ret.errcode !== 0){
                     console.log("[进入房间]失败:" + (ret ? ret.errcode + " " + ret.errmsg : "无响应"));
                     clearTimeout(guard);
+                    //失败必须收起"正在进入房间"遮罩,否则会一直卡在这行字上
+                    wc.hide();
                     //宝宝豆不足(2222)弹窗提示,需点击确定关闭;其他失败仍用3秒文字提示
                     if(ret && ret.errcode == 2222){
                         wc.hide();
@@ -2360,9 +2390,20 @@ cc.Class({
                     cc.vv.fromClubId = self._clubCur ? self._clubCur.id : null; //记住来源俱乐部,回俱乐部场景直达它的玩法详情页
                 }
                 cc.vv.gameNetMgr.connectGameServer(ret);
+                //进桌遮罩兜底:登录成功后场景会切到牌桌,但遮罩归谁关没有保证,
+                //这里在场景切换后统一收起,避免玩家一直看到"正在进入房间"
+                var tickHide = function(left){
+                    if(cc.vv.wc !== wc){ return; }
+                    var sn = cc.director.getScene() ? cc.director.getScene().name : "";
+                    if(sn && sn !== "club"){ wc.hide(); return; }
+                    if(left <= 0){ wc.hide(); return; }
+                    setTimeout(function(){ tickHide(left - 1); }, 300);
+                };
+                setTimeout(function(){ tickHide(20); }, 300);
             }catch(e){
                 console.log("[进入房间]异常:" + (e && e.message));
                 clearTimeout(guard);
+                wc.hide();
                 wc.showError("进入房间异常:" + (e && e.message));
             }
         });

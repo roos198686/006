@@ -132,7 +132,10 @@ cc.Class({
         this._extraInfo = "";
         for(var i = 0; i < data.states.length; ++i){
             var b = data.states[i];
-            var name = cc.vv.gameNetMgr.seats[i].name;
+            var seat = (cc.vv.gameNetMgr.seats && cc.vv.gameNetMgr.seats[i]) ? cc.vv.gameNetMgr.seats[i] : null;
+            var name = seat ? seat.name : "";
+            //空座位不参与解散投票(服务端也只统计坐人的座位),不显示,避免出现"[待确认] "空名字
+            if(!name){ continue; }
             if(b){
                 this._extraInfo += "\n[已同意] "+ name;
             }
