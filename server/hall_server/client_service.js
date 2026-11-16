@@ -1469,6 +1469,16 @@ app.get('/club_enter_table',function(req,res){
 	}
 	//排查"解散房间后自动建房":记录是谁触发的进桌请求(dbg 为客户端调用栈)
 	console.log('[club_enter_table] account=' + req.query.account + ' tableid=' + tableId + ' dbg=' + String(req.query.dbg || '(none)').substring(0, 260));
+	//看门狗:内部任何一步卡住(数据库/游戏服不回包)都不能让客户端永远等,
+	//8秒未回包就直接返回错误,客户端据此收起"正在进入房间"并显示原因
+	var _enterGuard = setTimeout(function(){
+		if(!res.headersSent && !res.finished){
+			console.log('[club_enter_table] TIMEOUT tableid=' + tableId + ' account=' + req.query.account);
+			http.send(res,-2,"进入房间超时(服务端无响应)，请重试");
+		}
+	}, 8000);
+	res.on('finish',function(){ clearTimeout(_enterGuard); });
+	res.on('close',function(){ clearTimeout(_enterGuard); });
 	db.get_user_data(req.query.account,function(data){
 		if(data == null){
 			http.send(res,-1,"system error");
