@@ -541,11 +541,13 @@ function splitRakeByClub(roomInfo, rakeByClub, hiddenByClub, done){
 exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
     unifiedCharge(roomInfo && roomInfo.gameType, function(on){
     if(!on || !rules){
+        console.log('[抽水]跳过 room=' + (roomInfo && roomInfo.roomId) + ' 原因=' + (!on ? '收费模式未开启(unified_charge!=1)' : '无俱乐部规则(rules为空)'));
         if(done) done();
         return;
     }
     var list = (winners || []).filter(function(s){ return (deltas[s] || 0) > 0; });
     if(list.length === 0){
+        console.log('[抽水]跳过 room=' + (roomInfo && roomInfo.roomId) + ' 原因=本局没有赢家');
         if(done) done();
         return;
     }
@@ -558,6 +560,10 @@ exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
         seatRakeRules(roomInfo, seatIdx, rules, cache, function(r, clubId){
             //该玩家俱乐部是整场抽水模式: 单局不扣
             if(!r || !(clubId > 0) || !r.rakePerRound || (r.rakePercent <= 0 && r.hiddenRakePercent <= 0)){
+                console.log('[抽水]跳过 seat=' + seatIdx + ' uid=' + ((roomInfo.userIdOfSeat || [])[seatIdx] || 0) +
+                    ' 原因=' + (!r ? '无规则' : (!(clubId > 0) ? '赢家不属于任何俱乐部' :
+                    (!r.rakePerRound ? '抽水方式是整场(本局不扣)' : '抽水比例=0'))) +
+                    ' clubId=' + clubId + ' rake=' + (r ? r.rakePercent : '-') + ' hidden=' + (r ? r.hiddenRakePercent : '-'));
                 if(--pending === 0){ finish(); }
                 return;
             }
@@ -570,6 +576,7 @@ exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
             }
             //扣赢家
             deduct(roomInfo.userIdOfSeat[seatIdx], totalDeduct, roomInfo.roomId, roomInfo.gameType, "抽水", 0, function(){
+                console.log('[抽水]扣除 uid=' + roomInfo.userIdOfSeat[seatIdx] + ' 明水=' + rake + ' 暗水=' + hiddenRake + ' clubId=' + clubId);
                 rakeByClub[clubId] = round4((rakeByClub[clubId] || 0) + rake);
                 hiddenByClub[clubId] = round4((hiddenByClub[clubId] || 0) + hiddenRake);
                 if(--pending === 0){ finish(); }
