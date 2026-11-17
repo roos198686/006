@@ -111,6 +111,8 @@ app.post('/admin/login', function(req, res){
             return;
         }
         delete loginFails[ip];
+        // 成功登录也落日志(含IP): 后台被异常登录时这是唯一可回溯的线索
+        console.log('[admin登录] 成功 ip=' + ip + ' user=' + row.username + ' role=' + row.role);
         // token 用真随机串 + 24 小时过期(原来 md5(username+时间) 可预测)
         var token = (Date.now() + TOKEN_TTL_MS).toString(36) + '.' + nodeCrypto.randomBytes(16).toString('hex');
         // token存MySQL, 进程重启不丢
@@ -1430,6 +1432,7 @@ app.post('/admin/hotupdate/upload', auth, requireSuper, function(req, res){
     try { buf = Buffer.from(base64, 'base64'); }
     catch(e){ send(res, 1, "文件解析失败"); return; }
     if(buf.length < 100){ send(res, 1, "文件过小, 可能不是有效zip"); return; }
+    console.log('[hotupdate] 上传请求 ip=' + clientIp(req) + ' 账号=' + (req.adminUser && req.adminUser.username) + ' 大小=' + buf.length);
 
     var tmpZip = path.join(UPLOAD_DIR, 'hotupdate_upload.zip');
     var tmpDir = path.join(UPLOAD_DIR, 'hotupdate_extract');
@@ -1501,6 +1504,7 @@ app.post('/admin/hotupdate/upload', auth, requireSuper, function(req, res){
                     unzipUtil.rmdirDeep(tmpDir);
                     fs.unlink(tmpZip, function(){});
                     getHotupdateInfo(function(info){
+                        console.log('[hotupdate] 发布完成 ip=' + clientIp(req) + ' 版本=' + info.version + ' 文件数=' + info.file_count);
                         send(res, 0, "ok", info);
                     });
                 });
