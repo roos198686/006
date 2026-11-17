@@ -290,6 +290,9 @@ cc.Class({
             this._n.tabEmoji = this.findNode(this._n.chatPanel, "tabEmoji");
             this._n.quickchatlist = this.findNode(this._n.chatPanel, "quickchatlist");
             this._n.emojis = this.findNode(this._n.chatPanel, "emojis");
+            //表情页: 场景里的静态表情格子换成骨骼动画(与其它麻将场景同一套 15 个)
+            this._initEmojiSpine();
+
             this.bindButton(this._n.btnChatSend, this.onBtnChatSend, this);
             this.bindButton(this._n.tabQuick, this.onTabQuick, this);
             this.bindButton(this._n.tabEmoji, this.onTabEmoji, this);
@@ -912,6 +915,9 @@ cc.Class({
             var bubble = views[viewIdx].root.getChildByName('ChatBubble');
             if (!bubble) return;
             bubble.active = true;
+            //上一次是动态表情时留下的骨骼节点要先清掉,否则会和文字叠在一起
+            var lastSpine = bubble.getChildByName('emojiSpine');
+            if (lastSpine) lastSpine.destroy();
             // 只用一个 Label 显示文字: 之前同时写 ChatBubble 自身的 Label 和子节点 New Label,
             // 两个 Label 叠在一起 => 聊天文字"重字"
             var lbl = bubble.getComponent(cc.Label);
@@ -949,6 +955,11 @@ cc.Class({
             // 服务端只回传 itemN,文字在前端固定映射里取
             var txt = (self._quickChatInfo && self._quickChatInfo[data.content]) || data.content;
             showBubble(nm.getSeatIndexByID(data.sender), txt);
+        });
+        //动态表情广播: 在发言者座位上播放对应骨骼
+        this.node.on('emoji_push', function (d) {
+            var data = d.detail || {};
+            self.showEmojiBubble(nm.getSeatIndexByID(data.sender), data.content);
         });
         this.node.on('dissolve_notice', function (d) { self.onDissolveNotice(d && d.detail); });
         this.node.on('dissolve_cancel', function () { if (self._n.dissolvePanel) self._n.dissolvePanel.active = false; });
@@ -2803,9 +2814,130 @@ cc.Class({
         if (this._n.emojis) this._n.emojis.active = true;
     },
 
+    //================== 动态表情(骨骼) ==================
+    _initEmojiSpine: function () {
+        if (!this._n.emojis) return;
+        if (!this._emojiSpineNames) {
+            this._emojiSpineNames = ["yihuo", "kuaidian", "zhenbang", "aini", "daxiao",
+                "yunle", "yishoulanpai", "dengchang", "jingle", "huaixiao",
+                "keshui", "886", "wolaile", "dalaozaici", "biepao"];
+        }
+        var self = this;
+        this._emojiSpine = this._emojiSpine || {};
+        var names = this._emojiSpineNames;
+        var loadOne = function (i) {
+            if (i >= names.length) {
+                if (cc.vv) { cc.vv.emojiSpines = cc.vv.emojiSpines || self._emojiSpine; }
+                self._buildEmojiSpinePanel();
+                return;
+            }
+            cc.resources.load("anims/smile/" + names[i], sp.SkeletonData, function (err, sd) {
+                if (sd) { self._emojiSpine[names[i]] = sd; }
+                loadOne(i + 1);
+            });
+        };
+        loadOne(0);
+    },
+
+    _emojiSpineSize: function (sd) {
+        var sk = sd && sd.skeletonJson && sd.skeletonJson.skeleton;
+        return { w: (sk && sk.width) || 240, h: (sk && sk.height) || 270 };
+    },
+
+    _buildEmojiSpinePanel: function () {
+        if (this._emojiPanelBuilt || !this._n.emojis) return;
+        var root = this._n.emojis;
+        var grid = root;
+        if (root.children.length === 1 && root.children[0].children.length > 0) {
+            grid = root.children[0];
+        }
+        if (!grid || !grid.children || !grid.children.length) return;
+        this._emojiPanelBuilt = true;
+        var self = this;
+        var names = this._emojiSpineNames;
+        var cells = [];
+        grid.children.slice().forEach(function (old, idx) {
+            var name = names[idx];
+            if (!name) return;
+            cells.push({ x: old.x, y: old.y, name: name });
+            var btn = old.getComponent(cc.Button);
+            if (btn) btn.enabled = false;
+            old.off(cc.Node.EventType.TOUCH_END);
+            var sd = self._emojiSpine[name];
+            if (!sd) return;
+            var spr = old.getComponent(cc.Sprite);
+            if (spr) spr.enabled = false;
+            var sz = self._emojiSpineSize(sd);
+            var cw = old.width > 0 ? old.width : 80;
+            var ch = old.height > 0 ? old.height : 80;
+            var vis = new cc.Node("skel");
+            vis.parent = old;
+            vis.setPosition(0, 0);
+            vis.scale = Math.min(cw / sz.w, ch / sz.h) * 0.9;
+            var com = vis.addComponent(sp.Skeleton);
+            com.skeletonData = sd;
+            com.setAnimation(0, "animation", true);
+        });
+        if (!cells.length) return;
+        root.off(cc.Node.EventType.TOUCH_END);
+        root.on(cc.Node.EventType.TOUCH_END, function (ev) {
+            var p = grid.convertToNodeSpaceAR(cc.v2(ev.getLocation()));
+            var best = null, bd = 1e9;
+            for (var i = 0; i < cells.length; ++i) {
+                var dx = p.x - cells[i].x, dy = p.y - cells[i].y;
+                var d = dx * dx + dy * dy;
+                if (d < bd) { bd = d; best = cells[i]; }
+            }
+            if (!best) return;
+            if (self._n.chatPanel) self._n.chatPanel.active = false;
+            cc.vv.net.send("emoji", best.name);
+        });
+    },
+
     // 聊天面板：点击背景关闭
     onBtnChatClose: function () {
         if (this._n.chatPanel) this._n.chatPanel.active = false;
+    },
+
+    //在发言者座位的 ChatBubble 里播放表情骨骼
+    showEmojiBubble: function (seatIdx, content) {
+        if (seatIdx == null || seatIdx < 0) return;
+        var sd = this._emojiSpine ? this._emojiSpine[content] : null;
+        if (!sd) return;
+        var views = this._seatViews, map = this._seatMap;
+        var nm = cc.vv.gameNetMgr;
+        var viewIdx = (map && map.length) ? map.indexOf(seatIdx) : (seatIdx === nm.seatIndex ? 0 : 1);
+        if (viewIdx < 0 || !views[viewIdx]) return;
+        var bubble = views[viewIdx].root.getChildByName('ChatBubble');
+        if (!bubble) return;
+        bubble.active = true;
+        var lbl = bubble.getComponent(cc.Label);
+        if (lbl) lbl.string = "";
+        var inner = bubble.getChildByName('New Label');
+        if (inner) inner.active = false;
+        var bg = bubble.getChildByName('chatbg_ld');
+        if (bg) bg.active = false;
+        var oldNode = bubble.getChildByName('emojiSpine');
+        if (oldNode) oldNode.destroy();
+        var sk = sd.skeletonJson && sd.skeletonJson.skeleton;
+        var sw = (sk && sk.width) || 240, sh = (sk && sk.height) || 270;
+        var w = bubble.width > 0 ? bubble.width : 140;
+        var h = bubble.height > 0 ? bubble.height : 140;
+        var base = Math.min(w / sw, h / sh) * 0.9;
+        var n = new cc.Node('emojiSpine');
+        n.parent = bubble;
+        n.setPosition(0, 0);
+        n.scale = base;
+        n.runAction(cc.sequence(cc.scaleTo(0.12, base * 1.4), cc.scaleTo(0.18, base)));
+        var com = n.addComponent(sp.Skeleton);
+        com.skeletonData = sd;
+        com.setAnimation(0, "animation", true);
+        this._chatBubbleTimers = this._chatBubbleTimers || {};
+        if (this._chatBubbleTimers[seatIdx]) clearTimeout(this._chatBubbleTimers[seatIdx]);
+        this._chatBubbleTimers[seatIdx] = setTimeout(function () {
+            bubble.active = false;
+            if (cc.isValid(n)) n.destroy();
+        }, 3000);
     },
 
     // 结算时隐藏弹窗后面残留的元素：准备层(准备/退出/解散)、顶部信息条、消息条、右上按钮

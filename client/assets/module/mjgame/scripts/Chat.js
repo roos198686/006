@@ -20,6 +20,16 @@ cc.Class({
         _btnChat:null,
     },
 
+    //动态表情骨骼名(与宝宝场景共用 anims/smile 下同一套 15 个)
+    //放在 ctor 里: cc.Class 原型上不允许挂裸数据
+    ctor: function () {
+        this._emojiSpineNames = ["yihuo", "kuaidian", "zhenbang", "aini", "daxiao",
+            "yunle", "yishoulanpai", "dengchang", "jingle", "huaixiao",
+            "keshui", "886", "wolaile", "dalaozaici", "biepao"];
+        this._emojiSpine = null;
+        this._emojiPanelBuilt = false;
+    },
+
     // use this for initialization
     onLoad: function () {
         if(cc.vv == null){
@@ -60,6 +70,9 @@ cc.Class({
         this._quickChatInfo["item6"] = {index:6,content:"大家好，很高兴见到各位！"};
         this._quickChatInfo["item7"] = {index:7,content:"各位，真是不好意思，我得离开一会儿。"};
         this._quickChatInfo["item8"] = {index:8,content:"不要吵了，专心玩游戏吧！"};
+
+        //表情页: 把场景里的静态表情格子换成骨骼动画(资源加载完自动替换)
+        this._initEmojiSpine();
     },
     
     getQuickChatInfo(index){
@@ -101,6 +114,87 @@ cc.Class({
         console.log(event.target.name);
         this._chatRoot.active = false;
         cc.vv.net.send("emoji",event.target.name);
+    },
+    
+    //================== 动态表情(骨骼) ==================
+    _initEmojiSpine: function(){
+        if(!this._tabEmoji) return;
+        var self = this;
+        this._emojiSpine = {};
+        var names = this._emojiSpineNames || [];
+        var loadOne = function(i){
+            if(i >= names.length){
+                //座位气泡(Seat.js)也从这里取骨骼数据
+                if(cc.vv){ cc.vv.emojiSpines = self._emojiSpine; }
+                self._buildEmojiSpinePanel();
+                return;
+            }
+            cc.resources.load("anims/smile/" + names[i], sp.SkeletonData, function(err, sd){
+                if(sd){ self._emojiSpine[names[i]] = sd; }
+                loadOne(i + 1);
+            });
+        };
+        loadOne(0);
+    },
+
+    _emojiSpineSize: function(sd){
+        var sk = sd && sd.skeletonJson && sd.skeletonJson.skeleton;
+        return {w:(sk && sk.width) || 240, h:(sk && sk.height) || 270};
+    },
+
+    //场景里的表情格子当锚点: 隐藏原静态图, 挂骨骼子节点循环播放, 点击按最近格子发送
+    _buildEmojiSpinePanel: function(){
+        if(this._emojiPanelBuilt || !this._tabEmoji) return;
+        //有的场景是 emojis 下套一层 grid, 有的是 15 个格子直接挂在 emojis 上
+        var grid = this._tabEmoji;
+        if(this._tabEmoji.children.length === 1 && this._tabEmoji.children[0].children.length > 0){
+            grid = this._tabEmoji.children[0];
+        }
+        if(!grid || !grid.children || !grid.children.length) return;
+        this._emojiPanelBuilt = true;
+        var self = this;
+        var names = this._emojiSpineNames;
+        var cells = [];
+        grid.children.slice().forEach(function(old, idx){
+            var name = names[idx];
+            if(!name) return;
+            cells.push({x:old.x, y:old.y, name:name});
+            var btn = old.getComponent(cc.Button);
+            if(btn) btn.enabled = false;      //停用原来的静态表情点击
+            old.off(cc.Node.EventType.TOUCH_END);
+            var sd = self._emojiSpine[name];
+            if(!sd) return;
+            var spr = old.getComponent(cc.Sprite);
+            if(spr) spr.enabled = false;
+            var sz = self._emojiSpineSize(sd);
+            var cw = old.width > 0 ? old.width : 80;
+            var ch = old.height > 0 ? old.height : 80;
+            var vis = new cc.Node("skel");
+            vis.parent = old;
+            vis.setPosition(0, 0);
+            vis.scale = Math.min(cw / sz.w, ch / sz.h) * 0.9;
+            var com = vis.addComponent(sp.Skeleton);
+            com.skeletonData = sd;
+            com.setAnimation(0, "animation", true);
+        });
+        if(!cells.length) return;
+        this._tabEmoji.off(cc.Node.EventType.TOUCH_END);
+        this._tabEmoji.on(cc.Node.EventType.TOUCH_END, function(ev){
+            var p = grid.convertToNodeSpaceAR(cc.v2(ev.getLocation()));
+            var best = null, bd = 1e9;
+            for(var i = 0; i < cells.length; ++i){
+                var dx = p.x - cells[i].x, dy = p.y - cells[i].y;
+                var d = dx * dx + dy * dy;
+                if(d < bd){ bd = d; best = cells[i]; }
+            }
+            if(!best) return;
+            self._sendEmoji(best.name);
+        });
+    },
+
+    _sendEmoji: function(name){
+        if(this._chatRoot) this._chatRoot.active = false;
+        cc.vv.net.send("emoji", name);
     },
     
     onBtnSendChatClicked:function(){

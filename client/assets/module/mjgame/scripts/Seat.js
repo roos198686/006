@@ -286,8 +286,53 @@ cc.Class({
         }
         this._chatBubble.active = false;
         this._emoji.active = true;
+        //动态表情: Chat.js 已把 anims/smile 骨骼加载到 cc.vv.emojiSpines
+        var sd = cc.vv && cc.vv.emojiSpines ? cc.vv.emojiSpines[emoji] : null;
+        if(sd){
+            this._showEmojiSpine(sd);
+            return;
+        }
+        //旧表情名(静态动画)走原逻辑
+        this._clearEmojiSpine(true);
         this._emoji.getComponent(cc.Animation).play(emoji);
         this._lastChatTime = 3;
+    },
+
+    _showEmojiSpine:function(sd){
+        this._clearEmojiSpine(false);
+        var spr = this._emoji.getComponent(cc.Sprite);
+        if(spr) spr.enabled = false;
+        var anim = this._emoji.getComponent(cc.Animation);
+        if(anim) anim.stop();
+        var sk = sd.skeletonJson && sd.skeletonJson.skeleton;
+        var sw = (sk && sk.width) || 240, sh = (sk && sk.height) || 270;
+        var w = this._emoji.width > 0 ? this._emoji.width : 160;
+        var h = this._emoji.height > 0 ? this._emoji.height : 160;
+        var base = Math.min(w / sw, h / sh) * 0.9;
+        var n = new cc.Node("emojiSpine");
+        n.parent = this._emoji;
+        n.setPosition(0, 0);
+        n.scale = base;
+        //发送/收到时放大回弹
+        n.runAction(cc.sequence(cc.scaleTo(0.12, base * 1.4), cc.scaleTo(0.18, base)));
+        var com = n.addComponent(sp.Skeleton);
+        com.skeletonData = sd;
+        com.setAnimation(0, "animation", true);
+        this._emojiSpineNode = n;
+        this._lastChatTime = 3;
+    },
+
+    //restoreSprite: 旧静态表情要继续播放时必须把 Sprite 恢复回来
+    _clearEmojiSpine:function(restoreSprite){
+        if(this._emojiSpineNode && cc.isValid(this._emojiSpineNode)){
+            this._emojiSpineNode.stopAllActions();
+            this._emojiSpineNode.destroy();
+        }
+        this._emojiSpineNode = null;
+        if(restoreSprite && this._emoji){
+            var spr = this._emoji.getComponent(cc.Sprite);
+            if(spr) spr.enabled = true;
+        }
     },
     
     voiceMsg:function(show){
@@ -304,6 +349,7 @@ cc.Class({
                 this._chatBubble.active = false;
                 this._emoji.active = false;
                 this._emoji.getComponent(cc.Animation).stop();
+                this._clearEmojiSpine(false);
             }
         }
     },
