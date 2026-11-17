@@ -66,22 +66,19 @@ app.post('/admin/login', function(req, res){
         return;
     }
     var psw = crypto.md5(password);
-    var sql = 'SELECT * FROM t_admin_users WHERE username="' + username + '" AND password="' + psw + '"';
-    db.query(sql, function(err, rows){
-        if(err){
-            send(res, 500, "数据库错误");
-            return;
-        }
-        if(rows.length == 0){
+    // 用户名必须参数化查询后再比对密码: 原先把 username 直接拼进 SQL,
+    // 传 ' OR '1'='1 即可绕过登录拿到超管 token(2026-11-17 已被用来上传伪造热更包)
+    db.admin_user_by_name(String(username), function(row){
+        if(!row || String(row.password) !== String(psw)){
             send(res, 1, "用户名或密码错误");
             return;
         }
         var token = crypto.md5(username + Date.now() + Math.random());
         // token存MySQL, 进程重启不丢
-        db.admin_token_set(rows[0].id, token, function(){
-            var ret = {token: token, username: rows[0].username, role: rows[0].role, club_id: rows[0].club_id};
-            if(rows[0].role == "club"){
-                db.club_get(rows[0].club_id, function(club){
+        db.admin_token_set(row.id, token, function(){
+            var ret = {token: token, username: row.username, role: row.role, club_id: row.club_id};
+            if(row.role == "club"){
+                db.club_get(row.club_id, function(club){
                     ret.club_name = club ? club.name : null;
                     send(res, 0, "ok", ret);
                 });
