@@ -1,0 +1,125 @@
+
+aini.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+a
+  rotate: true
+  xy: 45, 11
+  size: 26, 43
+  orig: 26, 43
+  offset: 0, 0
+  index: -1
+d
+  rotate: false
+  xy: 291, 196
+  size: 59, 12
+  orig: 59, 12
+  offset: 0, 0
+  index: -1
+e
+  rotate: false
+  xy: 414, 216
+  size: 34, 34
+  orig: 34, 34
+  offset: 0, 0
+  index: -1
+f
+  rotate: false
+  xy: 2, 39
+  size: 194, 211
+  orig: 194, 211
+  offset: 0, 0
+  index: -1
+g
+  rotate: true
+  xy: 90, 9
+  size: 28, 31
+  orig: 28, 31
+  offset: 0, 0
+  index: -1
+h
+  rotate: false
+  xy: 450, 222
+  size: 35, 28
+  orig: 35, 28
+  offset: 0, 0
+  index: -1
+i
+  rotate: false
+  xy: 377, 215
+  size: 35, 35
+  orig: 35, 35
+  offset: 0, 0
+  index: -1
+j
+  rotate: true
+  xy: 198, 40
+  size: 17, 30
+  orig: 17, 30
+  offset: 0, 0
+  index: -1
+o
+  rotate: false
+  xy: 198, 107
+  size: 67, 62
+  orig: 67, 62
+  offset: 0, 0
+  index: -1
+p
+  rotate: false
+  xy: 198, 171
+  size: 91, 79
+  orig: 91, 79
+  offset: 0, 0
+  index: -1
+q
+  rotate: false
+  xy: 2, 2
+  size: 41, 35
+  orig: 41, 35
+  offset: 0, 0
+  index: -1
+r
+  rotate: false
+  xy: 291, 210
+  size: 84, 40
+  orig: 84, 40
+  offset: 0, 0
+  index: -1
+s
+  rotate: true
+  xy: 267, 139
+  size: 30, 10
+  orig: 30, 10
+  offset: 0, 0
+  index: -1
+t
+  rotate: false
+  xy: 291, 174
+  size: 17, 20
+  orig: 17, 20
+  offset: 0, 0
+  index: -1
+u
+  rotate: false
+  xy: 487, 235
+  size: 16, 15
+  orig: 16, 15
+  offset: 0, 0
+  index: -1
+w
+  rotate: false
+  xy: 198, 59
+  size: 68, 46
+  orig: 68, 46
+  offset: 0, 0
+  index: -1
+y
+  rotate: false
+  xy: 123, 13
+  size: 24, 24
+  orig: 24, 24
+  offset: 0, 0
+  index: -1

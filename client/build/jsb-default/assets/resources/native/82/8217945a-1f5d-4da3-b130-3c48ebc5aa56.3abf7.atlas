@@ -1,0 +1,83 @@
+
+yihuo.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+shenti
+  rotate: false
+  xy: 2, 39
+  size: 197, 215
+  orig: 197, 215
+  offset: 0, 0
+  index: -1
+toushi
+  rotate: false
+  xy: 328, 193
+  size: 57, 61
+  orig: 57, 61
+  offset: 0, 0
+  index: -1
+yan
+  rotate: false
+  xy: 262, 168
+  size: 54, 10
+  orig: 54, 10
+  offset: 0, 0
+  index: -1
+yihuo
+  rotate: false
+  xy: 201, 161
+  size: 59, 93
+  orig: 59, 93
+  offset: 0, 0
+  index: -1
+youlian
+  rotate: false
+  xy: 262, 180
+  size: 64, 74
+  orig: 64, 74
+  offset: 0, 0
+  index: -1
+youmeimao
+  rotate: true
+  xy: 201, 2
+  size: 40, 36
+  orig: 40, 36
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 387, 204
+  size: 60, 50
+  orig: 60, 50
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 2, 12
+  size: 13, 25
+  orig: 13, 25
+  offset: 0, 0
+  index: -1
+zuolian
+  rotate: false
+  xy: 201, 88
+  size: 54, 71
+  orig: 54, 71
+  offset: 0, 0
+  index: -1
+zuomeimao
+  rotate: false
+  xy: 449, 220
+  size: 43, 34
+  orig: 43, 34
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 201, 44
+  size: 42, 42
+  orig: 42, 42
+  offset: 0, 0
+  index: -1

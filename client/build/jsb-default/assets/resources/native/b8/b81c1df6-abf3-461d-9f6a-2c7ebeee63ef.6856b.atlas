@@ -1,0 +1,104 @@
+
+dengchang.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+shenti
+  rotate: false
+  xy: 2, 51
+  size: 187, 199
+  orig: 187, 199
+  offset: 0, 0
+  index: -1
+toushi
+  rotate: false
+  xy: 191, 119
+  size: 64, 53
+  orig: 64, 53
+  offset: 0, 0
+  index: -1
+xing1
+  rotate: true
+  xy: 305, 184
+  size: 11, 27
+  orig: 11, 27
+  offset: 0, 0
+  index: -1
+xing2
+  rotate: true
+  xy: 305, 184
+  size: 11, 27
+  orig: 11, 27
+  offset: 0, 0
+  index: -1
+xing3
+  rotate: true
+  xy: 305, 184
+  size: 11, 27
+  orig: 11, 27
+  offset: 0, 0
+  index: -1
+xing4
+  rotate: true
+  xy: 2, 2
+  size: 14, 34
+  orig: 14, 34
+  offset: 0, 0
+  index: -1
+yan
+  rotate: false
+  xy: 2, 18
+  size: 92, 31
+  orig: 92, 31
+  offset: 0, 0
+  index: -1
+youjiao
+  rotate: false
+  xy: 257, 125
+  size: 40, 47
+  orig: 40, 47
+  offset: 0, 0
+  index: -1
+youmeimao
+  rotate: false
+  xy: 361, 211
+  size: 42, 39
+  orig: 42, 39
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 191, 63
+  size: 46, 54
+  orig: 46, 54
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 191, 174
+  size: 112, 76
+  orig: 112, 76
+  offset: 0, 0
+  index: -1
+zuojiao
+  rotate: false
+  xy: 405, 222
+  size: 52, 28
+  orig: 52, 28
+  offset: 0, 0
+  index: -1
+zuomeimao
+  rotate: false
+  xy: 96, 19
+  size: 65, 30
+  orig: 65, 30
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 305, 197
+  size: 54, 53
+  orig: 54, 53
+  offset: 0, 0
+  index: -1
