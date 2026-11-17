@@ -2,6 +2,7 @@ var express = require('express');
 var path = require('path');
 var fs = require('fs');
 var crypto = require('../utils/crypto');
+var nodeCrypto = require('crypto');
 var db = require('../utils/db');
 var http = require('../utils/http');
 
@@ -41,9 +42,19 @@ function send(res, code, msg, data){
 }
 
 // 认证中间件 - token存MySQL, 进程重启不丢
+// token 格式: <过期时间戳base36>.<随机串>; 24 小时有效, 只从 Authorization 头读取
+var TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 function auth(req, res, next){
-    var token = req.headers['authorization'] || req.query.token;
+    var token = String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
     if(!token){ send(res, 401, "未登录"); return; }
+    // 不再接受 ?token= : URL 会被 nginx/代理日志完整记录, 等于把后台令牌公开
+    var dot = token.indexOf('.');
+    var exp = dot > 0 ? parseInt(token.substring(0, dot), 36) : 0;
+    if(!(exp > Date.now())){
+        db.admin_token_del(token, function(){});
+        send(res, 401, "登录已过期, 请重新登录");
+        return;
+    }
     db.admin_token_get(token, function(user){
         if(!user){ send(res, 401, "登录已过期, 请重新登录"); return; }
         req.adminUser = user;
@@ -58,6 +69,14 @@ exports.start = function(cfg){
 };
 
 // ============ 认证 ============
+// 登录失败限速: 同 IP 连续失败 5 次锁 10 分钟, 防止撞库/爆破
+var LOGIN_MAX_FAIL = 5;
+var LOGIN_LOCK_MS = 10 * 60 * 1000;
+var loginFails = {};
+function clientIp(req){
+    var xf = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    return xf || String(req.connection && req.connection.remoteAddress || '');
+}
 app.post('/admin/login', function(req, res){
     var username = req.body.username;
     var password = req.body.password;
@@ -65,15 +84,35 @@ app.post('/admin/login', function(req, res){
         send(res, 1, "用户名或密码不能为空");
         return;
     }
+    var ip = clientIp(req);
+    var rec = loginFails[ip];
+    if(rec && rec.lockUntil && rec.lockUntil > Date.now()){
+        var left = Math.ceil((rec.lockUntil - Date.now()) / 60000);
+        console.log('[admin登录] 已锁定 ip=' + ip + ' 剩余' + left + '分钟');
+        send(res, 1, "失败次数过多, 请 " + left + " 分钟后再试");
+        return;
+    }
     var psw = crypto.md5(password);
     // 用户名必须参数化查询后再比对密码: 原先把 username 直接拼进 SQL,
     // 传 ' OR '1'='1 即可绕过登录拿到超管 token(2026-11-17 已被用来上传伪造热更包)
     db.admin_user_by_name(String(username), function(row){
         if(!row || String(row.password) !== String(psw)){
+            var r0 = loginFails[ip] || {count: 0, lockUntil: 0};
+            r0.count++;
+            if(r0.count >= LOGIN_MAX_FAIL){
+                r0.lockUntil = Date.now() + LOGIN_LOCK_MS;
+                r0.count = 0;
+                console.log('[admin登录] 失败达上限, 锁定 ip=' + ip + ' user=' + username);
+            } else {
+                console.log('[admin登录] 失败 ip=' + ip + ' user=' + username + ' 第' + r0.count + '次');
+            }
+            loginFails[ip] = r0;
             send(res, 1, "用户名或密码错误");
             return;
         }
-        var token = crypto.md5(username + Date.now() + Math.random());
+        delete loginFails[ip];
+        // token 用真随机串 + 24 小时过期(原来 md5(username+时间) 可预测)
+        var token = (Date.now() + TOKEN_TTL_MS).toString(36) + '.' + nodeCrypto.randomBytes(16).toString('hex');
         // token存MySQL, 进程重启不丢
         db.admin_token_set(row.id, token, function(){
             var ret = {token: token, username: row.username, role: row.role, club_id: row.club_id};
@@ -100,13 +139,14 @@ app.post('/admin/change_password', auth, function(req, res){
     var oldPwd = req.body.old_password;
     var newPwd = req.body.new_password;
     if(!oldPwd || !newPwd){ send(res, 1, "旧密码和新密码不能为空"); return; }
-    if(newPwd.length < 4){ send(res, 1, "新密码至少4位"); return; }
+    if(newPwd.length < 8){ send(res, 1, "新密码至少8位"); return; }
     var id = req.adminUser.id;
     db.query('SELECT password FROM t_admin_users WHERE id=' + id + ' LIMIT 1', function(err, rows){
         if(err){ send(res, 500, "数据库错误"); return; }
         if(!rows || rows.length === 0){ send(res, 1, "账号不存在"); return; }
         if(rows[0].password !== crypto.md5(oldPwd)){ send(res, 1, "旧密码错误"); return; }
-        db.query('UPDATE t_admin_users SET password="' + crypto.md5(newPwd) + '" WHERE id=' + id, function(err2){
+        // 改密码后清空 token: 让其它设备/泄露的旧 token 立即失效
+        db.query('UPDATE t_admin_users SET password="' + crypto.md5(newPwd) + '", token=NULL WHERE id=' + id, function(err2){
             if(err2){ send(res, 500, "数据库错误"); return; }
             send(res, 0, "密码已修改, 请重新登录");
         });
@@ -169,7 +209,7 @@ app.get('/admin/game_configs', auth, function(req, res){
 });
 
 // 新增玩法
-app.post('/admin/game_config', auth, function(req, res){
+app.post('/admin/game_config', auth, requireSuper, function(req, res){
     var c = req.body;
     if(!c.type || !c.name){
         send(res, 1, "玩法类型和名称不能为空");
@@ -220,7 +260,7 @@ app.post('/admin/game_config', auth, function(req, res){
 });
 
 // 更新玩法
-app.put('/admin/game_config/:id', auth, function(req, res){
+app.put('/admin/game_config/:id', auth, requireSuper, function(req, res){
     var id = req.params.id;
     var c = req.body;
     var sets = [];
@@ -264,7 +304,7 @@ app.put('/admin/game_config/:id', auth, function(req, res){
 });
 
 // 删除玩法
-app.delete('/admin/game_config/:id', auth, function(req, res){
+app.delete('/admin/game_config/:id', auth, requireSuper, function(req, res){
     var id = req.params.id;
     db.query('DELETE FROM t_game_config WHERE id=' + id, function(err, result){
         if(err){ send(res, 500, "数据库错误"); return; }
@@ -274,7 +314,7 @@ app.delete('/admin/game_config/:id', auth, function(req, res){
 
 // ============ 用户管理 ============
 // 查询用户:super 看全部,club 只看本俱乐部成员
-app.get('/admin/users', auth, function(req, res){
+app.get('/admin/users', auth, requireSuper, function(req, res){
     var keyword = req.query.keyword || '';
     var page = parseInt(req.query.page) || 1;
     var pageSize = parseInt(req.query.pageSize) || 20;
@@ -304,7 +344,7 @@ app.get('/admin/users', auth, function(req, res){
 });
 
 // 加减房卡（钻石）
-app.post('/admin/user/gems', auth, function(req, res){
+app.post('/admin/user/gems', auth, requireSuper, function(req, res){
     var userid = req.body.userid;
     var gems = req.body.gems; // 正数加，负数减
     if(!userid || gems == null){
@@ -321,7 +361,7 @@ app.post('/admin/user/gems', auth, function(req, res){
 });
 
 // 删除玩家（超级管理员/俱乐部管理员都可以）
-app.delete('/admin/user/:userid', auth, function(req, res){
+app.delete('/admin/user/:userid', auth, requireSuper, function(req, res){
     var userid = parseInt(req.params.userid);
     if(!userid){ send(res, 1, "参数错误"); return; }
     // 先查是否是俱乐部社长，不能删
@@ -351,7 +391,7 @@ app.get('/admin/sys_config', auth, function(req, res){
     });
 });
 
-app.post('/admin/sys_config', auth, function(req, res){
+app.post('/admin/sys_config', auth, requireSuper, function(req, res){
     var items = req.body.items || {};
     var sqls = [];
     for(var k in items){
@@ -414,17 +454,26 @@ function requireSuper(req, res, next){
     next();
 }
 
-// 校验是否可操作指定俱乐部:所有管理员都可操作
+// 校验是否可操作指定俱乐部: super 任意; club 只能操作自己绑定的俱乐部
 function checkClubOwn(req, res, clubId){
     if(!req.adminUser){ send(res, 403, "未登录"); return false; }
+    var role = String(req.adminUser.role || '').trim().toLowerCase();
+    if(role === 'super'){ return true; }
+    var own = parseInt(req.adminUser.club_id) || 0;
+    if(!(own > 0) || parseInt(clubId) !== own){
+        console.log('[admin权限] 越权访问俱乐部 club_id=' + clubId + ' 账号=' + req.adminUser.username + ' 绑定=' + own);
+        send(res, 403, "无权操作该俱乐部");
+        return false;
+    }
     return true;
 }
 
-// 解析当前操作的俱乐部ID:所有角色都从参数取club_id,club 角色能操作任何俱乐部
+// 解析当前操作的俱乐部ID: club 角色只能取自己绑定的俱乐部
 function resolveClubId(req, res){
     if(!req.adminUser){ send(res, 403, "未登录"); return null; }
     var cid = parseInt(req.query.club_id || (req.body && req.body.club_id));
     if(!(cid > 0)){ send(res, 1, "club_id required"); return null; }
+    if(!checkClubOwn(req, res, cid)){ return null; }
     return cid;
 }
 
@@ -445,6 +494,7 @@ app.get('/admin/club_detail', auth, function(req, res){
 app.get('/admin/club_hall_mode', auth, function(req, res){
     var cid = parseInt(req.query.club_id);
     if(!(cid > 0)){ send(res, 1, "club_id required"); return; }
+    if(!checkClubOwn(req, res, cid)){ return; }
     db.club_get(cid, function(club){
         if(!club){ send(res, 1, "club not found"); return; }
         send(res, 0, "ok", {
@@ -459,6 +509,7 @@ app.post('/admin/club_hall_mode', auth, function(req, res){
     var body = req.body || {};
     var cid = parseInt(body.club_id);
     if(!(cid > 0)){ send(res, 1, "club_id required"); return; }
+    if(!checkClubOwn(req, res, cid)){ return; }
     db.club_get(cid, function(club){
         if(!club){ send(res, 1, "club not found"); return; }
         if((Number(club.parent_clubid) || 0) !== 0){
@@ -977,7 +1028,7 @@ app.get('/admin/clubs', auth, function(req, res){
     });
 });
 
-app.post('/admin/club', auth, function(req, res){
+app.post('/admin/club', auth, requireSuper, function(req, res){
     var c = req.body || {};
     var owner = parseInt(c.owner_userid);
     if(!c.name || !(owner > 0)){ send(res, 1, "俱乐部名称和社长用户ID不能为空"); return; }
@@ -988,7 +1039,7 @@ app.post('/admin/club', auth, function(req, res){
 });
 
 //录入/取消一级俱乐部: 一级俱乐部的社长增减豆豆不受自身豆豆数量限制
-app.post('/admin/club/top_level', auth, function(req, res){
+app.post('/admin/club/top_level', auth, requireSuper, function(req, res){
     var c = req.body || {};
     var id = parseInt(c.id);
     if(!(id > 0)){ send(res, 1, "俱乐部ID不能为空"); return; }
@@ -1000,7 +1051,7 @@ app.post('/admin/club/top_level', auth, function(req, res){
     });
 });
 
-app.put('/admin/club/:id', auth, function(req, res){
+app.put('/admin/club/:id', auth, requireSuper, function(req, res){
     var id = parseInt(req.params.id);
     var c = req.body || {};
     db.admin_club_update(id, c.name || null, c.owner_userid ? parseInt(c.owner_userid) : null, function(ok){
@@ -1008,7 +1059,7 @@ app.put('/admin/club/:id', auth, function(req, res){
     });
 });
 
-app.delete('/admin/club/:id', auth, function(req, res){
+app.delete('/admin/club/:id', auth, requireSuper, function(req, res){
     var id = parseInt(req.params.id);
     var priKey = (config && config.ROOM_PRI_KEY) ? config.ROOM_PRI_KEY : '~!@#$(*&^%$&';
     // 先查出所有该俱乐部的牌桌,逐个清场(解散运行中房间)
@@ -1052,7 +1103,7 @@ app.delete('/admin/club/:id', auth, function(req, res){
 
 // ============ 管理员账号管理 ============
 // GET 列表:super 看全部; club 只看非 super 的管理员(不能看超级管理员)
-app.get('/admin/admin_users', auth, function(req, res){
+app.get('/admin/admin_users', auth, requireSuper, function(req, res){
     db.admin_user_list(function(rows){
         if(req.adminUser.role !== 'super'){
             rows = (rows || []).filter(function(u){ return u.role !== 'super'; });
@@ -1062,7 +1113,7 @@ app.get('/admin/admin_users', auth, function(req, res){
 });
 
 // POST 新建:新建管理员,不绑定俱乐部
-app.post('/admin/admin_user', auth, function(req, res){
+app.post('/admin/admin_user', auth, requireSuper, function(req, res){
     var c = req.body || {};
     var role = c.role === 'club' ? 'club' : 'super';
     if(!c.username || !c.password){ send(res, 1, "用户名和密码不能为空"); return; }
@@ -1076,7 +1127,7 @@ app.post('/admin/admin_user', auth, function(req, res){
 });
 
 // PUT 更新:super 可改任意管理员密码/role/club_id; club 只能改非 super 的密码
-app.put('/admin/admin_user/:id', auth, function(req, res){
+app.put('/admin/admin_user/:id', auth, requireSuper, function(req, res){
     var id = parseInt(req.params.id);
     var c = req.body || {};
     var fields = {};
@@ -1099,7 +1150,7 @@ app.put('/admin/admin_user/:id', auth, function(req, res){
 });
 
 // DELETE 删除:super 可删任意;club 只能删非 super 的管理员
-app.delete('/admin/admin_user/:id', auth, function(req, res){
+app.delete('/admin/admin_user/:id', auth, requireSuper, function(req, res){
     var id = parseInt(req.params.id);
     if(id === 1){ send(res, 1, "默认超级管理员账号不可删除"); return; }
     var delUserRole = null;
