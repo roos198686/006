@@ -49,12 +49,31 @@
   .dl-btn.disabled { background:rgba(255,255,255,.5); color:#999; pointer-events:none; }
   .tips { margin-top: 22px; font-size:12px; opacity:.8; line-height:1.8; max-width:420px; text-align:center; }
   .loading { text-align:center; padding: 20px 0; color:#888; }
+  .browser-warn {
+    display:none; width:100%; max-width:420px; margin-bottom:20px;
+    background:rgba(255,255,255,.96); color:#c0392b;
+    border-radius:14px; padding:18px 18px 14px; font-size:14px; line-height:1.8;
+    box-shadow:0 8px 24px rgba(0,0,0,.18); text-align:left;
+  }
+  .browser-warn.show { display:block; }
+  .browser-warn b { font-size:15px; }
+  .browser-warn .steps { margin:8px 0 0; color:#333; }
+  .copy-btn {
+    margin-top:10px; display:inline-block; background:#2575fc; color:#fff;
+    font-size:14px; padding:9px 16px; border-radius:20px; cursor:pointer; user-select:none;
+  }
 </style>
 </head>
 <body>
   <div class="logo"><img src="./app_icon.png" alt="顺宝宝"></div>
   <div class="app-name">顺宝宝</div>
   <div class="app-sub">轻松娱乐 · 随时开局</div>
+
+  <div class="browser-warn" id="browserWarn">
+    <b>当前浏览器无法下载安装包</b>
+    <div class="steps" id="warnSteps">请复制本页链接，粘贴到手机自带的浏览器（Chrome / Safari / 华为 / 小米 / OPPO / vivo 浏览器）里打开。</div>
+    <span class="copy-btn" id="copyBtn">复制本页链接</span>
+  </div>
 
   <div class="card" id="card">
     <div class="loading">正在获取最新版本...</div>
@@ -68,6 +87,59 @@
   </div>
 
 <script>
+// ==== 浏览器识别: 应用内浏览器/第三方浏览器禁止下载, 引导到手机自带浏览器 ====
+var ua = navigator.userAgent || '';
+var isMobile = /Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua);
+var BLOCK_LIST = [
+  [/MicroMessenger/i, '微信'],
+  [/QQ\//i, 'QQ'],
+  [/Weibo/i, '微博'],
+  [/AlipayClient/i, '支付宝'],
+  [/aweme|BytedanceWebview/i, '抖音'],
+  [/DingTalk/i, '钉钉'],
+  [/UCBrowser/i, 'UC浏览器'],
+  [/Quark/i, '夸克浏览器'],
+  [/MQQBrowser/i, 'QQ浏览器'],
+  [/baiduboxapp/i, '百度App'],
+  [/SogouMobileBrowser/i, '搜狗浏览器'],
+  [/QihooBrowser|360SE/i, '360浏览器'],
+  [/LieBaoFast/i, '猎豹浏览器'],
+  [/2345Browser/i, '2345浏览器'],
+  [/Maxthon/i, '遨游浏览器'],
+  [/;\s*wv\)/i, '应用内置浏览器']
+];
+var blockedName = '';
+if(isMobile){
+  for(var i = 0; i < BLOCK_LIST.length; ++i){
+    if(BLOCK_LIST[i][0].test(ua)){ blockedName = BLOCK_LIST[i][1]; break; }
+  }
+}
+function showBrowserWarn(){
+  document.getElementById('browserWarn').classList.add('show');
+  var tip = blockedName === '微信'
+    ? '当前是微信内置浏览器，无法下载 APK。请点击右上角 ··· ，选择“在浏览器打开”，再重新下载。'
+    : '当前是' + blockedName + '，可能拦截安装包下载。请复制本页链接，粘贴到手机自带浏览器（Chrome / Safari / 华为 / 小米 / OPPO / vivo 浏览器）后打开下载。';
+  document.getElementById('warnSteps').innerHTML = tip;
+}
+function copyPageLink(){
+  var url = location.href.split('#')[0];
+  var done = function(){ document.getElementById('copyBtn').textContent = '已复制，去浏览器粘贴打开'; };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done, function(){ fallbackCopy(url, done); });
+  } else {
+    fallbackCopy(url, done);
+  }
+}
+function fallbackCopy(text, done){
+  var ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); done(); } catch(e){ prompt('请长按复制本页链接', text); }
+  document.body.removeChild(ta);
+}
+document.getElementById('copyBtn').addEventListener('click', copyPageLink);
+if(blockedName){ showBrowserWarn(); }
+
 function fmtSize(n){
   if(!n) return '0 B';
   if(n < 1024) return n + ' B';
@@ -100,9 +172,15 @@ fetch('./app/info').then(function(r){ return r.json(); }).then(function(ret){
       '<div class="row"><span class="k">安装包大小</span><span class="v">' + fmtSize(d.size) + '</span></div>' +
       '<div class="row"><span class="k">更新时间</span><span class="v">' + t + '</span></div>' +
       '<div class="row"><span class="k">状态</span><span class="v status-ok">可下载</span></div>';
-    btn.textContent = '立即下载顺宝宝';
-    btn.className = 'dl-btn';
-    btn.href = d.url;
+    if(blockedName){
+      btn.textContent = '请在手机自带浏览器中下载';
+      btn.className = 'dl-btn disabled';
+      btn.href = 'javascript:;';
+    } else {
+      btn.textContent = '立即下载顺宝宝';
+      btn.className = 'dl-btn';
+      btn.href = d.url;
+    }
   }
 }).catch(function(){
   document.getElementById('card').innerHTML = '<div class="loading" style="color:#e74c3c">网络错误，请稍后重试</div>';
