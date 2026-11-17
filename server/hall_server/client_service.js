@@ -617,6 +617,12 @@ app.get('/club_join',function(req,res){
 				http.send(res,3,"club not found.");
 				return;
 			}
+			//黑名单:被踢出过的玩家不能再次加入,否则删了成员关系他还能自己加回来
+			db.club_ban_check(clubId,data.userid,function(banned){
+			if(banned){
+				http.send(res,8,"您已被移出该俱乐部，无法再次加入");
+				return;
+			}
 			db.club_is_member(clubId,data.userid,function(isMember){
 				if(isMember){
 					http.send(res,4,"已在该俱乐部中");
@@ -643,6 +649,7 @@ app.get('/club_join',function(req,res){
 						http.send(res,0,"ok",{clubid:clubId,name:club.name});
 					});
 				}
+			});
 			});
 		});
 	});
@@ -673,6 +680,7 @@ app.get('/club_pull',function(req,res){
 				http.send(res,4,"仅俱乐部管理员可拉人");
 				return;
 			}
+			//黑名单:被踢出过的玩家不能被社长再拉回来
 			db.get_user_data_by_userid(targetId,function(target){
 				if(target == null){
 					http.send(res,5,"该玩家ID不存在，请确认后重试");
@@ -696,8 +704,15 @@ app.get('/club_pull',function(req,res){
 						});
 					});
 					function doPull(){
-						db.club_join(clubId,targetId,function(ok){
-							http.send(res,ok?0:1,ok?"ok":"pull failed.");
+						//黑名单:被踢出过的玩家不能被社长再拉回来
+						db.club_ban_check(clubId,targetId,function(banned){
+							if(banned){
+								http.send(res,7,"该玩家已被移出俱乐部，无法拉入");
+								return;
+							}
+							db.club_join(clubId,targetId,function(ok){
+								http.send(res,ok?0:1,ok?"ok":"pull failed.");
+							});
 						});
 					}
 				});

@@ -1523,6 +1523,16 @@ exports.club_is_member = function(clubId,userid,callback){
     });
 };
 
+//俱乐部黑名单:被社长/后台踢出的玩家不能再加入或被拉入(表 t_club_ban,club_id+userid 唯一)
+exports.club_ban_check = function(clubId,userid,callback){
+    callback = callback == null? nop:callback;
+    if(!(clubId > 0) || !(userid > 0)){ callback(false); return; }
+    queryP('SELECT club_id FROM t_club_ban WHERE club_id = ? AND userid = ? LIMIT 1',[clubId,userid],function(err,rows){
+        if(err){ callback(false); return; }
+        callback(!!(rows && rows.length));
+    });
+};
+
 //全局配置读写(t_settings 键值表)
 exports.setting_get = function(key,callback){
     callback = callback == null? nop:callback;

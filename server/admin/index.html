@@ -2587,9 +2587,18 @@ function clubRenderMembers(){
     var tr = document.createElement('tr');
     tr.innerHTML = '<td>'+m.userid+'</td><td>'+(m.account||'-')+'</td><td>'+(m.name||'-')+'</td>'+
       '<td>'+m.gems+'</td><td>'+time+'</td>'+
-      '<td><button class="btn btn-primary btn-sm" onclick="clubShowGemModal('+m.userid+','+m.gems+')">调整房卡</button></td>';
+      '<td><button class="btn btn-primary btn-sm" onclick="clubShowGemModal('+m.userid+','+m.gems+')">调整房卡</button> '+
+      '<button class="btn btn-danger btn-sm" onclick="clubKickMember('+m.userid+',\''+String(m.name||m.account||m.userid).replace(/'/g,"\\'")+'\')">踢出俱乐部</button></td>';
     tbody.appendChild(tr);
   });
+}
+function clubKickMember(uid, name){
+  if(!confirm('确定把 ' + name + ' 踢出本俱乐部？\n踢出后该账号(含绑定号)无法再加入本俱乐部。')) return;
+  api('/admin/club_member/kickout', postBody({userid: uid})).then(function(ret){
+    if(ret.code !== 0){ alert(ret.msg || '操作失败'); return; }
+    alert('已踢出');
+    clubLoadMembers();
+  }).catch(function(e){ alert('请求失败: ' + e.message); });
 }
 function clubShowGemModal(uid, current){
   clubGemUserId = uid;
