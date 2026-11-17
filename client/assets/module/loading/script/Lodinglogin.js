@@ -159,11 +159,12 @@ cc.Class({
             return false; //已经生效, 不需要重启(此时读到的包内清单可能也是热更目录里的, 不能做版本判断)
         }
         //包指纹变化(打了新包)时, 旧热更资源一律作废。
-        //指纹用构建时烘焙进包的 bundleVers, 每个构建都不同, 不依赖读APK里的清单/版本号
+        //只有"两边都有指纹且不一致"才作废: 拿不到指纹(jsb-link 的包里没有 bundleVers)时
+        //如果也清, 就会每次启动把刚下好的热更删掉重下, 表现是一直停在更新资源
         var stamp = this._buildStamp();
         var savedStamp = cc.sys.localStorage.getItem("HotUpdateBuildStamp");
-        if(!stamp || savedStamp !== stamp){
-            console.error("[HotUpdate] 包指纹变化或旧热更无指纹, 丢弃: 记录=" + savedStamp + " 当前=" + stamp);
+        if(stamp && savedStamp && savedStamp !== stamp){
+            console.error("[HotUpdate] 包指纹变化, 丢弃旧热更: 记录=" + savedStamp + " 当前=" + stamp);
             this.clearHotUpdate();
             return false;
         }
@@ -171,6 +172,18 @@ cc.Class({
         var hotDir = this._hotStoragePath();
         if(jsb.fileUtils.isDirectoryExist && !jsb.fileUtils.isDirectoryExist(hotDir)){
             console.error("[HotUpdate] 热更目录不存在, 丢弃记录:" + hotDir);
+            this.clearHotUpdate();
+            return false;
+        }
+        //目录在还不够: 必须是"下完整的一份清单且版本高于包内版本", 否则应用上去等于拿半份资源启动
+        var hotManPath = hotDir + "project.manifest";
+        var hotVer = null;
+        try {
+            var hotManStr = jsb.fileUtils.getStringFromFile ? jsb.fileUtils.getStringFromFile(hotManPath) : null;
+            if(hotManStr){ hotVer = (JSON.parse(hotManStr) || {}).version; }
+        } catch(e) { hotVer = null; }
+        if(!hotVer){
+            console.error("[HotUpdate] 热更清单缺失/不完整, 丢弃:" + hotManPath);
             this.clearHotUpdate();
             return false;
         }
@@ -312,7 +325,9 @@ cc.Class({
                             Array.prototype.unshift.apply(searchPaths, newPaths);
                         }
                         cc.sys.localStorage.setItem("HotUpdateSearchPaths", JSON.stringify({paths: searchPaths}));
-                        //指纹/重启标记已废弃: 是否应用这份热更由 main.js 启动时按清单版本决定
+                        //必须同时记下当前包的指纹: 下次启动 applyHotUpdateSearchPaths 会拿它和包内指纹比对,
+                        //没记录就会被判定"旧热更无指纹"直接删掉热更目录, 表现就是每次启动都重新下载
+                        cc.sys.localStorage.setItem("HotUpdateBuildStamp", self._buildStamp() || "");
                     } catch(e) {
                         console.log("[HotUpdate] 保存搜索路径失败:", e);
                     }

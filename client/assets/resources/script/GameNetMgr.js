@@ -118,6 +118,9 @@ cc.Class({
         this.sssConfirmed = null;
         this.sssResult = null;
         this._pendingEvents = [];    //清事件队列:防止上一房间残留事件重放进新房间场景
+        //进房流程的两个超时定时器(登录8秒/切场景10秒)必须一起作废,否则退出房间后还会弹"进入房间超时"
+        if(this._loginTimer){ clearTimeout(this._loginTimer); this._loginTimer = null; }
+        if(this._sceneTimer){ clearTimeout(this._sceneTimer); this._sceneTimer = null; }
     },
 
     //退出房间统一回"牌桌大厅"(club场景按fromClubId直达该俱乐部的玩法/牌桌列表页)。
@@ -127,6 +130,7 @@ cc.Class({
         //退出房间:作废还在跑的8秒进房超时,否则退出去之后还会弹"进入房间超时"
         this._enterSeq = (this._enterSeq || 0) + 1;
         if(this._loginTimer){ clearTimeout(this._loginTimer); this._loginTimer = null; }
+        if(this._sceneTimer){ clearTimeout(this._sceneTimer); this._sceneTimer = null; }
         var cid = 0;
         if(this.roomBackClubId){ cid = parseInt(this.roomBackClubId) || 0; }
         if(!(cid > 0) && cc.vv.fromClubId){ cid = parseInt(cc.vv.fromClubId) || 0; }
@@ -427,8 +431,12 @@ cc.Class({
                 cc.vv.wc.showError("场景 " + sceneName + " 未导入,请在Cocos Creator中刷新资源后重试");
             }
             //兜底:10秒内若没有切到目标场景,收起"正在进入房间"遮罩并给出原因,避免永久卡住
-            setTimeout(function(){
+            //句柄存下来:中途退出房间要能作废,否则退回大厅10秒后会误弹"进入房间超时"
+            if(self._sceneTimer){ clearTimeout(self._sceneTimer); }
+            self._sceneTimer = setTimeout(function(){
+                self._sceneTimer = null;
                 if(!cc.vv || !cc.vv.wc){ return; }
+                if(cc.vv.gameNetMgr && cc.vv.gameNetMgr.roomId == null){ return; } //已退出房间, 不再提示
                 var sn = cc.director.getScene() ? cc.director.getScene().name : "";
                 if(sn === sceneName){ return; }
                 cc.vv.wc.hide();
