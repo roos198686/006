@@ -1601,11 +1601,16 @@ exports.club_hall_context = function(userid,callback){
     });
 };
 
-//用户所属俱乐部ID(一人只能加入一个俱乐部;兼容历史多俱乐部取最早加入的一个)
+//用户所属俱乐部ID(用于抽水归属)
 exports.club_member_clubid = function(userid,callback){
     callback = callback == null? nop:callback;
     if(userid == null){ callback(0); return; }
-    query('SELECT club_id FROM t_club_members WHERE userid = ' + parseInt(userid) + ' ORDER BY join_time,club_id LIMIT 1', function(err, rows){
+    //一个人可能同时在多个俱乐部里(合伙人被设为下级俱乐部社长后, 上级成员表里那条还在),
+    //原来按 join_time 取最早会永远命中上级俱乐部, 导致抽水全归上级、合伙人分成永远为0。
+    //优先级: 自己当社长的俱乐部(自己的合伙人俱乐部) > 最近加入的俱乐部
+    query('SELECT m.club_id FROM t_club_members m LEFT JOIN t_clubs c ON c.id = m.club_id ' +
+          'WHERE m.userid = ' + parseInt(userid) +
+          ' ORDER BY (c.owner_userid = m.userid) DESC, m.join_time DESC LIMIT 1', function(err, rows){
         if(err || !rows || rows.length == 0){ callback(0); return; }
         callback(Number(rows[0].club_id) || 0);
     });
