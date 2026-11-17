@@ -33,7 +33,7 @@ function shuffle(arr){
     }
 }
 // 点数(手摆算点用): 2..10=面值, J/Q/K=0, A=1
-function dianVal(rank){ if(rank >= 11 && rank <= 13) return 0; return rank == 14 ? 1 : rank; }
+function dianVal(rank){ if(rank >= 10 && rank <= 13) return 0; return rank == 14 ? 1 : rank; }
 
 // 顺子检测: ranks 为不含重复点的数组, 返回顶端点数(A可作1, A23456顶端为6), 非顺返回 -1
 function straightTop(ranks){
@@ -464,9 +464,16 @@ function confirmTimeout(game){
 // 让结算倒计时起点=客户端结算弹窗真正弹出的时刻, 特效再长也不会吃掉倒计时
 // 牌型专属特效已全部去掉, 只按打枪/全垒打事件动画预留等待
 function revealFxMs(game){
-    // 与客户端 onBbReveal 的真实节奏对齐: 3道 × 每家1.5秒(每步翻2张+报牌语音), 两种玩法一致。
-    // 之前手摆多算了打枪等待、免摆写死3秒, 都会造成"亮牌结束→结算弹窗"长时间空等。
-    var ms = game.gameSeats.length * 4500;
+    // 与客户端 onBbReveal 的真实节奏对齐: 只有"逐道亮牌"的玩家才占 3 步 × 1.5 秒。
+    // 纯免摆局(baobao_mian)客户端开局一次性亮完, 手摆局里的免摆(auto)玩家也整手一次亮完,
+    // 这两类都不参与逐道轮播; 之前按人数×4500 算, 遇到免摆就会空等十几秒才弹结算。
+    var shou = isShou(game);
+    var steps = 0;
+    for(var i = 0; i < game.gameSeats.length; ++i){
+        if(!shou || game.gameSeats[i].mianFree) continue;
+        steps += 3;
+    }
+    var ms = Math.max(steps, 1) * 1500;   // 客户端至少等 1.5 秒再进打枪特效
     var tr = taiRules(game);
     // 打枪/全垒打: 客户端只在后台开启动画开关时才播
     var dq = calcDaqiang(game);
@@ -475,6 +482,7 @@ function revealFxMs(game){
     var qldOn = tr.anim_qld == null ? true : Number(tr.anim_qld) > 0;
     if(dqOn) ms += dq.list.length * 1500;
     if(qldOn && dq.quanleida.length) ms += 2000;
+    console.log("[宝宝][时序] 亮牌预计 room=" + game.roomId + " 逐道步数=" + steps + " 打枪=" + (dqOn ? dq.list.length : 0) + "对 全垒打=" + (qldOn ? dq.quanleida.length : 0) + " 合计=" + (ms + 200) + "ms");
     // 客户端亮完停留0.25秒后弹结算; 提前一点推送, 保证结算数据已到达客户端
     return ms + 200;
 }
@@ -787,14 +795,16 @@ function buildRevealPayload(game){
         }
         var shouPlayers = game.gameSeats.map(function(s, idx){
             if(s.mianFree){
-                // 免摆玩家也要逐道显示牌型点数: 用系统最优摆法切三道(不参与乌龙判定)
-                var fd = autoArrange(s.holds, tf);
+                // 免摆玩家也要逐道显示牌型点数: 必须用免摆牌型结构切三道(前2/中2/后2),
+                // 不能用 autoArrange 的最优三道——3组9 会被拆成 9K/… 这种组内顺序, 与牌型不符
+                var mo = mianOrder(s.holds, s.mian);
+                var md = [{ cards: mo.slice(0, 2) }, { cards: mo.slice(2, 4) }, { cards: mo.slice(4, 6) }];
                 return {
                     seat: idx,
                     sex: s.sex || 0,
                     mianFree: true,
-                    cards: mianOrder(s.holds, s.mian),
-                    daos: fd.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; }),
+                    cards: mo,
+                    daos: md.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; }),
                     typeKey: s.mian.level,
                     typeName: MIAN_NAMES[s.mian.level],
                     rate: s.mian.rate
@@ -850,6 +860,7 @@ function revealShou(game){
 function doGameOver(game){
     if(game.gameOver) return;
     game.gameOver = true;
+    var t0 = Date.now();   // 时序排查: 亮牌结束 → 结算推送的各段耗时
     if(game.arrangeTimer){ clearTimeout(game.arrangeTimer); game.arrangeTimer = null; }
     if(game.confirmTimer){ clearTimeout(game.confirmTimer); game.confirmTimer = null; }
 
@@ -1045,11 +1056,22 @@ function doGameOver(game){
         });
     };
 
+    // 内存里先把本局输赢累加到房间累计(结算推送要用): 余额落库/回读是异步的, 不能等它
+    for(var ow = 0; ow < n; ++ow){
+        var gsw = game.gameSeats[ow];
+        gsw.roomWin = (gsw.roomWin || 0) + (deltas[ow] || 0);
+        var rsw = (roomInfo && roomInfo.seats) ? roomInfo.seats[gsw.roomSeatIndex] : null;
+        if(rsw) rsw.roomWin = gsw.roomWin;
+    }
     doCharge(function(){
+        console.log("[宝宝][时序] 抽水完成 +" + (Date.now() - t0) + "ms room=" + game.roomId);
         // 统一收费关闭时: 宝宝玩法不再抽水/表情/洗牌, 改按房卡扣(首局结算一次性扣)
         require("./charge").chargeRoomCard(roomInfo, function(){});
         // 宝宝豆结算: 每局按本局输赢分加减账户余额(gems), 余额刷新后用最新余额作为积分推送结算
+        var pushed = false;
         var finish = function(){
+        if(pushed) return;
+        pushed = true;
         // 组装结果(与房间座位对齐, 空位为 null, 兼容 GameNetMgr game_over_push 处理)
         var results = [];
         var roomSeatCount = roomInfo ? roomInfo.seats.length : n;
@@ -1062,15 +1084,17 @@ function doGameOver(game){
                 seatindex: s.roomSeatIndex,
                 delta: deltas[i],
                 score: deltas[i],
-                totalscore: s.score,
+                totalscore: (Number(s.score) || 0) + (deltas[i] || 0),   // 记账异步, 先用内存值算本局后总分
                 holds: s.holds.slice().sort(function(a,b){ return a - b; }),
                 isWinner: deltas[i] > 0
             };
             if(isShou(game)){
                 if(s.mianFree){
                     r.mianFree = true;
-                    // 免摆玩家: 补三道(系统最优摆法)供结算行显示牌型点数
-                    r.daos = autoArrange(s.holds, tongdianMode(game)).map(function(d){
+                    // 免摆玩家: 与亮牌一致, 按免摆牌型结构切三道(前2/中2/后2)供结算行显示
+                    var rmo = mianOrder(s.holds, s.mian);
+                    var rmd = [{ cards: rmo.slice(0, 2) }, { cards: rmo.slice(2, 4) }, { cards: rmo.slice(4, 6) }];
+                    r.daos = rmd.map(function(d){
                         return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) };
                     });
                     r.typeKey = s.mian.level;
@@ -1130,7 +1154,7 @@ function doGameOver(game){
         if(kickBean > 0 && roomInfo && roomInfo.seats){
             for(var gi = 0; gi < game.gameSeats.length; ++gi){
                 var gsu = game.gameSeats[gi];
-                if(gsu.score >= kickBean) continue;
+                if(((Number(gsu.score) || 0) + (deltas[gi] || 0)) >= kickBean) continue;
                 for(var pi2 = 0; pi2 < roomInfo.seats.length; ++pi2){
                     if(roomInfo.seats[pi2].userId == gsu.userId){ remainPlayers--; break; }
                 }
@@ -1172,6 +1196,7 @@ function doGameOver(game){
         game.lastOver = overData;
 
         game.phase = "result";
+        console.log("[宝宝][时序] 结算推送 +" + (Date.now() - t0) + "ms room=" + game.roomId);
         sendToGameSeats(game, 'game_over_push', overData);
 
         // 单局结算: 只有"整场打完"才清退并销毁房间; 否则等玩家在结算弹窗点继续/倒计时结束, 自动进下一局
@@ -1213,8 +1238,7 @@ function doGameOver(game){
                 db.get_user_data_by_userid(uid, function(ud){
                     if(ud && ud.gems != null){ gs.score = ud.gems; }
                     else { gs.score += delta; }
-                    // 房间累计输赢: 总结算弹窗显示本房间所有牌局的加减总和
-                    gs.roomWin = (gs.roomWin || 0) + (delta || 0);
+                    // roomWin 已在结算推送前用内存值累加过, 这里只回写座位/余额
                     var rs = roomInfo.seats[gs.roomSeatIndex];
                     if(rs){ rs.score = gs.score; rs.roomWin = gs.roomWin; }
                     if(kickBean > 0 && gs.score < kickBean) kickForBeans(game.roomId, uid, gs.score, kickBean);
@@ -1233,6 +1257,8 @@ function doGameOver(game){
             else after();
         })(game.gameSeats[ci], deltas[ci]);
     }
+    // 扣豆/回读余额还在异步跑: 不阻塞结算弹窗, 立刻推送(等它们回来会多等几百毫秒到几秒)
+    setTimeout(finish, 0);
     });
 }
 

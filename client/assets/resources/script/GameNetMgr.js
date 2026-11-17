@@ -124,6 +124,9 @@ cc.Class({
     //俱乐部id优先取进房来源(俱乐部进桌),其次房间配置conf.clubid(从大厅按房号进桌也有),
     //两处都取不到才落到俱乐部列表页;不再回系统大厅。
     exitToTableHall:function(){
+        //退出房间:作废还在跑的8秒进房超时,否则退出去之后还会弹"进入房间超时"
+        this._enterSeq = (this._enterSeq || 0) + 1;
+        if(this._loginTimer){ clearTimeout(this._loginTimer); this._loginTimer = null; }
         var cid = 0;
         if(this.roomBackClubId){ cid = parseInt(this.roomBackClubId) || 0; }
         if(!(cid > 0) && cc.vv.fromClubId){ cid = parseInt(cc.vv.fromClubId) || 0; }
@@ -1156,11 +1159,16 @@ cc.Class({
         cc.vv.wc.show("正在进入房间...");
         console.log("[进入房间]连接游戏服 " + cc.vv.net.ip);
         //登录超时检测:8秒无回应则提示,避免永久卡在等待弹窗
+        //每次进房带序号:退出/重进会让旧序号作废,旧定时器不会再弹提示
+        this._enterSeq = (this._enterSeq || 0) + 1;
+        var seq = this._enterSeq;
         var self2 = this;
-        this._loginTimer = setTimeout(function(){
+        var timer = setTimeout(function(){
+            if(self2._enterSeq !== seq || self2._loginTimer !== timer){ return; }
             self2._loginTimer = null;
             cc.vv.wc.showError("进入房间超时,请重试");
         },8000);
+        this._loginTimer = timer;
         try{
             cc.vv.net.connect(onConnectOK,onConnectFailed);
         }catch(e){

@@ -142,8 +142,6 @@ if (window.jsb) {
     };
 }
 
-
-
 /* bobao_hotupdate_boot */
 if (window.jsb && window.localStorage) {
     try {
@@ -196,7 +194,7 @@ if (window.jsb && window.localStorage) {
 if (window.jsb) {
     var isRuntime = (typeof loadRuntime === 'function');
     if (isRuntime) {
-        require(__bbResolveSrc('settings', 'src/settings.73da2.js'));
+        require(__bbResolveSrc('settings', 'src/settings.3d0a8.js'));
         require('src/cocos2d-runtime.js');
         if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
             require(__bbResolveSrc('physics', 'src/physics.10dc9.js'));
@@ -204,7 +202,7 @@ if (window.jsb) {
         require('jsb-adapter/engine/index.js');
     }
     else {
-        require(__bbResolveSrc('settings', 'src/settings.73da2.js'));
+        require(__bbResolveSrc('settings', 'src/settings.3d0a8.js'));
         require(__bbResolveSrc('cocos2d-jsb', 'src/cocos2d-jsb.8491d.js'));
         if (CC_PHYSICS_BUILTIN || CC_PHYSICS_CANNON) {
             require(__bbResolveSrc('physics', 'src/physics.10dc9.js'));
@@ -213,7 +211,6 @@ if (window.jsb) {
     }
 
     cc.macro.CLEANUP_IMAGE_CACHE = true;
-
 /* bobao_build_stamp */
 try {
     var __bv = (window._CCSettings || {}).bundleVers || {};

@@ -1,0 +1,160 @@
+
+wolaile.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+che
+  rotate: false
+  xy: 392, 178
+  size: 97, 76
+  orig: 97, 76
+  offset: 0, 0
+  index: -1
+ershi1
+  rotate: false
+  xy: 455, 140
+  size: 32, 36
+  orig: 32, 36
+  offset: 0, 0
+  index: -1
+ershi2
+  rotate: false
+  xy: 421, 139
+  size: 32, 37
+  orig: 32, 37
+  offset: 0, 0
+  index: -1
+meimao
+  rotate: true
+  xy: 376, 94
+  size: 79, 7
+  orig: 79, 7
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: true
+  xy: 307, 24
+  size: 61, 68
+  orig: 61, 68
+  offset: 0, 0
+  index: -1
+tou
+  rotate: false
+  xy: 2, 66
+  size: 190, 188
+  orig: 190, 188
+  offset: 0, 0
+  index: -1
+toufa1
+  rotate: false
+  xy: 126, 13
+  size: 56, 51
+  orig: 56, 51
+  offset: 0, 0
+  index: -1
+toufa2
+  rotate: false
+  xy: 194, 79
+  size: 109, 94
+  orig: 109, 94
+  offset: 0, 0
+  index: -1
+toufa3
+  rotate: false
+  xy: 305, 87
+  size: 69, 86
+  orig: 69, 86
+  offset: 0, 0
+  index: -1
+toufa4
+  rotate: false
+  xy: 421, 107
+  size: 27, 30
+  orig: 27, 30
+  offset: 0, 0
+  index: -1
+toujin
+  rotate: false
+  xy: 194, 175
+  size: 196, 79
+  orig: 196, 79
+  offset: 0, 0
+  index: -1
+wenzi
+  rotate: true
+  xy: 2, 23
+  size: 41, 122
+  orig: 41, 122
+  offset: 0, 0
+  index: -1
+yan
+  rotate: false
+  xy: 194, 26
+  size: 111, 51
+  orig: 111, 51
+  offset: 0, 0
+  index: -1
+yan1
+  rotate: false
+  xy: 107, 11
+  size: 10, 10
+  orig: 10, 10
+  offset: 0, 0
+  index: -1
+yan2
+  rotate: false
+  xy: 26, 2
+  size: 16, 19
+  orig: 16, 19
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 79, 9
+  size: 12, 12
+  orig: 12, 12
+  offset: 0, 0
+  index: -1
+youshoubi1
+  rotate: false
+  xy: 491, 215
+  size: 19, 39
+  orig: 19, 39
+  offset: 0, 0
+  index: -1
+youshoubi2
+  rotate: false
+  xy: 491, 180
+  size: 19, 33
+  orig: 19, 33
+  offset: 0, 0
+  index: -1
+zui
+  rotate: true
+  xy: 385, 105
+  size: 68, 34
+  orig: 68, 34
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 93, 9
+  size: 12, 12
+  orig: 12, 12
+  offset: 0, 0
+  index: -1
+zuoshoubi
+  rotate: true
+  xy: 44, 7
+  size: 14, 33
+  orig: 14, 33
+  offset: 0, 0
+  index: -1
+zuoshoubi2
+  rotate: true
+  xy: 2, 2
+  size: 19, 22
+  orig: 19, 22
+  offset: 0, 0
+  index: -1

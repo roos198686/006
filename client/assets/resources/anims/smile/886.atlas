@@ -1,0 +1,62 @@
+
+886.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+shenti
+  rotate: false
+  xy: 2, 2
+  size: 229, 229
+  orig: 229, 229
+  offset: 0, 0
+  index: -1
+shuzi
+  rotate: false
+  xy: 233, 152
+  size: 190, 79
+  orig: 190, 79
+  offset: 0, 0
+  index: -1
+youdabi
+  rotate: false
+  xy: 425, 179
+  size: 42, 52
+  orig: 42, 52
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 233, 96
+  size: 44, 54
+  orig: 44, 54
+  offset: 0, 0
+  index: -1
+youxiaobi
+  rotate: false
+  xy: 233, 51
+  size: 30, 43
+  orig: 30, 43
+  offset: 0, 0
+  index: -1
+zuodabi
+  rotate: true
+  xy: 233, 14
+  size: 35, 26
+  orig: 35, 26
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 469, 199
+  size: 33, 32
+  orig: 33, 32
+  offset: 0, 0
+  index: -1
+zuoxiaobi
+  rotate: false
+  xy: 279, 103
+  size: 24, 47
+  orig: 24, 47
+  offset: 0, 0
+  index: -1

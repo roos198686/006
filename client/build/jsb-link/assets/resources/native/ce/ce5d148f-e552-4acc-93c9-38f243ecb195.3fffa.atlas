@@ -1,0 +1,83 @@
+
+kuaidian.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+dao
+  rotate: false
+  xy: 309, 123
+  size: 75, 127
+  orig: 75, 127
+  offset: 0, 0
+  index: -1
+fuhao
+  rotate: false
+  xy: 386, 126
+  size: 54, 64
+  orig: 54, 64
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: false
+  xy: 2, 40
+  size: 191, 210
+  orig: 191, 210
+  offset: 0, 0
+  index: -1
+toushi
+  rotate: false
+  xy: 386, 192
+  size: 63, 58
+  orig: 63, 58
+  offset: 0, 0
+  index: -1
+youjiao
+  rotate: false
+  xy: 326, 94
+  size: 34, 27
+  orig: 34, 27
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: true
+  xy: 2, 2
+  size: 36, 53
+  orig: 36, 53
+  offset: 0, 0
+  index: -1
+youyan
+  rotate: false
+  xy: 195, 46
+  size: 51, 75
+  orig: 51, 75
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 195, 123
+  size: 112, 127
+  orig: 112, 127
+  offset: 0, 0
+  index: -1
+zuojiao
+  rotate: true
+  xy: 248, 50
+  size: 26, 41
+  orig: 26, 41
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 451, 197
+  size: 25, 53
+  orig: 25, 53
+  offset: 0, 0
+  index: -1
+zuoyan
+  rotate: true
+  xy: 248, 78
+  size: 43, 76
+  orig: 43, 76
+  offset: 0, 0
+  index: -1

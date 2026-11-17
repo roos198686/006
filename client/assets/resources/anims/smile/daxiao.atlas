@@ -1,0 +1,76 @@
+
+daxiao.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+shenti
+  rotate: false
+  xy: 2, 47
+  size: 189, 205
+  orig: 189, 205
+  offset: 0, 0
+  index: -1
+toushi
+  rotate: false
+  xy: 193, 59
+  size: 56, 65
+  orig: 56, 65
+  offset: 0, 0
+  index: -1
+yan
+  rotate: false
+  xy: 289, 232
+  size: 68, 20
+  orig: 68, 20
+  offset: 0, 0
+  index: -1
+youjiao
+  rotate: false
+  xy: 80, 19
+  size: 33, 26
+  orig: 33, 26
+  offset: 0, 0
+  index: -1
+youmeimao
+  rotate: false
+  xy: 2, 2
+  size: 76, 43
+  orig: 76, 43
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 289, 198
+  size: 26, 32
+  orig: 26, 32
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 193, 126
+  size: 94, 126
+  orig: 94, 126
+  offset: 0, 0
+  index: -1
+zuojiao
+  rotate: false
+  xy: 317, 199
+  size: 27, 31
+  orig: 27, 31
+  offset: 0, 0
+  index: -1
+zuomeimao
+  rotate: true
+  xy: 251, 82
+  size: 42, 31
+  orig: 42, 31
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: true
+  xy: 359, 232
+  size: 20, 27
+  orig: 20, 27
+  offset: 0, 0
+  index: -1

@@ -271,17 +271,24 @@ cc.Class({
                 case EV.NEW_VERSION_FOUND:
                     self._hotCheckDone = true; //检查阶段结束, 进入下载, 不再受检查超时限制
                     self.showHotTip("发现新版本, 正在更新");
+                    //下载阶段也要有看门狗: 网络卡住/资源下不下来时不能永远停在"正在更新资源"
+                    self._hotLastProgressAt = Date.now();
+                    self._startHotDlWatch(am);
                     self.scheduleOnce(function(){
                         if(self._hotAm === am) am.update();
                     }, 0);
                     break;
                 case EV.UPDATE_PROGRESSION:
                     self._stateStr = "正在更新资源";
-                    self._isLoading = true;
+                    self._isLoading = true;   //打开进度条显示(百分比由 update() 平滑推进)
                     //百分比的坑: getPercent() 是"当前这批任务"的字节比例, 每批都会从0重算,
                     //所以显示会在 0~11% 之间来回跳。改用 已下载文件数/总文件数, 单调递增。
                     var doneFiles = event.getDownloadedFiles ? event.getDownloadedFiles() : 0;
                     var totalFiles = event.getTotalFiles ? event.getTotalFiles() : 0;
+                    self._hotLastProgressAt = Date.now(); //有进度就续命, 看门狗只在完全没进展时触发
+                    if(totalFiles > 0){
+                        self._stateStr = "正在更新资源 " + doneFiles + "/" + totalFiles;
+                    }
                     var pct;
                     if(totalFiles > 0){
                         pct = doneFiles / totalFiles * 100;
@@ -316,7 +323,8 @@ cc.Class({
                     break;
                 case EV.UPDATE_FAILED:
                     self._hotFailCount++;
-                    if(self._hotFailCount <= 3){
+                    //单独文件下载失败很常见(手机断流/服务端偶发5xx), 多给几次机会, 别一两下就放弃
+                    if(self._hotFailCount <= 10){
                         console.log("[HotUpdate] 下载失败, 第" + self._hotFailCount + "次重试");
                         am.downloadFailedAssets();
                     } else {
@@ -352,9 +360,29 @@ cc.Class({
         am.checkUpdate();
     },
 
+    //下载阶段看门狗: 90秒没有任何下载进展就跳过热更继续启动,
+    //否则网络卡住时页面会永远停在"正在更新资源"
+    _startHotDlWatch:function(am){
+        var self = this;
+        if(this._hotDlTimer){ clearInterval(this._hotDlTimer); }
+        this._hotDlTimer = setInterval(function(){
+            if(!self._hotAm || self._hotAm !== am){
+                clearInterval(self._hotDlTimer); self._hotDlTimer = null;
+                return;
+            }
+            if(Date.now() - (self._hotLastProgressAt || 0) < 90000){ return; }
+            clearInterval(self._hotDlTimer); self._hotDlTimer = null;
+            console.error("[HotUpdate] 下载超时(90秒无进展), 跳过热更");
+            self.showHotTip("更新超时, 跳过更新");
+            self._finishHot();
+            self.checkVersion();
+        }, 5000);
+    },
+
     //热更结束(成功重启前/跳过热更)清理事件回调; 管理器引用留到 onDestroy 统一释放
     _finishHot:function(){
         this._hotCheckDone = true;
+        if(this._hotDlTimer){ clearInterval(this._hotDlTimer); this._hotDlTimer = null; }
         if(this._hotWatchdog){ clearTimeout(this._hotWatchdog); this._hotWatchdog = null; }
         if(this._hotAm){
             try { this._hotAm.setEventCallback(null); } catch(e){}
@@ -370,6 +398,7 @@ cc.Class({
     },
 
     onDestroy:function(){
+        if(this._hotDlTimer){ clearInterval(this._hotDlTimer); this._hotDlTimer = null; }
         if(this._hotWatchdog){ clearTimeout(this._hotWatchdog); this._hotWatchdog = null; }
         if(this._hotAm){
             //AssetsManagerEx 未导出 release, 这里只解绑回调

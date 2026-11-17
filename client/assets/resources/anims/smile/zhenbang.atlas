@@ -1,0 +1,104 @@
+
+zhenbang.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+shenti
+  rotate: false
+  xy: 2, 44
+  size: 203, 210
+  orig: 203, 210
+  offset: 0, 0
+  index: -1
+shou1
+  rotate: false
+  xy: 332, 194
+  size: 55, 60
+  orig: 55, 60
+  offset: 0, 0
+  index: -1
+shou2
+  rotate: false
+  xy: 207, 67
+  size: 34, 45
+  orig: 34, 45
+  offset: 0, 0
+  index: -1
+shoudabi
+  rotate: false
+  xy: 2, 2
+  size: 40, 40
+  orig: 40, 40
+  offset: 0, 0
+  index: -1
+shouxiaobi
+  rotate: true
+  xy: 460, 209
+  size: 45, 50
+  orig: 45, 50
+  offset: 0, 0
+  index: -1
+toushi
+  rotate: false
+  xy: 207, 114
+  size: 58, 64
+  orig: 58, 64
+  offset: 0, 0
+  index: -1
+youjiao
+  rotate: false
+  xy: 267, 150
+  size: 36, 28
+  orig: 36, 28
+  offset: 0, 0
+  index: -1
+youmeimao
+  rotate: false
+  xy: 389, 212
+  size: 69, 42
+  orig: 69, 42
+  offset: 0, 0
+  index: -1
+youyan
+  rotate: false
+  xy: 104, 5
+  size: 20, 37
+  orig: 20, 37
+  offset: 0, 0
+  index: -1
+zuoyan
+  rotate: false
+  xy: 104, 5
+  size: 20, 37
+  orig: 20, 37
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 207, 180
+  size: 123, 74
+  orig: 123, 74
+  offset: 0, 0
+  index: -1
+zuojiao
+  rotate: false
+  xy: 267, 118
+  size: 27, 30
+  orig: 27, 30
+  offset: 0, 0
+  index: -1
+zuomeimao
+  rotate: true
+  xy: 44, 2
+  size: 40, 31
+  orig: 40, 31
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 77, 2
+  size: 25, 40
+  orig: 25, 40
+  offset: 0, 0
+  index: -1

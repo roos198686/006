@@ -1,0 +1,132 @@
+
+dalaozaici.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+ci
+  rotate: true
+  xy: 214, 105
+  size: 37, 33
+  orig: 37, 33
+  offset: 0, 0
+  index: -1
+da
+  rotate: false
+  xy: 474, 217
+  size: 36, 36
+  orig: 36, 36
+  offset: 0, 0
+  index: -1
+lao
+  rotate: false
+  xy: 434, 217
+  size: 38, 36
+  orig: 38, 36
+  offset: 0, 0
+  index: -1
+q
+  rotate: true
+  xy: 140, 38
+  size: 22, 14
+  orig: 22, 14
+  offset: 0, 0
+  index: -1
+shanzi
+  rotate: true
+  xy: 161, 89
+  size: 87, 51
+  orig: 87, 51
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: false
+  xy: 161, 178
+  size: 79, 75
+  orig: 79, 75
+  offset: 0, 0
+  index: -1
+tou
+  rotate: false
+  xy: 2, 62
+  size: 157, 191
+  orig: 157, 191
+  offset: 0, 0
+  index: -1
+tou1
+  rotate: false
+  xy: 242, 169
+  size: 62, 49
+  orig: 62, 49
+  offset: 0, 0
+  index: -1
+tou2
+  rotate: false
+  xy: 331, 206
+  size: 61, 47
+  orig: 61, 47
+  offset: 0, 0
+  index: -1
+xianlian
+  rotate: false
+  xy: 161, 57
+  size: 42, 30
+  orig: 42, 30
+  offset: 0, 0
+  index: -1
+xin1
+  rotate: false
+  xy: 40, 6
+  size: 9, 21
+  orig: 9, 21
+  offset: 0, 0
+  index: -1
+xin2
+  rotate: false
+  xy: 306, 184
+  size: 14, 34
+  orig: 14, 34
+  offset: 0, 0
+  index: -1
+xin3
+  rotate: false
+  xy: 306, 184
+  size: 14, 34
+  orig: 14, 34
+  offset: 0, 0
+  index: -1
+xin4
+  rotate: false
+  xy: 214, 144
+  size: 17, 32
+  orig: 17, 32
+  offset: 0, 0
+  index: -1
+xiukou
+  rotate: true
+  xy: 2, 2
+  size: 25, 36
+  orig: 25, 36
+  offset: 0, 0
+  index: -1
+yanjing
+  rotate: false
+  xy: 2, 29
+  size: 136, 31
+  orig: 136, 31
+  offset: 0, 0
+  index: -1
+zai
+  rotate: false
+  xy: 394, 216
+  size: 38, 37
+  orig: 38, 37
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 242, 220
+  size: 87, 33
+  orig: 87, 33
+  offset: 0, 0
+  index: -1
