@@ -791,10 +791,14 @@ app.post('/admin/club_member/kick', auth, function(req, res){
         if(err || !rows || rows.length == 0 || !rows[0].roomid){
             send(res, 0, "ok"); return; // 不在房间也算成功
         }
-        var roomId = rows[0].roomid;
-        var rsign = crypto.md5(String(roomId) + priKey);
-        http.get(roomData.ip, roomData.port, '/kick_user?roomid=' + roomId + '&userid=' + userid + '&sign=' + rsign, null, function(ret, data){
-            send(res, 0, "ok");
+        var roomId = String(rows[0].roomid);
+        // 必须先从房间表拿到游戏服 ip/port, 原来这里直接用了未定义的 roomData 会抛异常
+        db.get_room_data(roomId, function(roomData){
+            if(!roomData){ send(res, 0, "ok"); return; }
+            var rsign = crypto.md5(roomId + priKey);
+            http.get(roomData.ip, roomData.port, '/kick_user?roomid=' + roomId + '&userid=' + userid + '&sign=' + rsign, null, function(ret, data){
+                send(res, 0, "ok");
+            });
         });
     });
 });
