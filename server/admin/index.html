@@ -2593,7 +2593,7 @@ function clubRenderMembers(){
   });
 }
 function clubKickMember(uid, name){
-  if(!confirm('确定把 ' + name + ' 踢出本俱乐部？\n踢出后该账号(含绑定号)无法再加入本俱乐部。')) return;
+  if(!confirm('确定把 ' + name + ' 踢出本俱乐部？')) return;
   api('/admin/club_member/kickout', postBody({userid: uid})).then(function(ret){
     if(ret.code !== 0){ alert(ret.msg || '操作失败'); return; }
     alert('已踢出');

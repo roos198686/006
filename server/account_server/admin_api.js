@@ -803,7 +803,7 @@ app.post('/admin/club_member/kick', auth, function(req, res){
     });
 });
 
-// 踢出俱乐部:删成员关系并拉黑(防止对方再加回来),同时清掉房间占用
+// 踢出俱乐部:删除成员关系(含绑定号)并释放房间占用
 app.post('/admin/club_member/kickout', auth, function(req, res){
     var cid = resolveClubId(req, res);
     if(!cid) return;
@@ -815,7 +815,7 @@ app.post('/admin/club_member/kickout', auth, function(req, res){
         if(err || !rows || rows.length == 0){ send(res, 1, "用户不存在"); return; }
         var account = rows[0].account || "";
         var accs = [account];
-        //绑定号(游客号/微信号)一并处理,否则删了主号,绑定号还在俱乐部里
+        //绑定号(游客号/微信号)一并删除,否则删了主号,绑定号还在俱乐部里
         db.query('SELECT account_a,account_b,primary_account FROM t_account_bind WHERE account_a = ' + esc(account) +
                  ' OR account_b = ' + esc(account) + ' OR primary_account = ' + esc(account), function(err2, binds){
             (binds || []).forEach(function(b){
@@ -824,17 +824,10 @@ app.post('/admin/club_member/kickout', auth, function(req, res){
                 });
             });
             var list = accs.map(esc).join(',');
-            var now = Math.ceil(Date.now() / 1000);
-            db.query('CREATE TABLE IF NOT EXISTS t_club_ban (club_id INT NOT NULL, userid INT NOT NULL, ' +
-                     'create_time INT NOT NULL DEFAULT 0, PRIMARY KEY (club_id, userid)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4', function(){
-                db.query('DELETE m FROM t_club_members m JOIN t_users u ON u.userid = m.userid ' +
-                         'WHERE m.club_id = ' + cid + ' AND u.account IN (' + list + ')', function(){
-                    db.query('INSERT IGNORE INTO t_club_ban(club_id,userid,create_time) SELECT ' + cid + ', userid, ' + now +
-                             ' FROM t_users WHERE account IN (' + list + ')', function(){
-                        db.query('UPDATE t_users SET roomid = NULL WHERE account IN (' + list + ')', function(){
-                            send(res, 0, "ok");
-                        });
-                    });
+            db.query('DELETE m FROM t_club_members m JOIN t_users u ON u.userid = m.userid ' +
+                     'WHERE m.club_id = ' + cid + ' AND u.account IN (' + list + ')', function(){
+                db.query('UPDATE t_users SET roomid = NULL WHERE account IN (' + list + ')', function(){
+                    send(res, 0, "ok");
                 });
             });
         });
