@@ -905,10 +905,35 @@ cc.Class({
         return b;
     },
 
+    // 图集动图 xgd: 6 张逐帧图(xg1~xg6)在 anims/xgd 下, 与骨骼表情共用发送链路
+    _loadXgdFrames: function () {
+        if (this._xgdFrames || this._xgdLoading) return;
+        this._xgdLoading = true;
+        var self = this;
+        cc.resources.load("anims/xgd/xgd", cc.SpriteAtlas, function (err, atlas) {
+            self._xgdLoading = false;
+            if (err || !atlas) { console.log("[BB] xgd 图集加载失败", err); return; }
+            var arr = [];
+            for (var i = 1; i <= 6; ++i) {
+                var fr = atlas.getSpriteFrame("xg" + i + ".png") || atlas.getSpriteFrame("xg" + i);
+                if (!fr) break;
+                arr.push(fr);
+            }
+            if (!arr.length) { console.log("[BB] xgd 图集里没有帧"); return; }
+            self._xgdFrames = arr;
+            console.log("[BB] xgd 动图帧数=" + arr.length);
+            if (self._xgdCell && cc.isValid(self._xgdCell)) {
+                var sp = self._xgdCell.getComponent(cc.Sprite);
+                if (sp) { sp.enabled = true; sp.sizeMode = cc.Sprite.SizeMode.CUSTOM; sp.spriteFrame = arr[0]; }
+            }
+        });
+    },
+
     // 动态表情面板(userinfo 下): 场景里的 15 个静态表情原位隐藏, 同坐标换成骨骼节点
     _buildEmojiPanel: function () {
         var panel = this._dynEmojiList;
         if (this._emojiPanelBuilt || !panel) return;
+        this._loadXgdFrames();
         var grid = panel.children && panel.children[0];
         if (!grid || !grid.children || !grid.children.length) return;
         this._emojiPanelBuilt = true;
@@ -945,6 +970,29 @@ cc.Class({
             com.skeletonData = sd;
             com.setAnimation(0, "animation", true);
         });
+        // 图集逐帧动图(xgd): 在第三行空位补一格, 点击与骨骼表情同一条发送链路
+        if (!grid.getChildByName("xgd")) {
+            var srcCell = olds[0];
+            var cell = cc.instantiate(srcCell);
+            cell.name = "xgd";
+            cell.parent = grid;
+            cell.setPosition(66, -155);
+            cell.setContentSize(150, 150);
+            var cbtn = cell.getComponent(cc.Button);
+            if (cbtn) cbtn.enabled = false;
+            cell.off(cc.Node.EventType.TOUCH_END);
+            // 克隆源格子此时已被换成骨骼动画(skel 子节点), 必须清掉, 否则格子里显示的是别人的动态表情
+            var skel = cell.getChildByName("skel");
+            if (skel) skel.destroy();
+            var cspr = cell.getComponent(cc.Sprite);
+            if (cspr) {
+                cspr.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+                cspr.enabled = !!this._xgdFrames;
+                if (this._xgdFrames) cspr.spriteFrame = this._xgdFrames[0];
+            }
+            this._xgdCell = cell;
+        }
+        cells.push({ x: 66, y: -155, name: "xgd" });
         if (!cells.length) return;
         // 整个表情区统一接一层点击, 按触点找最近的格子:
         // 单格各自绑点击时, 点在格子边缘会落到弹窗底图上, 表现就是"第一下没反应, 再点一下才发送"
@@ -999,6 +1047,7 @@ cc.Class({
 
     // 在指定座位头像上生成动态表情节点(挂 Canvas 最上层); loop=true 循环播放
     _spawnSeatEmoji: function (slot, name, loop) {
+        if (name === "xgd") return this._spawnXgdEmoji(slot, loop);
         var sn = this._seatNodes[slot];
         var root = (sn && sn.root) ? sn.root : this.findNode(this.node, "bbSeat" + slot);
         if (!root) return null;
@@ -1035,6 +1084,55 @@ cc.Class({
         var sk = n.addComponent(sp.Skeleton);
         sk.skeletonData = sd;
         sk.setAnimation(0, "animation", !!loop);
+        return n;
+    },
+
+    // 图集动图(xgd)播放: 定位/层级规则与骨骼表情一致(Canvas 最上层、按头像宽缩放、上座顶边对齐)
+    _spawnXgdEmoji: function (slot, loop) {
+        var frames = this._xgdFrames;
+        if (!frames || !frames.length) { this._loadXgdFrames(); return null; }
+        var sn = this._seatNodes[slot];
+        var root = (sn && sn.root) ? sn.root : this.findNode(this.node, "bbSeat" + slot);
+        if (!root) return null;
+        var icon = this.findNode(root, "icon") || root;
+        var old = icon.getChildByName("emoteAnim");
+        if (old) old.destroy();
+        var fo = frames[0].getOriginalSize();
+        var wr = icon.getBoundingBoxToWorld();
+        var w = wr.width > 0 ? wr.width : 120;
+        var h = wr.height > 0 ? wr.height : w;
+        var scale = (w / fo.width) * 1.8;
+        var n = new cc.Node("emoteAnim");
+        n.parent = this.node;
+        n.zIndex = 9999;
+        n.setSiblingIndex(this.node.children.length - 1);
+        var sp = n.addComponent(cc.Sprite);
+        sp.sizeMode = cc.Sprite.SizeMode.RAW;   // 每帧宽度不同(300/350/460), 用原始尺寸
+        sp.spriteFrame = frames[0];
+        var wp = icon.convertToWorldSpaceAR(cc.v2(0, 0));
+        var pos = this.node.convertToNodeSpaceAR(wp);
+        if (slot === 3) {
+            // 最上座: 素材顶边与头像顶边平齐, 往下展开
+            pos.y = pos.y + h / 2 - fo.height * scale / 2;
+        }
+        n.scale = scale;
+        n.setPosition(pos);
+        var idx = 0;
+        var step = function () {
+            if (!cc.isValid(n)) return;
+            sp.spriteFrame = frames[idx % frames.length];
+            idx++;
+        };
+        step();
+        var tick = cc.sequence(cc.delayTime(0.22), cc.callFunc(step));
+        if (loop) {
+            n.runAction(cc.repeatForever(tick));
+        } else {
+            // 只播一遍(~1.3 秒), 播完销毁
+            n.runAction(cc.sequence(cc.repeat(tick, frames.length), cc.callFunc(function () {
+                if (cc.isValid(n)) n.destroy();
+            })));
+        }
         return n;
     },
 
@@ -1125,9 +1223,10 @@ cc.Class({
             var raw = String(content).replace(/\.png$/i, "");
             // 动态表情: 在场景 bbBubbleEmoji 上叠加骨骼动画(位置/尺寸/层级不动), 循环播到气泡收起
             // forceStatic(静态表情面板发的)时即使同名有骨骼也按静态帧显示
-            var sd = !forceStatic && this._emojiSpine && this._emojiSpine[raw];
-            console.log("[BB] emoji-bubble 内容=" + raw + " 骨骼=" + (!!sd) + " 槽位=" + slot);
-            if (em && sd) {
+            var isXgd = (raw === "xgd") && !forceStatic;
+            var sd = !forceStatic && !isXgd && this._emojiSpine && this._emojiSpine[raw];
+            console.log("[BB] emoji-bubble 内容=" + raw + " 骨骼=" + (!!sd) + " 图集=" + isXgd + " 槽位=" + slot);
+            if (em && (sd || isXgd)) {
                 this._clearEmojiSpine(sn);
                 // 位置以发送者头像为准: 气泡节点的坐标是给文字气泡用的, 直接用它会出现"播到别人头像上"
                 em.active = false;
