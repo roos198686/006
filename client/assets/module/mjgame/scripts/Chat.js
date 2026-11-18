@@ -154,14 +154,16 @@ cc.Class({
         this._emojiPanelBuilt = true;
         var self = this;
         var names = this._emojiSpineNames;
-        var cells = [];
         grid.children.slice().forEach(function(old, idx){
             var name = names[idx];
             if(!name) return;
-            cells.push({x:old.x, y:old.y, name:name});
             var btn = old.getComponent(cc.Button);
             if(btn) btn.enabled = false;      //停用原来的静态表情点击
             old.off(cc.Node.EventType.TOUCH_END);
+            //每个格子自己接收点击: 不用坐标算最近格, 避免面板缩放/Widget重排后点击位置偏移
+            old.on(cc.Node.EventType.TOUCH_END, function(){
+                self._sendEmoji(name);
+            });
             var sd = self._emojiSpine[name];
             if(!sd) return;
             var spr = old.getComponent(cc.Sprite);
@@ -176,19 +178,6 @@ cc.Class({
             var com = vis.addComponent(sp.Skeleton);
             com.skeletonData = sd;
             com.setAnimation(0, "animation", true);
-        });
-        if(!cells.length) return;
-        this._tabEmoji.off(cc.Node.EventType.TOUCH_END);
-        this._tabEmoji.on(cc.Node.EventType.TOUCH_END, function(ev){
-            var p = grid.convertToNodeSpaceAR(cc.v2(ev.getLocation()));
-            var best = null, bd = 1e9;
-            for(var i = 0; i < cells.length; ++i){
-                var dx = p.x - cells[i].x, dy = p.y - cells[i].y;
-                var d = dx * dx + dy * dy;
-                if(d < bd){ bd = d; best = cells[i]; }
-            }
-            if(!best) return;
-            self._sendEmoji(best.name);
         });
     },
 

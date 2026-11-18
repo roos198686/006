@@ -20,6 +20,7 @@ function tintHandCard(node, isCs){
 }
 
 var DiceRoll = require("DiceRoll");
+var OpeningFlow = require("OpeningFlow");
 
 cc.Class({
     extends: cc.Component,
@@ -105,13 +106,33 @@ cc.Class({
             //座位只有game下的一套:进房即显示牌桌,prepare只留按钮浮在牌桌上
             this.gameRoot.active = true;
             this.prepareRoot.active = true;
+            //准备区浮到牌桌之上:牌桌层(手牌按钮)在Canvas里排在prepare后面,不提层会吃掉准备/退出按钮的点击
+            this.prepareRoot.setSiblingIndex(this.gameRoot.getSiblingIndex() + 1);
             this.initWanfaLabel();
-            this.onGameBeign();
-            this.initCaishenTip(); //场景加载时若已开局(错过game_start事件)也补绘财神
+            //进房时服务端可能已把 gamestate 置成 begin,但一张牌都还没发:那不是牌局。
+            //此时绝不能走 onGameBeign 把牌桌打开、把准备区关掉,否则第一次进房就一个按钮都点不了。
+            if(this._isGameInProgress()){
+                OpeningFlow.restore(this, this._openingHooks());
+            }
             cc.vv.audioMgr.playBGM("bgFight.mp3");
         }catch(e){
             console.error('[ZJLAO] onLoad 收尾异常:', (e && e.stack) ? e.stack : e);
         }
+    },
+
+    //是否真的在一局牌里:进房/准备阶段服务端也会把 gamestate 置 begin,但一张牌都没有,
+    //这种情况必须停在准备界面(准备/退出可点),不能当成牌局把牌桌打开
+    _isGameInProgress:function(){
+        var nm = cc.vv.gameNetMgr;
+        if(nm.gamestate != "begin"){ return false; }
+        var seats = nm.seats || [];
+        for(var i = 0; i < seats.length; ++i){
+            var sd = seats[i];
+            if(!sd){ continue; }
+            if(sd.holds instanceof Array && sd.holds.length > 0){ return true; }
+            if(sd.holdCount > 0){ return true; }
+        }
+        return nm.curaction != null || nm.numOfMJ > 0;
     },
 
     //初始化
@@ -209,6 +230,8 @@ cc.Class({
     _updateMjCount:function(){
         if(!this._mjcount){ return; }
         var room = this.getComponent("MJRoom");
+        //清桌时牌墙被隐藏,这里刷新并恢复显示
+        if(room){ room.refreshBrickWall(); }
         var n = (room && room._brickRemainCount != null) ? room._brickRemainCount : cc.vv.gameNetMgr.numOfMJ;
         this._mjcount.string = "剩余" + n + "张";
     },
@@ -231,10 +254,11 @@ cc.Class({
         if(!this._overClosedHooked){
             this._overClosedHooked = true;
             this.node.on('game_over_popup_closed', function(){
-                //2人房:必须两名玩家都点关闭(服务端开新局)才隐藏牌桌,自己点关闭时桌面牌保持显示
-                if(cc.vv.mahjongmgr && cc.vv.mahjongmgr.is2Player()){ return; }
-                if(!self._pendingShowPrepare){ return; }
                 self._pendingShowPrepare = false;
+                //关闭结算弹窗:清理牌桌/色子点数/财神,等下一局的色子动画重新铺桌
+                OpeningFlow.end(self, { clear: function(){ self._clearOpeningTable(); } });
+                //2人房:不切回准备界面,保持空桌等下一局色子;4人房回准备界面
+                if(cc.vv.mahjongmgr && cc.vv.mahjongmgr.is2Player()){ return; }
                 if(self.gameRoot){ self.gameRoot.active = true; }
                 if(self.prepareRoot){ self.prepareRoot.active = true; }
             });
@@ -271,23 +295,17 @@ cc.Class({
 
         var self = this;
         //开始（zj协议开局完整座位数据）
+        //开局顺序统一由 OpeningFlow 驱动:色子结束 -> 局数/余牌/色子点数 -> 发牌 -> 财神
         this.node.on('game_start',function(data){
-            //onGameBeign任何异常都不能影响财神区刷新,否则财神永远不显示
-            try{ self.onGameBeign(true, data && data.detail); }catch(e){ console.error('[ZJLAO] onGameBeign error:', e); }
-            self.initCaishenTip();
-            //掷色子:色子播完才发牌(补发残局/回放不播)
-            try{
-                if(self._isFreshDeal()){ DiceRoll.play(self.node, function(){ DiceRoll.flushDeal(self); }); }
-            }catch(e){ console.error('[色子] 播放异常:', e); }
-            //开局:显示剩余张数/局数
-            self._setCountVisible(true);
-            self._updateMjCount();
+            OpeningFlow.start(self, self._openingHooks(), data);
         });
 
+        //新一局:服务端此时还没发牌,先按空牌桌渲染,再播掷色子
         this.node.on('game_begin',function(data){
-            self.onGameBeign();
-            self._setCountVisible(true);
-            self._updateMjCount();
+            OpeningFlow.begin(self, {
+                before: function(){ try{ self.onGameBeign(); }catch(e){ console.error('[ZJLAO] onGameBeign error:', e); } },
+                clear: function(){ self._clearOpeningTable(); }
+            });
         });
 
         //出牌轮次切换
@@ -352,6 +370,8 @@ cc.Class({
         });
 
         this.node.on('mj_count',function(data){
+            //色子开场期间不显示局数/余牌:等色子播完、game_start 渲染手牌时一起出现
+            if(DiceRoll.isPlaying()){ return; }
             self._setCountVisible(cc.vv.gameNetMgr.gamestate == "begin");
             self._updateMjCount();
         });
@@ -1061,6 +1081,44 @@ cc.Class({
             if(spKey){ cc.vv.mahjongmgr.playSpineEfx(efxNode, spKey); }
         }
     },
+    //开局流程动作(顺序由 OpeningFlow 统一控制,这里只提供本场景的四个动作)
+    _openingHooks:function(){
+        var self = this;
+        return {
+            clear: function(){ self._clearOpeningTable(); },
+            info: function(){
+                DiceRoll.setOpeningVisible(self, true);
+                self._setCountVisible(true);
+                self._updateMjCount();
+            },
+            render: function(data){ self.onGameBeign(true, data && data.detail); },
+            deal: function(){ if(self._playDealAnim){ self._playDealAnim(); } },
+            caishen: function(){ self.initCaishenTip(); }
+        };
+    },
+
+    //开局清桌:色子播完之前,桌面上不允许出现任何上一局/提前到达的内容
+    //(手牌、财神提示、局数、剩余张数、色子底框);发牌数据到了由 game_start 统一渲染
+    _clearOpeningTable:function(){
+        for(var i = 0; i < this._myMJArr.length; ++i){
+            var sp = this._myMJArr[i];
+            if(sp == null || sp.node == null){ continue; }
+            sp.node.stopAllActions();
+            sp.node.mjId = null;
+            sp.spriteFrame = null;
+            sp.node.active = false;
+            sp.node.y = 0;
+        }
+        var gameChild = this.node.getChildByName("game");
+        var tip = gameChild ? gameChild.getChildByName("caishenTip") : null;
+        if(tip){ tip.active = false; }
+        //四家手牌/副露/弃牌/出牌区/花牌区/牌墙:色子期间一律清空
+        var room = this.getComponent("MJRoom") || this.node.getComponent("MJRoom");
+        if(room && room.clearOpeningTable){ room.clearOpeningTable(); }
+        this._setCountVisible(false);
+        DiceRoll.setOpeningVisible(this, false);
+    },
+
     //游戏开始
     onGameBeign:function(fromGameStart, startData){
         //新一局开始,取消上一局结算遗留的"延时切等待界面"
@@ -1111,11 +1169,15 @@ cc.Class({
             var localIndex = cc.vv.gameNetMgr.getLocalIndex(i);
             if(localIndex != 0){
                 this.initOtherMahjongs(seatData);
-                if(i == cc.vv.gameNetMgr.turn){
-                    this.initMopai(i,-1);
-                }
-                else{
-                    this.initMopai(i,null);
+                //本局还没发牌(张数为0):摸牌位不能亮,否则色子期间对家会先显示一张牌
+                var n0 = (typeof seatData.holds == "number") ? seatData.holds : ((seatData.holds && seatData.holds.length) || seatData.holdCount || 0);
+                if(n0 > 0){
+                    if(i == cc.vv.gameNetMgr.turn){
+                        this.initMopai(i,-1);
+                    }
+                    else{
+                        this.initMopai(i,null);
+                    }
                 }
             }
         }
@@ -1124,35 +1186,11 @@ cc.Class({
             this.showAction(cc.vv.gameNetMgr.curaction);
             cc.vv.gameNetMgr.curaction = null;
         }
-        //开局首次发牌:手牌从牌墙依次飞出(仅game_start触发且本局无任何弃牌/副露/补花;断线重连保持瞬间渲染)
-        if(fromGameStart && this._isFreshDeal()){
-            DiceRoll.deferDeal(this);   //色子播完再发牌
-        }
-        //开局动画还没开始(色子滚动中):game_begin 等重绘会把手牌重新显示出来,这里重新隐藏,避免先亮牌再播动画
-        if(this._dealPending){ DiceRoll.hideHands(this); DiceRoll.setOpeningVisible(this, false); }
-        else{ DiceRoll.setOpeningVisible(this, true); }
+        //开局信息(底框/局数/余牌)随牌桌一起出现
+        DiceRoll.setOpeningVisible(this, true);
     },
 
-    // ===== 开局发牌动画：手牌从牌墙依次飞出（仅开局首次发牌触发） =====
-    //是否本局首次发牌:全场无弃牌/无吃碰杠/无人补花,且非回放。断线重连局已进行时返回false,保持瞬间渲染
-    _isFreshDeal:function(){
-        if(cc.vv.replayMgr && cc.vv.replayMgr.isReplay()){ return false; }
-        var seats = cc.vv.gameNetMgr ? cc.vv.gameNetMgr.seats : null;
-        if(!seats){ return false; }
-        for(var i = 0; i < seats.length; ++i){
-            var s = seats[i];
-            if(!s){ continue; }
-            if(s.folds instanceof Array && s.folds.length > 0){ return false; }
-            if(s.pengs instanceof Array && s.pengs.length > 0){ return false; }
-            if(s.chis instanceof Array && s.chis.length > 0){ return false; }
-            if(s.angangs instanceof Array && s.angangs.length > 0){ return false; }
-            if(s.diangangs instanceof Array && s.diangangs.length > 0){ return false; }
-            if(s.wangangs instanceof Array && s.wangangs.length > 0){ return false; }
-            if(s.hua instanceof Array && s.hua.length > 0){ return false; }
-        }
-        return true;
-    },
-
+    // ===== 开局发牌动画：手牌从牌墙依次飞出（色子播完、发牌数据到达后触发） =====
     //发牌动画:原渲染逻辑已把所有手牌摆到最终位,此处仅记录最终状态→移到牌墙起始位并透明→逐张飞回
     _playDealAnim:function(){
         var STEP = 0.06; //每张起飞间隔

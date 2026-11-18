@@ -787,7 +787,11 @@ cc.Class({
         var page = this._wfPanel;
         if(!page){ return; }
         //仅俱乐部创建者可看见/打开管理面板(服务端同样校验);用户ID可能number/string混用,统一转字符串比较
-        var isOwner = !!(club && cc.vv.userMgr && cc.vv.userMgr.userId && String(club.owner_userid) === String(cc.vv.userMgr.userId));
+        //大厅入口(牌桌大厅)取的是 _myClubs[0], 可能是别人持有的下级俱乐部, 这里改判"自己名下的俱乐部"
+        var uid = (cc.vv.userMgr && cc.vv.userMgr.userId) ? String(cc.vv.userMgr.userId) : "";
+        var isHall = !!(this._clubCur && this._clubCur._hall);
+        var target = isHall ? this._myOwnedClub() : club;
+        var isOwner = !!(uid && target && String(target.owner_userid) === uid);
         this._admGame = null; //玩法选择不跨俱乐部残留
         //管理按钮在 boot 栏内部,不能只查wfPage直接子节点
         var boot = page.getChildByName("boot");
@@ -989,9 +993,15 @@ cc.Class({
                 cc.vv.wc.showError("该局没有录像，无法回放");
                 return;
             }
+            var t = String(rp.type || "");
+            if(t.indexOf("baobao") !== 0){
+                //麻将等旧玩法:大厅 History 有内置回放画布,带数据跳回大厅直接播,不另写一套渲染
+                cc.vv.pendingReplay = {uuid: uuid, index: index, data: rp};
+                cc.director.loadScene("hall");
+                return;
+            }
             cc.vv.bbReplayData = rp;
             //按录像里的玩法类型进对应牌桌场景
-            var t = String(rp.type || "");
             var scene = cc.vv.gameNetMgr.sceneForType(t);
             cc.director.loadScene(scene);
         });
@@ -1018,7 +1028,7 @@ cc.Class({
         return s ? s : "-";
     },
 
-    //打开「我的战绩」(boot/Sprite2):数据源 /get_replay_list(3天内房间->局两级)
+    //打开「我的战绩」(boot/Sprite2):按房间合并统计,回放时再选局数
     _wfOpenZhanji:function(){
         var self = this;
         var win = this._wfPopupOpen("zhanjiWin");
@@ -1026,9 +1036,10 @@ cc.Class({
         var seq = win._wfSeq = (win._wfSeq || 0) + 1; //丢弃上一次未返回的回包
         var ls = this._wfPopupList(win);
         this._wfPopupClearRows(ls.list,ls.tpl);
-        this._wfPopupSetLabel(win,"sum1","牌局数：0");
-        this._wfPopupSetLabel(win,"sum2","大赢家：-");
-        this._wfPopupSetLabel(win,"sum3","分数：-");
+        this._wfZhanjiHeader(win,ls.tpl);
+        this._wfPopupSetLabel(win,"sum1","房间数：0");
+        this._wfPopupSetLabel(win,"sum2","");
+        this._wfPopupSetLabel(win,"sum3","");
         var tip = this._clubFind(win,"emptyTip");
         if(tip){ tip.active = false; }
         cc.vv.http.sendRequest("/get_replay_list",{account:cc.vv.userMgr.account,sign:cc.vv.userMgr.sign},function(ret){
@@ -1039,33 +1050,145 @@ cc.Class({
             }
             var rooms = ret.list || [];
             var total = 0;
-            for(var r = 0; r < rooms.length; ++r){ total += (rooms[r].games || []).length; }
-            self._wfPopupSetLabel(win,"sum1","牌局数：" + total);
             var idx = 0;
             for(var i = 0; i < rooms.length; ++i){
                 var rm = rooms[i];
                 var games = rm.games || [];
-                for(var g = 0; g < games.length; ++g){
-                    var gm = games[g];
-                    var row = self._wfPopupAddRow(ls.list,ls.tpl,idx,[
-                        idx + 1,
-                        rm.table_name || self._wfGameName(rm.type),
-                        "-",
-                        self._wfPopupTime(gm.create_time),
-                        "-",
-                        rm.roomid,
-                        gm.index,
-                        "-",
-                        "-"
-                    ]);
-                    //详情按钮: 录像存在(房间uuid+局号)才可点, 否则点了直接提示
-                    var isBB = String(rm.type || "").indexOf("baobao") === 0;
-                    if(row){ self._wfBindDetail(row, isBB ? (rm.uuid || "") : "", isBB ? (gm.index || 0) : 0); }
-                    idx++;
+                var bean = Number(rm.bean_total) || 0;
+                total += bean;
+                var row = self._wfPopupAddRow(ls.list,ls.tpl,idx,[
+                    idx + 1,
+                    rm.table_name || self._wfGameName(rm.type),
+                    self._wfFmtBean(bean),
+                    self._wfPopupTime(games.length ? games[0].create_time : rm.create_time),
+                    "-",
+                    rm.roomid,
+                    games.length + "局",
+                    "-",
+                    "回放"
+                ]);
+                if(row){
+                    self._wfZhanjiCell(row,"c2",self._wfFmtBean(bean));
+                    self._wfBindRoomReplay(row,rm);
                 }
+                idx++;
             }
+            self._wfPopupSetLabel(win,"sum1","房间数：" + rooms.length);
+            self._wfPopupSetLabel(win,"sum3","合计：" + self._wfFmtBean(total));
             if(tip && cc.isValid(tip)){ tip.active = (idx == 0); }
         });
+    },
+
+    //战绩表头: 打开隐藏的"豆豆"列,详情列改名回放
+    _wfZhanjiHeader:function(win,tpl){
+        if(!win){ return; }
+        var h8 = this._clubFind(win,"h8");
+        if(h8){
+            var l8 = h8.getComponent(cc.Label);
+            if(l8){ l8.string = "回放"; }
+        }
+        var h6 = this._clubFind(win,"h6");
+        var c2 = tpl ? tpl.getChildByName("c2") : null;
+        if(!h6 || !c2 || !h6.parent){ return; }
+        var parent = h6.parent;
+        if(parent.getChildByName("h_bean")){ return; }
+        var h = cc.instantiate(h6);
+        h.name = "h_bean";
+        h.parent = parent;
+        h.active = true;
+        h.setPosition(c2.x,h6.y);
+        var lb = h.getComponent(cc.Label);
+        if(lb){ lb.string = "豆豆"; }
+    },
+
+    //行里默认隐藏的列(豆豆)要显式打开
+    _wfZhanjiCell:function(row,name,text){
+        var n = row ? row.getChildByName(name) : null;
+        if(!n){ return; }
+        n.active = true;
+        var lb = n.getComponent(cc.Label);
+        if(lb){ lb.string = text; }
+    },
+
+    _wfFmtBean:function(v){
+        var n = Math.round((Number(v) || 0) * 100) / 100;
+        return n > 0 ? ("+" + n) : ("" + n);
+    },
+
+    //房间行的回放按钮:先选局数
+    _wfBindRoomReplay:function(row,room){
+        var self = this;
+        var btn = row ? row.getChildByName("detailBtn") : null;
+        if(!btn || !room){ return; }
+        this._wfReplayLabel(btn);
+        btn.off(cc.Node.EventType.TOUCH_END);
+        btn.on(cc.Node.EventType.TOUCH_END,function(ev){
+            if(ev && ev.stopPropagation){ ev.stopPropagation(); }
+            self._wfOpenRoundPicker(room);
+        });
+    },
+
+    _wfReplayLabel:function(btn){
+        var lb = btn ? btn.getChildByName("detailLabel") : null;
+        if(lb && lb.getComponent(cc.Label)){ lb.getComponent(cc.Label).string = "回放"; }
+        var cl = btn ? btn.getChildByName("Label") : null;
+        if(cl && cl.getComponent(cc.Label)){ cl.getComponent(cc.Label).string = "回放"; }
+    },
+
+    //选局数:克隆战绩弹窗(复用场景样式),列出该房间每一局
+    _wfOpenRoundPicker:function(room){
+        var self = this;
+        if(!room){ return; }
+        var games = (room.games || []).slice();
+        games.sort(function(a,b){ return (Number(a.index) || 0) - (Number(b.index) || 0); });
+        if(games.length == 0){ cc.vv.wc.showError("该房间没有可回放的局"); return; }
+        var canvas = cc.find("Canvas");
+        var base = canvas ? canvas.getChildByName("zhanjiWin") : null;
+        if(!canvas || !base){ return; }
+        var old = canvas.getChildByName("zhanjiPick");
+        if(old){ old.destroy(); }
+        var win = cc.instantiate(base);
+        win.name = "zhanjiPick";
+        win.active = true;
+        canvas.addChild(win);
+        this._wfPopupOpen("zhanjiPick");
+        var title = this._clubFind(win,"title");
+        if(title && title.getComponent(cc.Label)){ title.getComponent(cc.Label).string = "选择局数"; }
+        var tip = this._clubFind(win,"emptyTip");
+        if(tip){ tip.active = false; }
+        this._wfPopupSetLabel(win,"sum1","房间：" + (room.roomid || "-"));
+        this._wfPopupSetLabel(win,"sum2","");
+        this._wfPopupSetLabel(win,"sum3","");
+        var ls = this._wfPopupList(win);
+        this._wfPopupClearRows(ls.list,ls.tpl);
+        this._wfZhanjiHeader(win,ls.tpl);
+        var name = room.table_name || this._wfGameName(room.type);
+        for(var i = 0; i < games.length; ++i){
+            var gm = games[i];
+            var row = this._wfPopupAddRow(ls.list,ls.tpl,i,[
+                i + 1,
+                name,
+                this._wfFmtBean(gm.win),
+                this._wfPopupTime(gm.create_time),
+                "-",
+                room.roomid,
+                "第" + gm.index + "局",
+                "-",
+                "回放"
+            ]);
+            if(!row){ continue; }
+            this._wfZhanjiCell(row,"c2",this._wfFmtBean(gm.win));
+            (function(gm2,row2){
+                var btn = row2.getChildByName("detailBtn");
+                if(!btn){ return; }
+                self._wfReplayLabel(btn);
+                btn.off(cc.Node.EventType.TOUCH_END);
+                btn.on(cc.Node.EventType.TOUCH_END,function(ev){
+                    if(ev && ev.stopPropagation){ ev.stopPropagation(); }
+                    self._wfOpenReplay(room.uuid,gm2.index);
+                });
+            })(gm,row);
+        }
     },
 
     //打开「我的乐豆详情」(boot/Sprite1):数据源 /my_bean_logs(可切换今天/全部)
@@ -1135,15 +1258,39 @@ cc.Class({
         });
     },
 
+    //自己名下(owner_userid=当前登录用户)的俱乐部;没有则回退列表第一个
+    //大厅模式入口取的是 _myClubs[0], 而列表里可能包含别人持有的下级俱乐部
+    _myOwnedClub:function(){
+        var list = this._myClubs || [];
+        var uid = (cc.vv.userMgr && cc.vv.userMgr.userId) ? String(cc.vv.userMgr.userId) : "";
+        if(uid){
+            for(var i = 0; i < list.length; i++){
+                if(String(list[i].owner_userid) === uid){ return list[i]; }
+            }
+        }
+        return list.length > 0 ? list[0] : null;
+    },
+
     //打开管理面板(admin):按钮/弹窗全部是场景节点,JS只绑事件、填文字
     _admOpen:function(){
+        // 当前页可能不是自己名下的俱乐部(大厅入口), 管理页统一进自己名下的俱乐部
+        var cur = this._clubCur;
+        var uid = (cc.vv.userMgr && cc.vv.userMgr.userId) ? String(cc.vv.userMgr.userId) : "";
+        if(!(cur && uid && String(cur.owner_userid) === uid)){
+            var own = this._myOwnedClub();
+            if(own){ cur = own; }
+        }
         // 把当前俱乐部ID带给管理场景(管理场景是独立加载的, 拿不到本场景的实例数据)
-        var cid = this._clubCur ? parseInt(this._clubCur.id) : 0;
+        var cid = cur ? parseInt(cur.id) : 0;
         if(!(cid > 0)){ cid = parseInt(cc.vv.fromClubId) || 0; }
         if(cid > 0){
             cc.vv.adminClubId = cid;
             cc.sys.localStorage.setItem("admin_club_id", cid);
         }
+        //是否一级俱乐部: 管理页进入时立即决定"系统设置"入口的显隐, 不依赖异步总览数据
+        //当前页可能是大厅占位数据(没有parent_clubid), 回退到自己名下的俱乐部判断
+        var topSrc = (cur && cur.parent_clubid != null) ? cur : this._myOwnedClub();
+        cc.vv.adminClubTop = (topSrc && topSrc.parent_clubid != null) ? (Number(topSrc.parent_clubid) === 0) : null;
         // 跳转到独立的管理场景
         cc.director.loadScene("clubAdmin");
     },

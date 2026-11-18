@@ -2476,6 +2476,9 @@ exports.setReady = function(userId){
 
 // 开一局：轮庄、清准备状态、通知局数与庄家、发牌
 exports.begin = function(roomInfo){
+    //色子开场延时期间可能再次触发开局(准备消息重复/重连时序):同一时间只允许一局在开场
+    if(roomInfo._opening){ return; }
+    roomInfo._opening = true;
     // 老庄逻辑：庄家胡牌则连庄，laozhuangCount++；否则轮庄，重置
     if(roomInfo.numOfGames > 0){
         if(roomInfo.lastHuIsBanker){
@@ -2500,7 +2503,13 @@ exports.begin = function(roomInfo){
     userMgr.broacastInRoom('game_num_push', roomInfo.numOfGames, anyUserId, true);
     userMgr.broacastInRoom('game_begin_push', roomInfo.nextButton, anyUserId, true);
 
-    exports.start(roomInfo);
+    //开局只先广播掷色子(game_begin_push),客户端要等色子动画(约2.15秒)播完才需要手牌,
+    //所以发牌数据延后到动画结束再下发:色子期间客户端拿不到牌,自然就是空牌桌
+    setTimeout(function(){
+        roomInfo._opening = false;
+        if(roomMgr.getRoom(roomInfo.id) !== roomInfo){ return; } //延时期间已解散/退出
+        exports.start(roomInfo);
+    }, 2400);
 };
 
 // ========== 解散房间（2人重构时丢失，补回） ==========

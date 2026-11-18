@@ -300,7 +300,7 @@ app.put('/admin/game_config/:id', auth, requireSuper, function(req, res){
     if(sets.length == 0){ send(res, 1, "无更新内容"); return; }
     var sql = 'UPDATE t_game_config SET ' + sets.join(',') + ' WHERE id=' + id;
     db.query(sql, function(err, result){
-        if(err){ send(res, 500, "数据库错误"); return; }
+        if(err){ send(res, 500, "数据库错误: " + err.message); return; }
         send(res, 0, "ok");
     });
 });
@@ -679,6 +679,15 @@ app.delete('/admin/club_table/:id', auth, function(req, res){
 });
 
 // ============ 清空牌桌(强制释放房间占用) ============
+//游戏服HTTP地址:t_rooms.port 存的是 socket 端口(如10100),拿它发HTTP请求必然连不上,
+//所以后台所有代理请求统一走配置里的 GAME_HTTP_IP/GAME_HTTP_PORT(与观战一致)
+function gameHttpAddr(){
+    var cfg = config || {};
+    return {
+        ip: cfg.GAME_HTTP_IP || '127.0.0.1',
+        port: cfg.GAME_HTTP_PORT || 9103
+    };
+}
 //按牌桌清空:解散该牌桌绑定的房间,踢出所有玩家并释放占用;成功后解绑牌桌。
 //超级管理员可清任意俱乐部,俱乐部管理员只能清自己俱乐部的牌桌
 app.post('/admin/club_table/clear', auth, function(req, res){
@@ -689,8 +698,9 @@ app.post('/admin/club_table/clear', auth, function(req, res){
     var callGameServer = function(rid, cb){
         db.get_room_data(rid, function(roomData){
             if(roomData == null){ cb(false, "房间不存在或已释放"); return; }
+            var gs = gameHttpAddr();
             var sign = crypto.md5(rid + priKey);
-            http.get(roomData.ip, roomData.port, '/clear_room?roomid=' + rid + '&sign=' + sign, null, function(ret, data){
+            http.get(gs.ip, gs.port, '/clear_room?roomid=' + rid + '&sign=' + sign, null, function(ret, data){
                 cb(ret && data && data.errcode == 0, ret ? (data && data.errmsg) : "游戏服无响应");
             });
         });
@@ -796,7 +806,8 @@ app.post('/admin/club_member/kick', auth, function(req, res){
         db.get_room_data(roomId, function(roomData){
             if(!roomData){ send(res, 0, "ok"); return; }
             var rsign = crypto.md5(roomId + priKey);
-            http.get(roomData.ip, roomData.port, '/kick_user?roomid=' + roomId + '&userid=' + userid + '&sign=' + rsign, null, function(ret, data){
+            var gs2 = gameHttpAddr();
+            http.get(gs2.ip, gs2.port, '/kick_user?roomid=' + roomId + '&userid=' + userid + '&sign=' + rsign, null, function(ret, data){
                 send(res, 0, "ok");
             });
         });
@@ -1129,7 +1140,8 @@ app.delete('/admin/club/:id', auth, requireSuper, function(req, res){
                     return;
                 }
                 var sign = crypto.md5(String(t.roomid) + priKey);
-                http.get(roomData.ip, roomData.port, '/clear_room?roomid=' + t.roomid + '&sign=' + sign, null, function(){
+                var gs3 = gameHttpAddr();
+                http.get(gs3.ip, gs3.port, '/clear_room?roomid=' + t.roomid + '&sign=' + sign, null, function(){
                     db.query('UPDATE t_club_tables SET roomid = NULL WHERE id = ' + t.id, function(){ clearNext(); });
                 });
             });

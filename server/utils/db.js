@@ -163,6 +163,18 @@ exports.init = function(config){
         });
     }, 2900);
 
+    //玩法配置:包财神叫台/定财神时限(老库补列,缺列会导致后台保存玩法报数据库错误)
+    setTimeout(function(){
+        query('ALTER TABLE `t_game_config` ADD COLUMN `caishen_seconds` INT(11) NOT NULL DEFAULT 60 COMMENT "包家选财神时限(秒)"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_game_config.caishen_seconds failed:" + err.message); }
+        });
+    }, 2950);
+    setTimeout(function(){
+        query('ALTER TABLE `t_game_config` ADD COLUMN `bao_seconds` INT(11) NOT NULL DEFAULT 15 COMMENT "叫台时限(秒)"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_game_config.bao_seconds failed:" + err.message); }
+        });
+    }, 3050);
+
     //观战账号表:由超级后台录入账号密码,观战网页用它登录(与管理员账号完全独立)
     setTimeout(function(){
         var sqlSp = 'CREATE TABLE IF NOT EXISTS `t_spectate_users` (' +
@@ -1246,9 +1258,85 @@ exports.get_replay_list = function(userid,days,callback){
             }
             g.games.push({index: r.game_index, create_time: r.create_time});
         }
-        callback(list);
+        fill_replay_stats(list, userid, callback);
     });
 };
+
+//给录像列表补"输赢豆"统计(房间合并):麻将类从 t_games.result 读累计分做差分,
+//宝宝类直接从 t_bean_logs 的"对局结算"流水取每局增减。
+//注意:这里只统计输赢,不看抽水开关(unified_charge),后台关抽水也照常统计。
+function fill_replay_stats(list, userid, callback){
+    if(!list || list.length == 0){ callback(list || []); return; }
+    var uid = parseInt(userid, 10) || 0;
+    var uuids = [];
+    var seen = {};
+    for(var i = 0; i < list.length; ++i){
+        var u = String(list[i].uuid || "");
+        if(u && !seen[u] && /^[A-Za-z0-9\-_]+$/.test(u)){ seen[u] = 1; uuids.push(u); }
+    }
+    if(uuids.length == 0 || uid <= 0){ callback(list); return; }
+    var inList = uuids.map(function(u){ return '"' + u + '"'; }).join(',');
+
+    var sqlG = 'SELECT room_uuid,game_index,result FROM t_games WHERE room_uuid IN (' + inList + ')' +
+        ' ORDER BY room_uuid,game_index';
+    query(sqlG, function(errG, grows){
+        var perGame = {};   // room_uuid -> { game_index: 本局输赢 }
+        var totalMap = {};  // room_uuid -> 房间累计输赢
+        if(!errG && grows){
+            var prev = {};
+            for(var i = 0; i < grows.length; ++i){
+                var gr = grows[i];
+                var uu = String(gr.room_uuid || "");
+                var arr = null;
+                try{ arr = JSON.parse(gr.result || "[]"); }catch(e){ arr = null; }
+                if(!arr || !arr.length){ continue; }
+                var myTotal = null;
+                for(var j = 0; j < arr.length; ++j){
+                    var it = arr[j] || {};
+                    if(Number(it.userid) === uid){
+                        myTotal = Number(it.totalscore != null ? it.totalscore : (it.score || 0)) || 0;
+                        break;
+                    }
+                }
+                if(myTotal == null){ continue; }
+                var p = prev[uu] == null ? 0 : prev[uu];
+                if(!perGame[uu]){ perGame[uu] = {}; }
+                perGame[uu][gr.game_index] = Math.round((myTotal - p) * 100) / 100;
+                prev[uu] = myTotal;
+                totalMap[uu] = myTotal;
+            }
+        }
+        var sqlB = 'SELECT room_uuid,game_index,SUM(amount) AS amt FROM t_bean_logs' +
+            ' WHERE userid = ' + uid + ' AND change_type = "对局结算" AND room_uuid IN (' + inList + ')' +
+            ' GROUP BY room_uuid,game_index';
+        query(sqlB, function(errB, brows){
+            if(!errB && brows){
+                for(var k = 0; k < brows.length; ++k){
+                    var br = brows[k];
+                    var u2 = String(br.room_uuid || "");
+                    if(!perGame[u2]){ perGame[u2] = {}; }
+                    perGame[u2][br.game_index] = Math.round((Number(br.amt) || 0) * 100) / 100;
+                }
+            }
+            for(var m = 0; m < list.length; ++m){
+                var room = list[m];
+                var u3 = String(room.uuid || "");
+                var per = perGame[u3] || {};
+                var sum = 0;
+                var any = false;
+                for(var n = 0; n < room.games.length; ++n){
+                    var gm = room.games[n];
+                    var v = per[gm.index];
+                    gm.win = (v == null) ? 0 : v;
+                    if(v != null){ any = true; sum += v; }
+                }
+                //有逐局数据用逐局合计; 只有累计分(如某局缺记录)时退回累计值
+                room.bean_total = Math.round((any ? sum : (totalMap[u3] || 0)) * 100) / 100;
+            }
+            callback(list);
+        });
+    });
+}
 
 //清理超过保留期的录像
 exports.clean_expired_replays = function(days,callback){
@@ -1605,14 +1693,21 @@ exports.club_hall_context = function(userid,callback){
 exports.club_member_clubid = function(userid,callback){
     callback = callback == null? nop:callback;
     if(userid == null){ callback(0); return; }
+    var uid = parseInt(userid);
     //一个人可能同时在多个俱乐部里(合伙人被设为下级俱乐部社长后, 上级成员表里那条还在),
-    //原来按 join_time 取最早会永远命中上级俱乐部, 导致抽水全归上级、合伙人分成永远为0。
-    //优先级: 自己当社长的俱乐部(自己的合伙人俱乐部) > 最近加入的俱乐部
-    query('SELECT m.club_id FROM t_club_members m LEFT JOIN t_clubs c ON c.id = m.club_id ' +
-          'WHERE m.userid = ' + parseInt(userid) +
-          ' ORDER BY (c.owner_userid = m.userid) DESC, m.join_time DESC LIMIT 1', function(err, rows){
-        if(err || !rows || rows.length == 0){ callback(0); return; }
-        callback(Number(rows[0].club_id) || 0);
+    //抽水必须归到"他自己当社长的俱乐部"(合伙人自己的俱乐部), 不能落到上级。
+    //直接查 t_clubs.owner_userid, 不依赖成员表是否还有他的记录(退出/被清理也不受影响);
+    //自己名下有多个俱乐部时取最近创建的那个。
+    query('SELECT id FROM t_clubs WHERE owner_userid = ' + uid + ' ORDER BY create_time DESC LIMIT 1', function(err, rows){
+        if(!err && rows && rows.length > 0){
+            callback(Number(rows[0].id) || 0);
+            return;
+        }
+        //不是任何俱乐部社长: 普通成员只能加入一个俱乐部, 直接取唯一记录
+        query('SELECT m.club_id FROM t_club_members m WHERE m.userid = ' + uid + ' LIMIT 1', function(err2, rows2){
+            if(err2 || !rows2 || rows2.length == 0){ callback(0); return; }
+            callback(Number(rows2[0].club_id) || 0);
+        });
     });
 };
 
@@ -2487,6 +2582,20 @@ exports.partner_get = function(clubId,partnerClubId,callback){
     callback = callback == null? nop:callback;
     queryP('SELECT * FROM t_partner_stats WHERE club_id = ? AND partner_club_id = ?',[clubId,partnerClubId],function(err,rows){
         if(err || rows.length == 0){ callback(null); return; }
+        callback(rows[0]);
+    });
+};
+
+//玩家是否为自己俱乐部的社长且该俱乐部是某个俱乐部的合伙人(有上级)
+//返回上级给他设置的抽水点数; 不是这种身份返回 null
+exports.club_owner_partner_ratio = function(clubId,userid,callback){
+    callback = callback == null? nop:callback;
+    var cid = parseInt(clubId), uid = parseInt(userid);
+    if(!(cid > 0) || !(uid > 0)){ callback(null); return; }
+    query('SELECT p.profit_ratio, p.hidden_profit_ratio, p.fee_profit_ratio FROM t_clubs c ' +
+          'JOIN t_partner_stats p ON p.partner_club_id = c.id ' +
+          'WHERE c.id = ' + cid + ' AND c.owner_userid = ' + uid + ' LIMIT 1', function(err, rows){
+        if(err || !rows || rows.length == 0){ callback(null); return; }
         callback(rows[0]);
     });
 };

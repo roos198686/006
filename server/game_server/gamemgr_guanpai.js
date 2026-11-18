@@ -216,6 +216,7 @@ function getSeatsInfo(game){
             name: s.name,
             seatindex: i,
             roomSeatIndex: s.roomSeatIndex,
+            score: s.score || 0,   //房间累计分(跨所有小局), 客户端座位分数一直显示这个
             count: s.holds.length,
             finished: !!s.finished,
             sex: s.sex || 0

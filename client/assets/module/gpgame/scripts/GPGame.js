@@ -327,13 +327,23 @@ cc.Class({
 
         // 对家牌背槽位（场景预置，按剩余张数显隐）
         this._oppSlots = [];
+        this._oppLayout = [];
         for (var oi = 0; oi < 2; ++oi) {
             var row = [];
             for (var ci = 0; ci < 16; ++ci) {
                 var oc = this.findNode(this.node, "oppCard" + oi + "_" + ci);
                 if (oc) { oc.active = false; row.push(oc); }
             }
-            if (row.length > 0) this._oppSlots.push(row);
+            if (row.length > 0) {
+                //记录场景里整排牌背的排布(中心点/间距), 出牌后按剩余张数整排居中
+                row.sort(function (a, b) { return a.x - b.x; });
+                this._oppSlots.push(row);
+                var ox0 = row[0].x, ox1 = row[row.length - 1].x;
+                this._oppLayout.push({
+                    centerX: (ox0 + ox1) / 2,
+                    gap: row.length > 1 ? (ox1 - ox0) / (row.length - 1) : 0
+                });
+            }
         }
         // 牌背图已打进 resources/images/atlas/cards 图集, 加载后贴到所有对家牌背节点
         this.loadCardBack();
@@ -2012,6 +2022,10 @@ cc.Class({
                 uid = (rsu && rsu.userid > 0) ? rsu.userid : 0;
             }
             var iconNode = this.findNode(v.root, "icon");
+            //头像/头像框始终保持可见(空位显示场景默认头像):避免被其它清理逻辑隐藏后整块空白
+            if (iconNode) iconNode.active = true;
+            var frameNode = this.findNode(v.root, "Z_user");
+            if (frameNode) frameNode.active = true;
             if (iconNode && uid > 0) {
                 var il = iconNode.getComponent("ImageLoader");
                 if (!il) { try { il = iconNode.addComponent("ImageLoader"); } catch (e) { il = null; } }
@@ -2047,6 +2061,14 @@ cc.Class({
             var count = (playing && seats && seats[seatIdx]) ? (seats[seatIdx].count || 0) : 0;
             for (var ci = 0; ci < row.length; ++ci) {
                 row[ci].active = ci < count;
+            }
+            //剩余牌张数变少后整排重新居中(原来只按数量从右往左隐藏, 出牌后会一直偏左)
+            var lay = this._oppLayout && this._oppLayout[di - 1];
+            if (count > 0 && lay) {
+                var startX = lay.centerX - (count - 1) * lay.gap / 2;
+                for (var k = 0; k < count; ++k) {
+                    row[k].setPosition(startX + k * lay.gap, row[k].y);
+                }
             }
         }
     },
@@ -2855,14 +2877,17 @@ cc.Class({
         this._emojiPanelBuilt = true;
         var self = this;
         var names = this._emojiSpineNames;
-        var cells = [];
         grid.children.slice().forEach(function (old, idx) {
             var name = names[idx];
             if (!name) return;
-            cells.push({ x: old.x, y: old.y, name: name });
             var btn = old.getComponent(cc.Button);
             if (btn) btn.enabled = false;
             old.off(cc.Node.EventType.TOUCH_END);
+            //每个格子自己接收点击: 不用坐标算最近格, 避免面板缩放/Widget重排后点击位置偏移
+            old.on(cc.Node.EventType.TOUCH_END, function () {
+                if (self._n.chatPanel) self._n.chatPanel.active = false;
+                cc.vv.net.send("emoji", name);
+            });
             var sd = self._emojiSpine[name];
             if (!sd) return;
             var spr = old.getComponent(cc.Sprite);
@@ -2877,20 +2902,6 @@ cc.Class({
             var com = vis.addComponent(sp.Skeleton);
             com.skeletonData = sd;
             com.setAnimation(0, "animation", true);
-        });
-        if (!cells.length) return;
-        root.off(cc.Node.EventType.TOUCH_END);
-        root.on(cc.Node.EventType.TOUCH_END, function (ev) {
-            var p = grid.convertToNodeSpaceAR(cc.v2(ev.getLocation()));
-            var best = null, bd = 1e9;
-            for (var i = 0; i < cells.length; ++i) {
-                var dx = p.x - cells[i].x, dy = p.y - cells[i].y;
-                var d = dx * dx + dy * dy;
-                if (d < bd) { bd = d; best = cells[i]; }
-            }
-            if (!best) return;
-            if (self._n.chatPanel) self._n.chatPanel.active = false;
-            cc.vv.net.send("emoji", best.name);
         });
     },
 

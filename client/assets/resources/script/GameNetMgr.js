@@ -51,9 +51,11 @@ cc.Class({
         this.button = -1;
         this.gamestate = "";
         this.curaction = null;
+        this.waitCaishenPlans = null; //自选财神待选方案:上一局/上一个房间残留会让新房间一进就弹全屏选牌面板(点不了任何按钮)
         if(this.seats == null) return;
         for(var i = 0; i < this.seats.length; ++i){
             this.seats[i].holds = [];
+            this.seats[i].holdCount = 0; //对手手牌只下发数量,新一局必须清,否则先按上局张数点亮牌背
             this.seats[i].folds = [];
             this.seats[i].pengs = [];
             this.seats[i].chis = [];
@@ -61,6 +63,8 @@ cc.Class({
             this.seats[i].diangangs = [];
             this.seats[i].wangangs = [];
             this.seats[i].hua = []; //漳浦:花牌数组,新一局必须清,否则沿用上一局的花牌
+            this.seats[i].youjinLevel = 0; //漳浦:游金等级
+            this.seats[i].pengTiles = []; //碰组真实组成(含财神),与pengs平行
             this.seats[i].ready = false;
             this.seats[i].hued = false;
         }
@@ -223,9 +227,7 @@ cc.Class({
         if(t == "zj_lao") return "mjgame_zjlao";
         if(t == "zj_bt") return "mjgame_bmj";
         if(t == "zj_zx") return "mjgame_zjzx";
-        if(t == "zp") return "mjgame_zp";
         if(t == "wujin") return "mjgame_wujin";
-        if(t == "wujin4") return "mjgame_wujin4";
         if(t == "guanpai2") return "mjgame_gp2";
         if(t == "sss2" || t == "sss4" || t == "sss6") return "mjgame_sss";
         if(t == "zj" || t == "zj4" || t == "zj4_bt") return "mjgame_ldh";
@@ -1006,6 +1008,9 @@ cc.Class({
 
         cc.vv.net.addHandler("game_begin_push",function(data){
             console.log('game_begin_push');
+            //新一局开始但还没发牌(发牌数据等色子动画播完由 game_start_push 下发):
+            //先把上一局的牌面数据清掉,客户端按空牌桌渲染,色子期间手里没有牌
+            self.reset();
             self.button = data;
             self.turn = self.button;
             self.gamestate = "begin";

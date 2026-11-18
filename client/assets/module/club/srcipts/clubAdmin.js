@@ -95,6 +95,8 @@ cc.Class({
 
         this._bindUI();
         this._loadClubInfo();
+        // 进入管理页固定落在总览
+        this._showPage("overview", true);
     },
 
     // ============ 节点查找 ============
@@ -116,6 +118,9 @@ cc.Class({
         // 顶部
         this._clubInfoLabel = this._find("clubInfo");
         this._myGemsLabel = this._find("myGems");
+        // 上级给本俱乐部的抽点比例: 顶级俱乐部不显示
+        this._codeiLabel = this._find("jlbcodei");
+        if (this._codeiLabel) { this._codeiLabel.active = false; }
         var closeBtn = this._find("closeBtn");
         if (closeBtn) {
             closeBtn.on(cc.Node.EventType.TOUCH_END, function () {
@@ -150,6 +155,20 @@ cc.Class({
             if (page) this._pages[keys[j]] = page;
         }
 
+        // 系统设置页(进场费/表情费/洗牌费): 菜单 menu_xitosz -> 右侧 overviewxitosz 面板
+        var sysMenu = this._find("menu_xitosz");
+        var sysPage = this._find("overviewxitosz");
+        if (sysMenu && sysPage) {
+            this._menuBtns.xitosz = sysMenu;
+            this._pages.xitosz = sysPage;
+            // 一级/下级俱乐部: 进入页面立即确定显隐。默认显示, 只有明确是下级俱乐部时才隐藏
+            var topFlag = (cc.vv && typeof cc.vv.adminClubTop === "boolean") ? cc.vv.adminClubTop : null;
+            sysMenu.active = (topFlag !== false);
+            sysMenu.on(cc.Node.EventType.TOUCH_END, function () {
+                self._showPage("xitosz");
+            });
+        }
+
         this._bindOverviewPage();
         this._bindMemberPage();
         this._bindPartnerPage();
@@ -157,6 +176,7 @@ cc.Class({
         this._bindRewardPage();
         this._bindGameConfigPage();
         this._bindPopups();
+        this._bindSysFeePage();
 
         // 默认显示总览(noLoad: 只切页面, 数据统一由 _loadClubInfo 加载, 避免重复请求)
         this._showPage("overview", true);
@@ -203,6 +223,25 @@ cc.Class({
         }
         if (this._myGemsLabel) {
             this._myGemsLabel.getComponent(cc.Label).string = "我的豆豆: " + (d.my_gems || 0);
+        }
+        // 上级抽点比例: 顶级俱乐部父ID为0, 不显示
+        if (this._codeiLabel) {
+            var hasParent = (Number(d.parent_clubid) || 0) > 0;
+            this._codeiLabel.active = hasParent;
+            if (hasParent) {
+                var r1 = Number(d.parent_profit_ratio) || 0;
+                var r2 = Number(d.parent_hidden_profit_ratio) || 0;
+                var r3 = Number(d.parent_fee_profit_ratio) || 0;
+                this._codeiLabel.getComponent(cc.Label).string = "我的抽点数：" + r1 + "/" + r2 + "/" + r3 + "%";
+            }
+        }
+        // 系统设置(进场费/表情费/洗牌费)仅一级俱乐部可配置, 下级俱乐部隐藏入口
+        // 有真实总览数据时以服务端 parent_clubid 为准; 数据未到时按进入页面时带过来的标记, 未知则保持显示
+        var topFlag = (cc.vv && typeof cc.vv.adminClubTop === "boolean") ? cc.vv.adminClubTop : null;
+        var isTopClub = (d && d.club_id) ? !((Number(d.parent_clubid) || 0) > 0) : (topFlag !== false);
+        if (this._menuBtns && this._menuBtns.xitosz) {
+            this._menuBtns.xitosz.active = isTopClub;
+            if (!isTopClub && this._currentPage === "xitosz") { this._showPage("overview"); }
         }
         this._setOverviewLabel("今日累收", d.today_rake || 0);
         this._setOverviewLabel("昨日累收", d.yesterday_rake || 0);
@@ -1461,7 +1500,8 @@ _bindRewardPage: function () {
             hidden_rake_percent: num(conf.hidden_rake_percent, cfg ? cfg.hidden_rake_percent : 0),
             rake_per_round: num(conf.rake_per_round, (cfg && cfg.rake_per_round != null) ? cfg.rake_per_round : 1),
             room_fee: num(conf.room_fee, cfg ? cfg.room_fee : 0),
-            room_fee_payer: num(conf.room_fee_payer, (cfg && cfg.room_fee_payer != null) ? cfg.room_fee_payer : 1)
+            room_fee_payer: num(conf.room_fee_payer, (cfg && cfg.room_fee_payer != null) ? cfg.room_fee_payer : 1),
+            enter_fee: num(conf.enter_fee, cfg ? cfg.enter_fee : 0)
         };
     },
 
@@ -1497,6 +1537,66 @@ _bindRewardPage: function () {
         });
     },
 
+    // ============ 系统设置页(进场费/表情费/洗牌费) ============
+    // 三个输入框都在 overviewxitosz 面板内, 名字与添加牌桌弹窗里的同名节点区分开
+    _bindSysFeePage: function () {
+        try {
+        var self = this;
+        var page = this._pages ? this._pages.xitosz : null;
+        if (!page) { return; }
+        this._sysFeePage = page;
+        var names = ["fee_rake_percentLabel", "face_scoreInput", "shuffle_scoreInput"];
+        for (var i = 0; i < names.length; i++) {
+            var n = page.getChildByName(names[i]);
+            var eb = n ? n.getComponent(cc.EditBox) : null;
+            if (!eb) { continue; }
+            n.on("editing-did-ended", function () {
+                self._saveSysFees();
+            });
+        }
+        } catch (e) { console.log("[clubAdmin] 系统设置绑定异常", e); }
+    },
+
+    _sysFeeInput: function (name) {
+        var page = this._sysFeePage || (this._pages ? this._pages.xitosz : null);
+        var n = page ? page.getChildByName(name) : null;
+        return n ? n.getComponent(cc.EditBox) : null;
+    },
+
+    _loadSysFees: function () {
+        if (!this._canRequest()) { return; }
+        var self = this;
+        clubReq("/club_admin/sys_fee_get", { club_id: this._clubId }, function (ret) {
+            var d = (ret && ret.errcode === 0 && ret.data) ? ret.data : {};
+            var vals = {
+                fee_rake_percentLabel: d.enter_fee == null ? 1 : d.enter_fee,
+                face_scoreInput: d.face_score == null ? 0.1 : d.face_score,
+                shuffle_scoreInput: d.shuffle_score == null ? 0.5 : d.shuffle_score
+            };
+            for (var k in vals) {
+                var eb = self._sysFeeInput(k);
+                if (eb) { eb.string = String(vals[k]); }
+            }
+        });
+    },
+
+    _saveSysFees: function () {
+        if (!this._canRequest()) { return; }
+        var get = function (name, def) {
+            var eb = this._sysFeeInput(name);
+            var v = eb ? parseFloat(eb.string) : NaN;
+            return (isNaN(v) || v < 0) ? def : v;
+        }.bind(this);
+        clubReq("/club_admin/sys_fee_save", {
+            club_id: this._clubId,
+            enter_fee: get("fee_rake_percentLabel", 1),
+            face_score: get("face_scoreInput", 0.1),
+            shuffle_score: get("shuffle_scoreInput", 0.5)
+        }, function (ret) {
+            if (!ret || ret.errcode !== 0) { console.log("[clubAdmin] 系统收费保存失败", ret); }
+        });
+    },
+
     // ============ 页面切换 ============
     _showPage: function (key, noLoad) {
         this._currentPage = key;
@@ -1517,6 +1617,7 @@ _bindRewardPage: function () {
         // 没有俱乐部ID时不发 club_id=null 的请求
         if (!(this._clubId > 0)) return;
         if (key === "overview") this._loadOverview();
+        else if (key === "xitosz") this._loadSysFees();
         else if (key === "member") this._loadMembers();
         else if (key === "partner") this._loadPartners();
         else if (key === "partnerStats") this._loadPartners(); // 统计页也用合伙人数据
@@ -1856,6 +1957,9 @@ _bindRewardPage: function () {
                 if (!panel) { return; }
                 var closeBtn = panel.getChildByName("closeBtn");
                 if (closeBtn) { closeBtn.on(cc.Node.EventType.TOUCH_END, function () { win.active = false; }); }
+                // 点遮罩也关闭, 避免关闭按钮被内容挡住时关不掉
+                var mask = win.getChildByName("mask");
+                if (mask) { mask.on(cc.Node.EventType.TOUCH_END, function () { win.active = false; }); }
                 var content = panel.getChildByName("content");
                 if (!content) { return; }
                 var okBtn = content.getChildByName("okBtn");
@@ -2515,7 +2619,8 @@ _bindRewardPage: function () {
         var unified = Number(this._gameUnified && this._gameUnified[this._dlgGameType]) === 1;
         var isBaobao = /^baobao/.test(this._dlgGameType);
         // 收费规则: 全部显示; 未开启收费模式时只置灰不可编辑, 不隐藏
-        var ruleRows = ["shuffle_score", "rake_percent", "hidden_rake_percent", "room_fee"];
+        // 洗牌分/进场费已改为后台"系统设置"统一固定收取, 弹窗内不再显示
+        var ruleRows = ["rake_percent", "hidden_rake_percent", "room_fee"];
         for (var i = 0; i < ruleRows.length; i++) {
             this._setRuleRow(content, ruleRows[i], true, unified);
         }
@@ -2527,28 +2632,21 @@ _bindRewardPage: function () {
         // 人数限制: 仅宝宝玩法可编辑, 其它玩法显示但置灰
         this._setRuleRow(content, "min_players", true, isBaobao);
         this._setRuleRow(content, "max_players", true, isBaobao);
-        // 表情分/房卡共用一行: 开启时是表情分, 关闭时是房卡(房卡按局扣, 进场扣)
-        this._setRuleRow(content, "face_score", true, true);
-        // 进场费: 复用现有"进场费"标签 + fee_rake_percentLabel 输入框(节点名历史遗留)
-        // 统一收费开启时可编辑; 关闭时只置灰, 不隐藏
+        // 统一收费下这一行是"表情分", 该费用已改为系统统一收取, 不再显示; 未开统一收费时仍作"房卡"使用
+        this._setRuleRow(content, "face_score", !unified, !unified);
+        // 洗牌分: 系统统一收取, 不再显示
+        this._setRuleRow(content, "shuffle_score", false, false);
+        // 进场费: 系统统一收取, 不再显示
         var enterFeeLabel = null;
         for (var efIdx = 0; efIdx < content.children.length; efIdx++) {
             var efLabelCmp = content.children[efIdx].getComponent(cc.Label);
             if (efLabelCmp && efLabelCmp.string === "进场费") { enterFeeLabel = content.children[efIdx]; break; }
         }
+        if (enterFeeLabel) { enterFeeLabel.active = false; }
         var enterFeeInput = content.getChildByName("fee_rake_percentLabel");
-        if (enterFeeLabel) { enterFeeLabel.active = true; enterFeeLabel.opacity = unified ? 255 : 120; }
-        if (enterFeeInput) {
-            enterFeeInput.active = true;
-            enterFeeInput.opacity = unified ? 255 : 120;
-            var enterFeeEb = enterFeeInput.getComponent(cc.EditBox);
-            if (enterFeeEb) {
-                if (typeof enterFeeEb.interactable === "boolean") { enterFeeEb.interactable = !!unified; }
-                else { enterFeeEb.enabled = !!unified; }
-            }
-        }
-        // 统一收费开启时这一行是"表情分"; 关闭时复用为"房卡"(房卡按局扣, 进场扣), 只改文字不改布局
-        this._setNodeLabel(content.getChildByName("face_scoreLabel"), unified ? "表情分:" : "房卡:");
+        if (enterFeeInput) { enterFeeInput.active = false; }
+        // 统一收费开启时这一行不显示; 关闭时复用为"房卡"(房卡按局扣, 进场扣)
+        if (!unified) { this._setNodeLabel(content.getChildByName("face_scoreLabel"), "房卡:"); }
 
         // 同一玩法在一个俱乐部只允许一条配置: 再次新建时带出已有配置的数值, 避免覆盖成默认值
         var base = cfg;

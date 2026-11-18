@@ -622,7 +622,7 @@ app.get('/club_join',function(req,res){
 					http.send(res,4,"已在该俱乐部中");
 					return;
 				}
-				//大厅模式:目标俱乐部所属一级俱乐部开了大厅时,一人只能加入一个俱乐部
+				//大厅模式:目标俱乐部所属一级俱乐部开了统一大厅时,一人只能加入一个俱乐部
 				db.club_parent_chain(clubId,function(chain){
 					var root = chain && chain.length ? chain[chain.length - 1] : null;
 					if(!root || Number(root.hall_mode) !== 1){ doJoin(); return; }
@@ -1707,6 +1707,45 @@ function pickGameConfig(req,withDefault){
 	return fields;
 }
 
+//系统固定收费(全局): 进场费/表情费/洗牌费, 所有俱乐部牌桌统一按此扣
+app.get('/club_admin/sys_fee_get',function(req,res){
+	clubAdminAccess(req,res,function(clubId,userData,club){
+		//系统收费为全局设置, 只允许一级俱乐部查看
+		if(Number(club && club.parent_clubid) > 0){ http.send(res,4,"only top club can manage."); return; }
+		db.setting_get('club_enter_fee',function(a){
+			db.setting_get('club_face_score',function(b){
+				db.setting_get('club_shuffle_score',function(c){
+					http.send(res,0,"ok",{
+						enter_fee: (a == null || a === '') ? 1 : Number(a),
+						face_score: (b == null || b === '') ? 0.1 : Number(b),
+						shuffle_score: (c == null || c === '') ? 0.5 : Number(c)
+					});
+				});
+			});
+		});
+	});
+});
+
+app.get('/club_admin/sys_fee_save',function(req,res){
+	clubAdminAccess(req,res,function(clubId,userData,club){
+		if(Number(club && club.parent_clubid) > 0){ http.send(res,4,"only top club can manage."); return; }
+		var keys = {enter_fee:'club_enter_fee', face_score:'club_face_score', shuffle_score:'club_shuffle_score'};
+		var pending = 0;
+		var failed = false;
+		Object.keys(keys).forEach(function(k){
+			if(req.query[k] == null || req.query[k] === ''){ return; }
+			var v = parseFloat(req.query[k]);
+			if(isNaN(v) || v < 0){ v = 0; }
+			pending++;
+			db.setting_set(keys[k],v,function(ok){
+				if(!ok){ failed = true; }
+				if(--pending === 0){ http.send(res,failed?1:0,failed?"save failed":"ok"); }
+			});
+		});
+		if(pending === 0){ http.send(res,0,"ok"); }
+	});
+});
+
 //总览
 app.get('/club_admin/overview',function(req,res){
 	clubAdminAccess(req,res,function(clubId,userData,club){
@@ -1716,7 +1755,17 @@ app.get('/club_admin/overview',function(req,res){
 			data.club_id = clubId;
 			data.club_name = club ? club.name : "";
 			data.my_gems = Number(userData && userData.gems) || 0;
-			http.send(res,0,"ok",{data:data});
+			//上级给本俱乐部的抽点比例: 顶级俱乐部(parent_clubid=0)不返回
+			var pid = Number(club && club.parent_clubid) || 0;
+			data.parent_clubid = pid;
+			if(!(pid > 0)){ http.send(res,0,"ok",{data:data}); return; }
+			db.partner_get(pid,clubId,function(st){
+				//三个抽点数: 抽水/暗水/房费(洗牌/表情)
+				data.parent_profit_ratio = st ? (Number(st.profit_ratio) || 0) : 0;
+				data.parent_hidden_profit_ratio = st ? (Number(st.hidden_profit_ratio) || 0) : 0;
+				data.parent_fee_profit_ratio = st ? (Number(st.fee_profit_ratio) || 0) : 0;
+				http.send(res,0,"ok",{data:data});
+			});
 		});
 	});
 });

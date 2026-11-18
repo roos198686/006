@@ -1,8 +1,10 @@
 // 掷色子动画(所有麻将场景共用,不需要在场景里摆节点)
 // 用法:
 //   var DiceRoll = require("DiceRoll");
-//   DiceRoll.play(this.node, function(){ DiceRoll.flushDeal(comp); });
+//   DiceRoll.play(this.node);            // 开局(game_begin)掷色子
+//   if(DiceRoll.isPlaying()){ DiceRoll.after(cb); } else { cb(); }  // 等色子播完再渲染(game_start)
 // 流程:两颗色子先后从屏幕右下角飞出 -> 落到牌桌中央 arrow 位置滚动 -> 减速定格 -> 飞回起点后隐藏
+// 发牌数据由服务端在色子动画结束后才下发(game_start_push),色子期间客户端没有牌可显示
 var ATLAS_PATH = "images/atlas/baoqei_g";
 var SIZE = 50;          //单个色子基准尺寸
 var FLY = 0.72;         //起飞到落点
@@ -55,13 +57,11 @@ function findNode(root, name){
 }
 
 //开局信息节点:底框 Sprite01(内含两颗色子) + 局数 gamecount + 剩余张数 mjcount
-//没有底框的场景返回 null(不做处理)
+//有的场景(漳浦/无金)没有底框 Sprite01,只有局数/余牌两个Label:同样按开场节奏显隐
 function openingNodes(host){
     var game = host ? host.getChildByName("game") : null;
     if(!game){ return null; }
-    var frame = game.getChildByName("Sprite01");
-    if(!frame){ return null; }
-    return [frame, game.getChildByName("gamecount"), game.getChildByName("mjcount")];
+    return [game.getChildByName("Sprite01"), game.getChildByName("gamecount"), game.getChildByName("mjcount")];
 }
 
 function applyOpeningVisible(host, visible){
@@ -254,13 +254,6 @@ var DiceRoll = {
         if(!host || !cc.isValid(host)){ done(); return false; }
         //回放不看动画
         if(cc.vv.replayMgr && cc.vv.replayMgr.isReplay && cc.vv.replayMgr.isReplay()){ done(); return false; }
-        //开局事件回调里可能还有代码把局数/余牌/底框重新显示出来:下一拍再压一次,保证整段开场都隐藏
-        var hideOpening = function(){
-            try{ if(cc.isValid(host)){ applyOpeningVisible(host, false); } }
-            catch(e){}
-        };
-        setTimeout(hideOpening, 0);
-        setTimeout(hideOpening, 250);
         dbg("play start " + openingState(host));
         playing = true;
         loadAtlas(function(a){
@@ -305,73 +298,6 @@ var DiceRoll = {
         });
     },
 
-    //色子播放期间先把手牌/对手牌背隐藏,等色子播完再由发牌动画逐张飞出
-    hideHands: function(comp){
-        try{
-            var arr = comp && comp._myMJArr ? comp._myMJArr : [];
-            for(var i = 0; i < arr.length; ++i){
-                var sp = arr[i];
-                if(sp && sp.node && sp.node.active && sp.node.mjId != null){ sp.node.opacity = 0; }
-            }
-            var gameChild = comp && comp.node ? comp.node.getChildByName("game") : null;
-            var seats = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.seats) || [];
-            for(var si = 0; si < seats.length; ++si){
-                var li = cc.vv.gameNetMgr.getLocalIndex(si);
-                if(li == 0){ continue; }
-                var sideRoot = gameChild ? gameChild.getChildByName(cc.vv.mahjongmgr.getSide(li)) : null;
-                var holds = sideRoot ? sideRoot.getChildByName("holds") : null;
-                if(holds == null){ continue; }
-                for(var ci = 0; ci < holds.childrenCount; ++ci){
-                    var ch = holds.children[ci];
-                    if(ch.active){ ch.opacity = 0; }
-                }
-            }
-        }catch(e){
-            console.error("[色子] 隐藏手牌异常:", (e && e.stack) ? e.stack : e);
-        }
-    },
-
-    showHands: function(comp){
-        try{
-            var arr = comp && comp._myMJArr ? comp._myMJArr : [];
-            for(var i = 0; i < arr.length; ++i){
-                var sp = arr[i];
-                if(sp && sp.node && sp.node.active && sp.node.mjId != null){ sp.node.opacity = 255; }
-            }
-            var gameChild = comp && comp.node ? comp.node.getChildByName("game") : null;
-            var seats = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.seats) || [];
-            for(var si = 0; si < seats.length; ++si){
-                var li = cc.vv.gameNetMgr.getLocalIndex(si);
-                if(li == 0){ continue; }
-                var sideRoot = gameChild ? gameChild.getChildByName(cc.vv.mahjongmgr.getSide(li)) : null;
-                var holds = sideRoot ? sideRoot.getChildByName("holds") : null;
-                if(holds == null){ continue; }
-                for(var ci = 0; ci < holds.childrenCount; ++ci){
-                    var ch = holds.children[ci];
-                    if(ch.active){ ch.opacity = 255; }
-                }
-            }
-        }catch(e){
-            console.error("[色子] 恢复手牌异常:", (e && e.stack) ? e.stack : e);
-        }
-    },
-
-    //牌墙(game/brickWall):开局动画期间隐藏,发牌开始再显示
-    setWallVisible: function(comp, visible){
-        try{
-            var game = comp && comp.node ? comp.node.getChildByName("game") : null;
-            var wall = game ? game.getChildByName("brickWall") : null;
-            if(!wall){ return; }
-            wall.active = visible;
-            if(visible){
-                var room = comp.getComponent && comp.getComponent("MJRoom");
-                if(room && room.refreshBrickWall){ room.refreshBrickWall(); }
-            }
-        }catch(e){
-            console.error("[色子] 牌墙显示异常:", (e && e.stack) ? e.stack : e);
-        }
-    },
-
     //开局动画期间需要隐藏的节点:底框 Sprite01 + 局数 gamecount + 剩余张数 mjcount
     //(只对摆了 Sprite01 底框的场景生效;wujin4/zp 没有底框,不做处理)
     setOpeningVisible: function(comp, visible){
@@ -379,46 +305,6 @@ var DiceRoll = {
             applyOpeningVisible(comp && comp.node, visible);
         }catch(e){
             console.error("[色子] 开局信息显示异常:", (e && e.stack) ? e.stack : e);
-        }
-    },
-
-    //本局首发牌延后到色子播完:先隐藏手牌、牌墙、底框和局数/余牌,色子结束再调 flushDeal
-    deferDeal: function(comp){
-        if(!comp){ return; }
-        comp._dealPending = true;
-        comp._dealAnimating = true;   //色子+发牌期间屏蔽手牌触摸
-        this.hideHands(comp);
-        this.setWallVisible(comp, false);
-        this.setOpeningVisible(comp, false);
-        dbg("defer " + openingState(comp.node));
-        //色子期间可能有 game_begin/延迟渲染把牌重新显示出来:持续兜底隐藏,直到发牌开始
-        var self = this;
-        var guard = setInterval(function(){
-            if(!comp || !comp.node || !cc.isValid(comp.node) || !comp._dealPending){
-                clearInterval(guard);
-                return;
-            }
-            self.hideHands(comp);
-            self.setWallVisible(comp, false);
-            self.setOpeningVisible(comp, false);
-        }, 100);
-        comp.scheduleOnce(function(){
-            if(comp._dealPending && !playing){ self.flushDeal(comp); }
-        }, 4.5);
-    },
-
-    //色子结束后补发牌动画(只发一次)
-    flushDeal: function(comp){
-        if(!comp || !comp._dealPending){ return; }
-        comp._dealPending = false;
-        this.showHands(comp);   //恢复不透明,由发牌动画重新收尾
-        this.setWallVisible(comp, true);   //牌墙和发牌同时出现
-        this.setOpeningVisible(comp, true);   //底框(含定格色子)和局数/余牌同时出现
-        dbg("flush " + openingState(comp.node));
-        try{
-            if(comp._playDealAnim){ comp._playDealAnim(); }
-        }catch(e){
-            console.error("[色子] 发牌动画异常:", (e && e.stack) ? e.stack : e);
         }
     }
 };

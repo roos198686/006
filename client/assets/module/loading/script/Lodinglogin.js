@@ -260,6 +260,9 @@ cc.Class({
         //调用 retain() 会抛 TypeError; start() 抛异常后引擎每帧重入 start, 表现为页面一直闪
         this._hotAm = am;
         this._hotFailCount = 0;
+        this._hotDlStartAt = Date.now();
+        this._hotDoneFiles = -1;
+        this._hotTotalFiles = -1;
         am.setVerifyCallback(function(path, asset){
             return true; //资源校验放行(清单md5校验由引擎下载完整性保障, 这里不做二次md5)
         });
@@ -283,9 +286,26 @@ cc.Class({
                     break;
                 case EV.NEW_VERSION_FOUND:
                     self._hotCheckDone = true; //检查阶段结束, 进入下载, 不再受检查超时限制
+                    //同一版本反复下载仍未生效(个别机型写清单失败/存储权限异常): 连续 3 次就跳过, 避免每次启动都卡在更新
+                    var rver = "";
+                    try { rver = String(am.getRemoteManifest().getVersion() || ""); } catch(e) { rver = ""; }
+                    var lastVer = cc.sys.localStorage.getItem("HotUpdateLastVersion");
+                    var repCnt = parseInt(cc.sys.localStorage.getItem("HotUpdateSameVersionCount") || "0", 10) || 0;
+                    if(rver && rver === lastVer){ repCnt++; } else { repCnt = 1; cc.sys.localStorage.setItem("HotUpdateLastVersion", rver); }
+                    cc.sys.localStorage.setItem("HotUpdateSameVersionCount", String(repCnt));
+                    if(rver && repCnt >= 3){
+                        console.error("[HotUpdate] 版本" + rver + "已连续下载" + repCnt + "次仍未生效, 本次跳过热更");
+                        self.showHotTip("更新异常, 跳过更新");
+                        self._finishHot();
+                        self.checkVersion();
+                        break;
+                    }
                     self.showHotTip("发现新版本, 正在更新");
                     //下载阶段也要有看门狗: 网络卡住/资源下不下来时不能永远停在"正在更新资源"
                     self._hotLastProgressAt = Date.now();
+                    self._hotDlStartAt = Date.now();
+                    self._hotDoneFiles = -1;
+                    self._hotTotalFiles = -1;
                     self._startHotDlWatch(am);
                     self.scheduleOnce(function(){
                         if(self._hotAm === am) am.update();
@@ -298,7 +318,13 @@ cc.Class({
                     //所以显示会在 0~11% 之间来回跳。改用 已下载文件数/总文件数, 单调递增。
                     var doneFiles = event.getDownloadedFiles ? event.getDownloadedFiles() : 0;
                     var totalFiles = event.getTotalFiles ? event.getTotalFiles() : 0;
-                    self._hotLastProgressAt = Date.now(); //有进度就续命, 看门狗只在完全没进展时触发
+                    //只有数量真的变化才算"有进展": 个别机型会重复抛同样进度的回调,
+                    //若每次都续命, 看门狗就永远不触发, 表现为一直停在更新中
+                    if(doneFiles !== self._hotDoneFiles || totalFiles !== self._hotTotalFiles){
+                        self._hotDoneFiles = doneFiles;
+                        self._hotTotalFiles = totalFiles;
+                        self._hotLastProgressAt = Date.now();
+                    }
                     if(totalFiles > 0){
                         self._stateStr = "正在更新资源 " + doneFiles + "/" + totalFiles;
                     }
@@ -328,6 +354,7 @@ cc.Class({
                         //必须同时记下当前包的指纹: 下次启动 applyHotUpdateSearchPaths 会拿它和包内指纹比对,
                         //没记录就会被判定"旧热更无指纹"直接删掉热更目录, 表现就是每次启动都重新下载
                         cc.sys.localStorage.setItem("HotUpdateBuildStamp", self._buildStamp() || "");
+                        cc.sys.localStorage.setItem("HotUpdateSameVersionCount", "0");
                     } catch(e) {
                         console.log("[HotUpdate] 保存搜索路径失败:", e);
                     }
@@ -383,6 +410,16 @@ cc.Class({
         this._hotDlTimer = setInterval(function(){
             if(!self._hotAm || self._hotAm !== am){
                 clearInterval(self._hotDlTimer); self._hotDlTimer = null;
+                return;
+            }
+            //绝对超时: 下载阶段超过10分钟仍未完成, 不管有没有零星进度都跳过热更,
+            //避免个别机型在更新资源上无限循环
+            if(Date.now() - (self._hotDlStartAt || 0) > 600000){
+                clearInterval(self._hotDlTimer); self._hotDlTimer = null;
+                console.error("[HotUpdate] 下载超过10分钟, 强制跳过热更");
+                self.showHotTip("更新超时, 跳过更新");
+                self._finishHot();
+                self.checkVersion();
                 return;
             }
             if(Date.now() - (self._hotLastProgressAt || 0) < 90000){ return; }

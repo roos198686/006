@@ -161,7 +161,9 @@ cc.Class({
             this._zhuang.active = this._isZhuang;    
         }
         
-        this.node.active = this._userName != null && this._userName != ""; 
+        //空座位也保留座位节点:显示场景默认头像+头像框,否则进房后对家座位整块消失
+        //座位数量由 MJRoom.applySeatCount 按实际人数显隐,这里不再按昵称隐藏
+        this.node.active = true;
     },
     
     setInfo(name,score,dayingjia){

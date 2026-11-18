@@ -160,20 +160,11 @@ function getGameMgrByType(type){
 	if(type == "zj" || type == "zj4"){
 		return require("./gamemgr_ldh");    // 翻财神 2人/4人
 	}
-	if(type == "zj4_bt"){
-		return require("./gamemgr_zj4_bt"); // 包麻将 4人
-	}
 	if(type == "zj_bt"){
 		return require("./gamemgr_bmj");    // 包麻将 2人
 	}
 	if(type == "zj_zx" || type == "zj4_zx"){
 		return require(type == "zj_zx" ? "./gamemgr_zjzx" : "./gamemgr_zjzx4"); // 自选财神 2人/4人
-	}
-	if(type == "zp"){
-		return require("./gamemgr_zp");     // 漳浦麻将 2人
-	}
-	if(type == "zp4"){
-		return require("./gamemgr_zp4");    // 漳浦金麻将 4人
 	}
 	if(type == "wujin" || type == "wujin4"){
 		return require("./gamemgr_wujin");  // 漳浦无金 2人/4人
@@ -289,8 +280,8 @@ function constructRoomFromDb(dbdata){
 
 exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 	var type = roomConf.type;
-	// 开放玩法: 宝宝(免摆/手摆) + 翻财神/包麻将/赖倒胡/自选财神/漳浦/无金/跑得快/牛牛
-	var allowedTypes = ["baobao_mian","baobao_shou","zj","zj4","zj4_bt","zj_bt","zj_lao","zj_zx","zj4_zx","zp","zp4","wujin","wujin4","guanpai2","guanpai3","niuniu","sss2","sss4","sss6"];
+	// 开放玩法: 宝宝(免摆/手摆) + 翻财神/包麻将/赖倒胡/自选财神/无金/跑得快/牛牛
+	var allowedTypes = ["baobao_mian","baobao_shou","zj","zj4","zj_bt","zj_lao","zj_zx","zj4_zx","wujin","wujin4","guanpai2","guanpai3","niuniu","sss2","sss4","sss6"];
 	if(allowedTypes.indexOf(type) < 0){
 		callback(1,null);
 		return;
@@ -377,9 +368,9 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 						if(roomConf.club_table_name != null){ conf.club_table_name = roomConf.club_table_name; } //玩家录入的真实牌桌名
 
 						// 诸暨麻将特有配置
-						if(type == "zj" || type == "zj_lao" || type == "zj_bt" || type == "zj4" || type == "zj4_bt" || type == "zj_zx" || type == "zj4_zx"){
+						if(type == "zj" || type == "zj_lao" || type == "zj_bt" || type == "zj4" || type == "zj_zx" || type == "zj4_zx"){
 							if(type == "zj" || type == "zj4") conf.playStyle = 'fancaishen';
-							else if(type == "zj_bt" || type == "zj4_bt") conf.playStyle = 'baocaishen';
+							else if(type == "zj_bt") conf.playStyle = 'baocaishen';
 							else if(type == "zj_zx" || type == "zj4_zx") conf.playStyle = 'zixuancaishen';
 							conf.maxTai = roomConf.maxTai || cfg.max_tai || 10;
 							conf.caishen_cpg = cfg.caishen_cpg != null ? cfg.caishen_cpg : 1;
@@ -399,7 +390,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							// 后台全局开关:可胡点过是否弹二次确认(客户端据下发值决定,缺省开)
 							conf.hu_guo_confirm = cfg.hu_guo_confirm != null ? cfg.hu_guo_confirm : 1;
 							conf.dianpao_hu = cfg.dianpao_hu != null ? cfg.dianpao_hu : 1;
-							// 二人诸暨玩法:是否去掉条子(仅 zj/zj_lao/zj_bt 生效,zj4/zj4_bt 忽略)
+							// 二人诸暨玩法:是否去掉条子(仅 zj/zj_lao/zj_bt 生效,zj4 忽略)
 							conf.remove_tiao = cfg.remove_tiao != null ? cfg.remove_tiao : 0;
 							conf.remove_wan = cfg.remove_wan != null ? cfg.remove_wan : 0;
 							conf.remove_tong = cfg.remove_tong != null ? cfg.remove_tong : 0;
@@ -421,7 +412,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 								conf.cai_diao = cfg.cai_diao != null ? cfg.cai_diao : 1;
 							}
 							// 包财神专属:每台包台分数(结算时包台分=包台数×此值)
-							if(type == "zj_bt" || type == "zj4_bt"){
+							if(type == "zj_bt"){
 								conf.bao_tai_score = cfg.bao_tai_score != null ? cfg.bao_tai_score : 1;
 								// 结算分:胡牌分=底分×2^(台数-1), 包台分=底分×2^(包台数-1), 底分取添加牌桌时选的底分
 							}
@@ -431,8 +422,8 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							}
 						}
 
-						// 漳浦麻将特有配置：台数规则优先用俱乐部自配(牌桌conf下发),空则用后台全局 tai_rules
-						if(type == "zp" || type == "zp4" || type == "wujin" || type == "wujin4"){
+						// 漳浦无金特有配置：台数规则优先用俱乐部自配(牌桌conf下发),空则用后台全局 tai_rules
+						if(type == "wujin" || type == "wujin4"){
 							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
 						}
 

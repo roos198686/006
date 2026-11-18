@@ -636,8 +636,33 @@ exports.start = function(conf,mgr){
 			if(socket.userId == null){
 				return;
 			}
+			//客户端可传字符串(老协议)或 {name,free}: free=true 表示静态表情, 不扣豆
+			//注意: 客户端 Net.send 会把对象 JSON.stringify 后再 emit, 这里要先还原
 			var phizId = data;
-			userMgr.broacastInRoom('emoji_push',{sender:socket.userId,content:phizId},socket.userId,true);
+			var free = false;
+			var isObj = false;
+			var target = socket.userId;   // 表情播到谁的头像上: 默认发送者自己, 客户端可指定(点击了谁)
+			if(typeof data === 'string' && data.charAt(0) === '{'){
+				try{
+					var obj = JSON.parse(data);
+					if(obj != null && typeof obj === 'object'){ data = obj; }
+				}catch(e){}
+			}
+			if(data != null && typeof data === 'object'){
+				phizId = data.name;
+				free = !!data.free;
+				isObj = true;
+				var tg = parseInt(data.target);
+				if(tg > 0){ target = tg; }
+			}
+			if(phizId == null || phizId === ''){
+				return;
+			}
+			//对象协议(宝宝牌): 发送方本地已播放/显示, 不再回推, 否则会重复播一遍
+			userMgr.broacastInRoom('emoji_push',{sender:socket.userId,target:target,content:phizId,free:free},socket.userId,!isObj);
+			if(free){
+				return;
+			}
 			//房间发表情扣豆(额度后台配置, 未配置则不扣)
 			var rid = roomMgr.getUserRoom(socket.userId);
 			var ri = rid != null ? roomMgr.getRoom(rid) : null;

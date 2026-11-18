@@ -12,11 +12,10 @@ cc.Class({
     extends: cc.Component,
 
     ctor: function () {
-        // 只列项目里真实存在、且能正常加载的场景; mjgame / mjgame_zp4 / mjgame_zjzx4 没有对应 .fire,
-        // mjgame_zp 里有失效贴图引用(财神提示底图/黄庄/胡)每次预加载都 404, 所以不放进预加载列表
+        // 只列项目里真实存在、且能正常加载的场景;没有 .fire 的玩法不放进预加载列表
         this.SCENE_LIST = ["login", "loading", "hall", "club", "mjgame_bb_shou",
             "mjgame_ldh", "mjgame_bmj", "mjgame_zjlao", "mjgame_zjzx",
-            "mjgame_wujin", "mjgame_wujin4", "mjgame_gp2", "mjgame_sss"];
+            "mjgame_wujin", "mjgame_gp2", "mjgame_sss"];
         this._preloaded = {};
         this._isTransitioning = false;
         this._transitionStart = 0;

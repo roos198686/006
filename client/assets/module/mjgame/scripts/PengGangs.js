@@ -98,9 +98,7 @@ cc.Class({
             || this.node.getComponent("MJGameZJLAO") != null
             || this.node.getComponent("MJGameLDH") != null
             || this.node.getComponent("MJGameZJZX") != null
-            || this.node.getComponent("MJGameWujin") != null
-            || this.node.getComponent("MJGameZP") != null
-            || this.node.getComponent("MJGameZP4") != null;
+            || this.node.getComponent("MJGameWujin") != null;
     },
 
     //副露财神角标: 角标节点已做进预制体PengGangMyself(或场景csCornerMeld),位置/大小在编辑器里直接调,

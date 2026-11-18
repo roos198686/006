@@ -1662,9 +1662,33 @@ var BB_SHOU_FIELDS = [
   {key:'s_win2', label:'赢两道 倍率', def:1},
   {key:'s_win3', label:'赢三道(打枪) 倍率', def:3}
 ];
-// 十三水配置字段(type == "sss2"/"sss4" 时使用)
+// 十三水配置字段(type == "sss2"/"sss4"/"sss6" 时使用, 存 tai_rules)
 var SSS_FIELDS = [
-  {key:'arrange_timeout', label:'摆牌超时(秒)', def:30}
+  {key:'arrange_timeout', label:'摆牌超时(秒)', def:30},
+  // 墩上牌型水数(该墩赢了拿这么多水, 普通墩 1 水)
+  {key:'w_head3', label:'前墩三尖刀(水)', def:3},
+  {key:'w_mid5k', label:'中墩五同(水)', def:20},
+  {key:'w_tail5k', label:'尾墩五同(水)', def:10},
+  {key:'w_mid_sf', label:'中墩同花顺(水)', def:10},
+  {key:'w_tail_sf', label:'尾墩同花顺(水)', def:5},
+  {key:'w_mid_bomb', label:'中墩炸弹(水)', def:8},
+  {key:'w_tail_bomb', label:'尾墩炸弹(水)', def:4},
+  {key:'w_mid_hl', label:'中墩葫芦(水)', def:3},
+  // 13张特殊牌型水数
+  {key:'sp_zql', label:'至尊青龙(水)', def:52},
+  {key:'sp_yl', label:'一条龙(水)', def:26},
+  {key:'sp_12hz', label:'十二皇族(水)', def:24},
+  {key:'sp_3ths', label:'三同花顺(水)', def:20},
+  {key:'sp_3bomb', label:'三套炸弹(水)', def:20},
+  {key:'sp_alld', label:'全大(水)', def:15},
+  {key:'sp_alls', label:'全小(水)', def:12},
+  {key:'sp_samecolor', label:'凑一色(水)', def:10},
+  {key:'sp_4t3', label:'四套三条(水)', def:6},
+  {key:'sp_5d3', label:'五对三条(水)', def:5},
+  {key:'sp_6d', label:'六对半(水)', def:3},
+  {key:'sp_3th', label:'三同花(水)', def:3},
+  {key:'sp_3sz', label:'三顺子(水)', def:3},
+  {key:'sp_stack', label:'特殊牌型叠加墩上大牌(0否/1是)', def:0}
 ];
 function getTaiRuleFields(){
   var type = document.getElementById('cfg_type').value;

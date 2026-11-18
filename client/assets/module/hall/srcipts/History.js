@@ -59,6 +59,16 @@ cc.Class({
 
     onLoad: function () {
         this.initNodes();
+        //俱乐部战绩里选麻将录像回放:带数据跳回大厅,在这里直接播,避免另写一套回放渲染
+        var pr = cc.vv && cc.vv.pendingReplay;
+        if(pr){
+            cc.vv.pendingReplay = null;
+            var self = this;
+            this.scheduleOnce(function(){
+                if(pr.data){ self.buildReplay(pr.data); }
+                else{ self.playReplay({uuid: pr.uuid}, pr.index); }
+            }, 0);
+        }
     },
 
     //节点初始化(幂等):组件可能挂在未激活节点上,onLoad 与首次 open 都可能先到

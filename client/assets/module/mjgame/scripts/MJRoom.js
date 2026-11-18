@@ -582,6 +582,33 @@ cc.Class({
         this.refreshBrickWall();
     },
 
+    //开局清桌(所有玩法共用):清掉上一局残留的手牌/副露/弃牌/出牌区/花牌区和牌墙,
+    //由 OpeningFlow 在掷色子前调用,避免新一局色子动画期间桌面上还摆着上一局的牌
+    clearOpeningTable:function(){
+        var game = this.node ? this.node.getChildByName("game") : null;
+        if(!game){ return; }
+        var sides = ["myself","up","right","left"];
+        var boxes = ["holds","penggangs","folds","ChuPai"];
+        for(var i = 0; i < sides.length; ++i){
+            var side = game.getChildByName(sides[i]);
+            if(!side){ continue; }
+            for(var b = 0; b < boxes.length; ++b){
+                var box = side.getChildByName(boxes[b]);
+                if(!box){ continue; }
+                for(var j = 0; j < box.childrenCount; ++j){ box.children[j].active = false; }
+            }
+        }
+        var huaNames = ["hua_myself","hua_up","hua_left","hua_right"];
+        for(var h = 0; h < huaNames.length; ++h){
+            var hua = game.getChildByName(huaNames[h]);
+            if(!hua){ continue; }
+            for(var k = 0; k < hua.childrenCount; ++k){ hua.children[k].active = false; }
+        }
+        //牌墙在发牌数据到达后由 refreshBrickWall 重新显示
+        var wall = game.getChildByName("brickWall");
+        if(wall){ wall.active = false; }
+    },
+
     //全玩法统一牌墙模型:整副墙 = 墙头摸牌区 + 墙尾置灰死墙
     //墙头:普通摸牌,只让墙头少牌;墙尾:换花补牌/杠后补牌,只让墙尾少牌;
     //中间牌的位置/显隐一律不动(不会"整面墙往前移")
@@ -593,6 +620,8 @@ cc.Class({
             catch(e){ console.error("[MJRoom] 补建牌墙异常:", (e && e.stack) ? e.stack : e); }
         }
         if(!this._brickBuilt){ return; }
+        //清桌时牌墙被隐藏,新一局数据到达刷新时恢复显示
+        if(this._brickWall){ this._brickWall.active = true; }
         var nm = cc.vv ? cc.vv.gameNetMgr : null;
         if(!nm){ return; }
         var n = (nm.numOfMJ != null) ? Number(nm.numOfMJ) : 0;
@@ -822,6 +851,10 @@ cc.Class({
         if(nm && nm.exitToTableHall){ nm.exitToTableHall(); }
         else if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); }
         else{ cc.director.loadScene("club"); }
+        //离开牌桌必须清空牌局残留(gamestate/seats/conf):
+        //否则下次进任意麻将房,onLoad读到残留的"begin+手牌"会直接把上一局的牌桌画出来并盖住准备区,
+        //表现为"进房看不到牌也点不了任何按钮"(赖倒胡/自选财神在手机端必现)
+        if(cc.vv.gameNetMgr){ cc.vv.gameNetMgr.clearRoomState(); }
     },
 
     initEventHandlers:function(){

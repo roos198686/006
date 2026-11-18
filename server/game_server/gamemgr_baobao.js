@@ -642,6 +642,33 @@ function bestOrder(cards){
     });
 }
 
+// 一道两张牌的展示顺序: 点数大的在前, 同点数按花色(黑<红<梅<方)
+function pairOrder(cards){
+    return cards.slice().sort(function(a, b){
+        return rankOf(b) - rankOf(a) || suitOf(a) - suitOf(b);
+    });
+}
+
+// A 当 1 用的顺子(A2345/A23456): 按 1,2,3,4,5 升序排, 让 A 回到序列开头
+function aceLowStraightOrder(cards){
+    return cards.slice().sort(function(a, b){
+        var ra = rankOf(a), rb = rankOf(b);
+        if(ra == 14) ra = 1;
+        if(rb == 14) rb = 1;
+        return ra - rb || suitOf(a) - suitOf(b);
+    });
+}
+// 顺子是否把 A 当 1 用: 有 A 且没有 K(A2345 / A23456)
+function isAceLowStraight(cards){
+    var hasA = false, hasK = false;
+    for(var i = 0; i < cards.length; ++i){
+        var r = rankOf(cards[i]);
+        if(r == 14) hasA = true;
+        else if(r == 13) hasK = true;
+    }
+    return hasA && !hasK;
+}
+
 // 免摆牌型展示排序: 按牌型结构把 6 张牌排成连续的 3 组(前2/中2/后2)
 // 同花顺/顺子按顺子顺序, 3对按对子, 3组9按三个9点分组, 4条/3条成组优先, 其余按点数降序
 function mianOrder(cards, mian){
@@ -650,8 +677,11 @@ function mianOrder(cards, mian){
     function desc(arr){
         return arr.slice().sort(function(a, b){ return rankOf(b) - rankOf(a) || suitOf(a) - suitOf(b); });
     }
-    // 散牌/6同花/6连顺/6同花顺: 纯点数降序
-    if(level == 0 || level == 590 || level == 540 || level == 530) return desc(list);
+    // 散牌/6同花: 纯点数降序; 6连顺/6同花顺: 按顺子顺序(A 当 1 的顺子升序展开)
+    if(level == 0 || level == 540) return desc(list);
+    if(level == 590 || level == 530){
+        return isAceLowStraight(list) ? aceLowStraightOrder(list) : desc(list);
+    }
     var cnt = {};
     list.forEach(function(c){ var r = rankOf(c); (cnt[r] = cnt[r] || []).push(c); });
     var ranks = Object.keys(cnt).map(Number).sort(function(a, b){ return b - a; });
@@ -697,7 +727,11 @@ function mianOrder(cards, mian){
             for(var j = 1; j < 5; ++j){ if(suitOf(c5[j]) != s0){ sameSuit = false; break; } }
             var seq = straightTop(c5.map(rankOf)) > 0;
             var ok = (level == 520) ? sameSuit : seq;
-            if(ok) return desc(c5).concat([kick]);
+            if(ok){
+                // 顺子按顺序展开(A 当 1 的 A2345 升序), 带的那张放在最后
+                var part = (level == 510 && isAceLowStraight(c5)) ? aceLowStraightOrder(c5) : desc(c5);
+                return part.concat([kick]);
+            }
         }
     }
     // 3组9: 三组各两张点数和为9, 组间按组内最大点数降序
@@ -798,7 +832,7 @@ function buildRevealPayload(game){
                 // 免摆玩家也要逐道显示牌型点数: 必须用免摆牌型结构切三道(前2/中2/后2),
                 // 不能用 autoArrange 的最优三道——3组9 会被拆成 9K/… 这种组内顺序, 与牌型不符
                 var mo = mianOrder(s.holds, s.mian);
-                var md = [{ cards: mo.slice(0, 2) }, { cards: mo.slice(2, 4) }, { cards: mo.slice(4, 6) }];
+                var md = [{ cards: pairOrder(mo.slice(0, 2)) }, { cards: pairOrder(mo.slice(2, 4)) }, { cards: pairOrder(mo.slice(4, 6)) }];
                 return {
                     seat: idx,
                     sex: s.sex || 0,
@@ -813,7 +847,7 @@ function buildRevealPayload(game){
             return {
                 seat: idx,
                 sex: s.sex || 0,
-                daos: s.daos.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; }),
+                daos: s.daos.map(function(d){ return { cards: pairOrder(d.cards), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; }),
                 wulong: !!s.wulong,
                 auto: !!s.autoArranged
             };
@@ -965,20 +999,30 @@ function doGameOver(game){
         userIdOfSeat: game.gameSeats.map(function(s){ return s.userId; })
     } : null;
 
-    //抽水按玩家自己所属俱乐部算: 结算前把赢家所属俱乐部查出来(没有俱乐部的回退牌桌俱乐部)
-    var fillSeatClubs = function(seatIdxs, cb){
+    //抽水归属: 赢家是社长 -> 归自己俱乐部; 是普通成员 -> 跳过他所属俱乐部, 直接归上级俱乐部;
+    //无俱乐部 -> 归牌桌所属俱乐部
+    var fillRakeClubs = function(seatIdxs, cb){
         if(!chargeRoomInfo){ cb(); return; }
-        var map = chargeRoomInfo.clubIdOfSeat || {};
-        chargeRoomInfo.clubIdOfSeat = map;
-        var list = (seatIdxs || []).filter(function(s){ return !(Number(map[s]) > 0); });
+        var map = chargeRoomInfo.rakeClubOfSeat || (chargeRoomInfo.rakeClubOfSeat = {});
+        var list = (seatIdxs || []).filter(function(s){ return map[s] == null; });
         if(list.length === 0){ cb(); return; }
         var pending = list.length;
+        var tick = function(){ if(--pending === 0){ cb(); } };
+        var tableClub = Number(chargeRoomInfo.clubId) || 0;
         list.forEach(function(si){
             var uid = Number((chargeRoomInfo.userIdOfSeat || [])[si]) || 0;
-            if(!(uid > 0)){ if(--pending === 0){ cb(); } return; }
+            if(!(uid > 0)){ map[si] = tableClub; tick(); return; }
             db.club_member_clubid(uid, function(cid){
-                if(Number(cid) > 0){ map[si] = Number(cid); }
-                if(--pending === 0){ cb(); }
+                cid = Number(cid) || 0;
+                if(!(cid > 0)){ map[si] = tableClub; tick(); return; }
+                db.club_get(cid, function(club){
+                    var target = cid;
+                    if(club && Number(club.owner_userid) !== uid && Number(club.parent_clubid) > 0){
+                        target = Number(club.parent_clubid);
+                    }
+                    map[si] = target;
+                    tick();
+                });
             });
         });
     };
@@ -1048,7 +1092,7 @@ function doGameOver(game){
         refreshClubConfig(function(){
             if(!clubConfig){ cb(); return; }
             var charge = require("./charge");
-            fillSeatClubs(winners, function(){
+            fillRakeClubs(winners, function(){
                 charge.chargeRake(deltas, winners, chargeRoomInfo, clubConfig, function(){
                     cb();
                 });
@@ -1093,7 +1137,7 @@ function doGameOver(game){
                     r.mianFree = true;
                     // 免摆玩家: 与亮牌一致, 按免摆牌型结构切三道(前2/中2/后2)供结算行显示
                     var rmo = mianOrder(s.holds, s.mian);
-                    var rmd = [{ cards: rmo.slice(0, 2) }, { cards: rmo.slice(2, 4) }, { cards: rmo.slice(4, 6) }];
+                    var rmd = [{ cards: pairOrder(rmo.slice(0, 2)) }, { cards: pairOrder(rmo.slice(2, 4)) }, { cards: pairOrder(rmo.slice(4, 6)) }];
                     r.daos = rmd.map(function(d){
                         return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) };
                     });
@@ -1101,7 +1145,7 @@ function doGameOver(game){
                     r.typeName = MIAN_NAMES[s.mian.level];
                     r.rate = s.mian.rate;
                 } else {
-                    r.daos = s.daos.map(function(d){ return { cards: d.cards.slice(), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; });
+                    r.daos = s.daos.map(function(d){ return { cards: pairOrder(d.cards), desc: daoDesc(d), rate: daoRate(d, taiRules(game)) }; });
                     r.wulong = !!s.wulong;
                 }
             } else {
@@ -1172,7 +1216,7 @@ function doGameOver(game){
                 totalDeltas[td] = game.gameSeats[td].roomWin || 0;
                 if(totalDeltas[td] > 0) totalWinners.push(td);
             }
-            fillSeatClubs(totalWinners, function(){
+            fillRakeClubs(totalWinners, function(){
                 chargeMod.chargeRakeTotal(totalDeltas, totalWinners, chargeRoomInfo, clubConfig, function(){});
             });
             //房费: 由大赢家出, 按大赢家自己俱乐部的配置判断(比赛场出则不扣)
@@ -1706,7 +1750,7 @@ exports.resendGameState = function(roomId, userId){
         mianFree: !!s.mianFree,
         myMian: (s.mian ? { level: s.mian.level, typeName: MIAN_NAMES[s.mian.level], rate: s.mian.rate, cards: mianOrder(s.holds, s.mian) } : null),
         arranged: !!s.arranged,
-        myDaos: s.arranged && s.daos ? s.daos.map(function(d){ return d.cards.slice(); }) : null,
+        myDaos: s.arranged && s.daos ? s.daos.map(function(d){ return pairOrder(d.cards); }) : null,
         conf: game.conf
     };
     if(game.phase == "reveal") data.reveal = buildRevealPayload(game);

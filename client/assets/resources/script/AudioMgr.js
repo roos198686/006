@@ -62,6 +62,27 @@ cc.Class({
         if (typeof wx !== "undefined" && wx && wx.onTouchStart) {
             wx.onTouchStart(unlock);
         }
+        this._installGlobalClickSFX();
+    },
+
+    // 全局按钮点击音效: cc.Button 点击时都会在节点上 emit("click"),
+    // 这里统一拦截,免去每个场景/脚本逐个绑定的遗漏;
+    // 同一时刻只播一次(部分脚本自己也会播),避免出现双击声
+    _installGlobalClickSFX: function () {
+        if (cc.__clickSfxInstalled) return;
+        cc.__clickSfxInstalled = true;
+        var self = this;
+        var origEmit = cc.Node.prototype.emit;
+        cc.Node.prototype.emit = function (type) {
+            if (type === "click") {
+                var now = Date.now();
+                if (!self._lastClickSfxAt || now - self._lastClickSfxAt > 60) {
+                    self._lastClickSfxAt = now;
+                    self.playSFX("btnClick.wav");
+                }
+            }
+            return origEmit.apply(this, arguments);
+        };
     },
 
     // 首个用户手势: 唤醒 WebAudio 并补播被浏览器拦截的背景音乐(只做一次)
