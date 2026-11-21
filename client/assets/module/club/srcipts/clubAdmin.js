@@ -1789,7 +1789,7 @@ _bindRewardPage: function () {
     // 收入统计筛选条: 场景里可能是旧的 EditBox 版本(编辑器会回写场景), 这里在运行时统一改造成
     // 「月份下拉 / 开始日期 / 结束日期 / 下级俱乐部分」按钮 + 日历选择器, 不依赖场景文件改动
     _prepareStatUI: function (content) {
-        var root = this.node.getChildByName("popups");
+        var root = this._find("popups");   // popups 挂在 NewNodeaa 下, 不能只取 Canvas 直接子节点
         if (!root) { return; }
         // 1) 输入框 -> 按钮
         var defs = [
@@ -1933,7 +1933,7 @@ _bindRewardPage: function () {
         this._rakePerRound = 1;
         this._roomFeePayer = 1;
         this._gemsMode = 1; // 1=加豆豆 -1=减豆豆(减豆豆时仍输入正数)
-        var root = this.node.getChildByName("popups");
+        var root = this._find("popups");   // popups 挂在 NewNodeaa 下, 不能只取 Canvas 直接子节点
         if (!root) { return; }
         // 收入统计: 先把筛选条改造成下拉/日期选择器(场景可能被编辑器回写成旧版)
         (function () {
