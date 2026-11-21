@@ -1,0 +1,41 @@
+
+zhichi.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+deng1
+  rotate: false
+  xy: 286, 134
+  size: 199, 119
+  orig: 199, 119
+  offset: 0, 0
+  index: -1
+di1
+  rotate: true
+  xy: 2, 54
+  size: 199, 140
+  orig: 199, 140
+  offset: 0, 0
+  index: -1
+di2
+  rotate: true
+  xy: 144, 54
+  size: 199, 140
+  orig: 199, 140
+  offset: 0, 0
+  index: -1
+zhi1
+  rotate: false
+  xy: 286, 68
+  size: 140, 64
+  orig: 140, 64
+  offset: 0, 0
+  index: -1
+zhi2
+  rotate: false
+  xy: 286, 2
+  size: 140, 64
+  orig: 140, 64
+  offset: 0, 0
+  index: -1

@@ -1,0 +1,174 @@
+
+jubaopen.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+CoinB1
+  rotate: false
+  xy: 272, 8
+  size: 20, 18
+  orig: 20, 18
+  offset: 0, 0
+  index: -1
+CoinC1
+  rotate: false
+  xy: 349, 12
+  size: 20, 20
+  orig: 20, 20
+  offset: 0, 0
+  index: -1
+biankou
+  rotate: false
+  xy: 313, 85
+  size: 81, 28
+  orig: 81, 28
+  offset: 0, 0
+  index: -1
+blue masonry
+  rotate: true
+  xy: 2, 2
+  size: 15, 16
+  orig: 15, 16
+  offset: 0, 0
+  index: -1
+body
+  rotate: false
+  xy: 180, 37
+  size: 94, 73
+  orig: 94, 73
+  offset: 0, 0
+  index: -1
+caiguang
+  rotate: false
+  xy: 167, 112
+  size: 138, 142
+  orig: 138, 142
+  offset: 0, 0
+  index: -1
+coinA1
+  rotate: true
+  xy: 20, 4
+  size: 13, 19
+  orig: 13, 19
+  offset: 0, 0
+  index: -1
+feitan
+  rotate: false
+  xy: 2, 19
+  size: 176, 87
+  orig: 176, 87
+  offset: 0, 0
+  index: -1
+glod1
+  rotate: false
+  xy: 223, 3
+  size: 47, 32
+  orig: 47, 32
+  offset: 0, 0
+  index: -1
+glodball
+  rotate: false
+  xy: 349, 2
+  size: 9, 8
+  orig: 9, 8
+  offset: 0, 0
+  index: -1
+green ball
+  rotate: false
+  xy: 384, 74
+  size: 10, 9
+  orig: 10, 9
+  offset: 0, 0
+  index: -1
+guanghuan
+  rotate: false
+  xy: 307, 115
+  size: 139, 139
+  orig: 139, 139
+  offset: 0, 0
+  index: -1
+guangyun3
+  rotate: false
+  xy: 2, 108
+  size: 163, 146
+  orig: 163, 146
+  offset: 0, 0
+  index: -1
+pinkouhou
+  rotate: true
+  xy: 276, 28
+  size: 82, 35
+  orig: 82, 35
+  offset: 0, 0
+  index: -1
+red ball
+  rotate: false
+  xy: 294, 2
+  size: 10, 9
+  orig: 10, 9
+  offset: 0, 0
+  index: -1
+red masonry
+  rotate: false
+  xy: 294, 13
+  size: 14, 13
+  orig: 14, 13
+  offset: 0, 0
+  index: -1
+ring
+  rotate: false
+  xy: 41, 5
+  size: 14, 12
+  orig: 14, 12
+  offset: 0, 0
+  index: -1
+shuijin2
+  rotate: true
+  xy: 180, 2
+  size: 33, 41
+  orig: 33, 41
+  offset: 0, 0
+  index: -1
+shuijinhou
+  rotate: false
+  xy: 352, 34
+  size: 30, 49
+  orig: 30, 49
+  offset: 0, 0
+  index: -1
+small bell
+  rotate: false
+  xy: 313, 35
+  size: 37, 48
+  orig: 37, 48
+  offset: 0, 0
+  index: -1
+small bell2
+  rotate: true
+  xy: 313, 2
+  size: 31, 34
+  orig: 31, 34
+  offset: 0, 0
+  index: -1
+starlight
+  rotate: false
+  xy: 448, 62
+  size: 62, 64
+  orig: 62, 64
+  offset: 0, 0
+  index: -1
+starlight1
+  rotate: true
+  xy: 448, 128
+  size: 126, 62
+  orig: 126, 62
+  offset: 0, 0
+  index: -1
+yupei
+  rotate: true
+  xy: 396, 79
+  size: 34, 43
+  orig: 34, 43
+  offset: 0, 0
+  index: -1

@@ -10,7 +10,6 @@ cc.Class({
         _timeLabel:null,
         _time:-1,
         _alertTime:-1,
-        _hideUntilFirstDiscard:false, //一局开始还没人出牌时不显示风向标
     },
 
     onLoad: function () {
@@ -19,23 +18,18 @@ cc.Class({
         this._pointer = this._arrow.getChildByName("pointer");
         this._timeLabel = this._arrow.getChildByName("lblTime").getComponent(cc.Label);
         this._timeLabel.string = "00";
-        //进场景时先按"本局是否已出牌"决定风向标显隐,避免补发残局还没出牌时先闪一下
-        this._hideUntilFirstDiscard = this._noDiscardYet();
         this.initPointer();
 
         var self = this;
+        //发牌(game_begin/game_start)即显示牌桌中央风向标,不再等首张出牌
         this.node.on('game_begin',function(data){
-            self._hideUntilFirstDiscard = self._noDiscardYet();
             self.startTurn();
         });
         this.node.on('game_start',function(data){
-            //一局开始未出牌前风向标隐藏;重进房间补发的残局已有弃牌则正常显示
-            self._hideUntilFirstDiscard = self._noDiscardYet();
             self.startTurn();
         });
         //出牌后轮次推进由摸牌事件确定(turn=摸牌的人),出牌事件也刷新(轮到下家前的过渡)
         this.node.on('game_chupai',function(data){
-            self._hideUntilFirstDiscard = false;
             self.startTurn();
         });
         this.node.on('game_mopai',function(data){
@@ -43,26 +37,8 @@ cc.Class({
         });
     },
 
-    //本局是否还没有任何人出过牌
-    _noDiscardYet:function(){
-        var nm = cc.vv ? cc.vv.gameNetMgr : null;
-        var seats = nm ? nm.seats : null;
-        if(!seats){ return false; }
-        for(var i = 0; i < seats.length; ++i){
-            var s = seats[i];
-            if(s && s.folds instanceof Array && s.folds.length > 0){ return false; }
-        }
-        return true;
-    },
-
     //当前轮次开始:指针对准该出牌的方位,倒计时重置
     startTurn:function(){
-        if(this._hideUntilFirstDiscard){
-            //开局还没出牌:整个风向标(方位指针+倒计时)都不显示
-            if(this._arrow){ this._arrow.active = false; }
-            this._time = -1;
-            return;
-        }
         this.initPointer();
         if(!this._arrow.active){ return; }
         var sec = cc.vv.gameNetMgr.chupaiTimeout;

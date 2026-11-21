@@ -103,15 +103,21 @@ cc.Class({
         });
     },
 
-    // 结算弹窗专用牌面(pkp_js 牌表): 整图 462x1486, 每张 66x168, 每行 7 张
-    // 帧顺序 n_花色_点数: 1=♦ 2=♣ 3=♥ 4=♠; 点数 1=A 2~9 10=10 11=J 12=Q 13=K
+    // 结算弹窗专用牌面: pokei_x 图集(pkp_js 牌表), 帧名 n_花色_点数
+    // 1=♦ 2=♣ 3=♥ 4=♠; 点数 1=A 2~9 10=10 11=J 12=Q 13=K
     loadSettleCards: function () {
         var self = this;
-        cc.resources.loadDir("images/cards_js", cc.SpriteFrame, function (err, arr) {
-            if (err || !arr || !arr.length) { console.log("[BB] 结算牌面加载失败, 沿用牌桌牌面", err); return; }
+        cc.resources.load("images/atlas/pokei_x", cc.SpriteAtlas, function (err, atlas) {
+            if (err || !atlas) { console.log("[BB] 结算牌面加载失败, 沿用牌桌牌面", err); return; }
             self._jsFrames = {};
-            arr.forEach(function (f) { self._jsFrames[f.name] = f; });
-            console.log("[BB] 结算牌面加载完成, 帧数=" + arr.length);
+            for (var s = 1; s <= 4; ++s) {
+                for (var r = 1; r <= 13; ++r) {
+                    var nm = "n_" + s + "_" + r;
+                    var f = atlas.getSpriteFrame(nm + ".png") || atlas.getSpriteFrame(nm);
+                    if (f) self._jsFrames[nm] = f;
+                }
+            }
+            console.log("[BB] 结算牌面加载完成(pokei_x), 帧数=" + Object.keys(self._jsFrames).length);
             if (self._n.resultPanel && self._n.resultPanel.active && self._lastResults) {
                 var ok = self._renderSettleCards(self._lastResults, self._lastDetails);
                 if (self._n.resultContent) self._n.resultContent.active = !ok;
@@ -366,6 +372,7 @@ cc.Class({
                 zhuang: zhuang,
                 readyMark: ready,
                 okSprite: this.findNode(seat, "okSprite"),   // 坐下标记: 有人坐下显示, 开局隐藏
+                swSprite: this.findNode(seat, "swSprite"),   // 头像区标记: 有玩家时与头像/昵称同时段显示
                 cardsNode: this.findNode(seat, "bbCards"),   // 牌桌牌区: 摆牌弹窗打开时整块隐藏
                 slots: slots,
                 // 免摆整手展示用的一排六个牌位(场景里新增, 缺失时退化为原来的三排)
@@ -686,9 +693,9 @@ cc.Class({
         this.bindButton(btnChat, function () { self._switchChatTab(true); panel.active = true; }, this);
         this._chatQuickList = this.findNode(panel, "quickchatlist");
         this._chatEmojiList = this.findNode(panel, "emojis");
-        // userinfo 里的是动态表情面板(扣费)
+        // userinfo 只放新互动表情(扣费); chat 放原 16 个动态表情(免费)
         this._dynEmojiList = this.findNode(this._userinfo, "emojis");
-        // 聊天弹窗的静态表情面板: 场景里没有时用 userinfo 下的静态表情运行时克隆一份(免费发送)
+        // chat 场景里没有原表情网格时, 在 userinfo 改造前克隆原 15 格, 再补 xgd
         if (!this._chatEmojiList && this._dynEmojiList) {
             var emoClone = cc.instantiate(this._dynEmojiList);
             // 不能叫 emojis: 场景上的 Chat.js 会按名字找到它并把静态格子换成骨骼动画
@@ -792,20 +799,35 @@ cc.Class({
         this._emojiSpineNames = ["yihuo", "kuaidian", "zhenbang", "aini", "daxiao", "yunle",
                                  "yishoulanpai", "dengchang", "jingle", "huaixiao", "keshui", "886",
                                  "wolaile", "dalaozaici", "biepao"];
+        // 互动表情(逆向包 Common/chat/anim): 只放在 userinfo, 发送扣费
+        // 后 23 个为逆向包 dtg/amgs 里其余聊天/礼物表情(牛牛、色子等游戏特效未收)
+        this._interactNames = ["dianzan", "baoza1", "jidan1", "huaban1", "xin", "chuizi2", "dapao",
+                               "gongjian", "jiguanqiang", "e1004", "chuizi", "jidan", "huaban",
+                               "baoza", "zhuaji", "bingtong", "dong", "xi", "nan", "bei", "zhong",
+                               "ainio", "anzhongguancha", "dacuopaile", "emo", "haixiu", "kuaidianba",
+                               "shanyaodengchang", "tuoguan", "yiqifacai", "bixin", "bobo", "caishen",
+                               "fanqie", "hua", "huojian", "jubaopen", "pencaoqiang", "tiangou",
+                               "xinxin", "youting", "zhadan", "zhichi", "zhuoji"];
+        this._interactSpine = {};
     },
 
     _loadEmojiSpines: function () {
         var self = this;
-        var names = this._emojiSpineNames;
+        var normalNames = this._emojiSpineNames;
+        var names = normalNames.concat(this._interactNames);
         var loadOne = function (i) {
             if (i >= names.length) {
                 console.log("[BB] 动态表情骨骼加载完成=" + Object.keys(self._emojiSpine).length);
+                console.log("[BB] 互动表情骨骼加载完成=" + Object.keys(self._interactSpine).length);
                 self._buildEmojiPanel();
+                self._buildUserInfoInteract();
                 return;
             }
-            cc.resources.load("anims/smile/" + names[i], sp.SkeletonData, function (err, sd) {
-                if (sd) self._emojiSpine[names[i]] = sd;
-                else console.log("[BB] 表情骨骼缺失: " + names[i], err);
+            var name = names[i];
+            var isInteract = i >= normalNames.length;
+            cc.resources.load("anims/smile/" + name, sp.SkeletonData, function (err, sd) {
+                if (sd) (isInteract ? self._interactSpine : self._emojiSpine)[name] = sd;
+                else console.log("[BB] 表情骨骼缺失: " + name, err);
                 loadOne(i + 1);
             });
         };
@@ -923,15 +945,15 @@ cc.Class({
             self._xgdFrames = arr;
             console.log("[BB] xgd 动图帧数=" + arr.length);
             if (self._xgdCell && cc.isValid(self._xgdCell)) {
-                var sp = self._xgdCell.getComponent(cc.Sprite);
+                var sp = self._xgdCell.getComponent(cc.Sprite) || self._xgdCell.addComponent(cc.Sprite);
                 if (sp) { sp.enabled = true; sp.sizeMode = cc.Sprite.SizeMode.CUSTOM; sp.spriteFrame = arr[0]; }
             }
         });
     },
 
-    // 动态表情面板(userinfo 下): 场景里的 15 个静态表情原位隐藏, 同坐标换成骨骼节点
+    // chat 原动态表情面板: 15 个骨骼表情 + xgd, 免费发送且保持动态播放
     _buildEmojiPanel: function () {
-        var panel = this._dynEmojiList;
+        var panel = this._chatEmojiList;
         if (this._emojiPanelBuilt || !panel) return;
         this._loadXgdFrames();
         var grid = panel.children && panel.children[0];
@@ -943,77 +965,77 @@ cc.Class({
         this._emojiStaticOf = {};
         olds.forEach(function (old, idx) {
             var name = self._emojiSpineNames[idx];
-            if (!name) return;
-            var w = old.width, h = old.height;
-            // 点击一律按骨骼名发送, 与骨骼是否加载成功无关
-            cells.push({ x: old.x, y: old.y, name: name });
+            // chat 表情页只放原 15 格
+            if (!name) { old.active = false; return; }
+            old.active = true;
+            cells.push({ name: name });
             if (self._emojiFrames && self._emojiFrames[old.name]) self._emojiStaticOf[name] = self._emojiFrames[old.name];
-            // 点击统一走下面的表情区: 解掉旧点击(按节点名 happy/angry 发送), 并禁用节点按钮
+            // 显示完全由场景节点决定, 代码只绑点击
             var btn = old.getComponent(cc.Button);
             if (btn) btn.enabled = false;
-            old.off(cc.Node.EventType.TOUCH_END);
-            var sd = self._emojiSpine[name];
-            if (!sd) return;   // 缺骨骼的格子保留原静态表情, 不至于开天窗
-            var sz = self._emojiSpineSize(sd);
-            // 场景里的静态表情节点就是定位锚点: 编辑器里随便拖/改尺寸, 运行时只把静态图关掉,
-            // 骨骼挂成它的子节点(坐标0,0), 位置和缩放跟着场景节点走
-            var spr = old.getComponent(cc.Sprite);
-            if (spr) spr.enabled = false;
-            var vis = new cc.Node("skel");
-            vis.parent = old;
-            var s = Math.min(w / sz.w, h / sz.h) * 0.9;
-            // 素材不在骨骼原点居中: 偏移到格子中心
-            var bd = self._emojiBounds(sd);
-            vis.setPosition(-(bd.minX + bd.maxX) / 2 * s, -(bd.minY + bd.maxY) / 2 * s);
-            vis.scale = s;
-            var com = vis.addComponent(sp.Skeleton);
-            com.skeletonData = sd;
-            com.setAnimation(0, "animation", true);
+            old.on(cc.Node.EventType.TOUCH_END, function () {
+                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("btnClick.wav");
+                self._sendEmoji(name);
+            });
         });
-        // 图集逐帧动图(xgd): 在第三行空位补一格, 点击与骨骼表情同一条发送链路
-        if (!grid.getChildByName("xgd")) {
-            var srcCell = olds[0];
-            var cell = cc.instantiate(srcCell);
-            cell.name = "xgd";
-            cell.parent = grid;
-            cell.setPosition(66, -155);
-            cell.setContentSize(150, 150);
-            var cbtn = cell.getComponent(cc.Button);
+        // 图集逐帧动图(xgd): 节点在场景里, 代码只在上面播放帧, 不改位置/尺寸
+        var xgd = grid.getChildByName("xgd");
+        if (xgd) {
+            xgd.active = true;
+            var cbtn = xgd.getComponent(cc.Button);
             if (cbtn) cbtn.enabled = false;
-            cell.off(cc.Node.EventType.TOUCH_END);
-            // 克隆源格子此时已被换成骨骼动画(skel 子节点), 必须清掉, 否则格子里显示的是别人的动态表情
-            var skel = cell.getChildByName("skel");
-            if (skel) skel.destroy();
-            var cspr = cell.getComponent(cc.Sprite);
-            if (cspr) {
-                cspr.sizeMode = cc.Sprite.SizeMode.CUSTOM;
-                cspr.enabled = !!this._xgdFrames;
-                if (this._xgdFrames) cspr.spriteFrame = this._xgdFrames[0];
-            }
-            this._xgdCell = cell;
+            xgd.on(cc.Node.EventType.TOUCH_END, function () {
+                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("btnClick.wav");
+                self._sendEmoji("xgd");
+            });
+            this._xgdCell = xgd;
         }
-        cells.push({ x: 66, y: -155, name: "xgd" });
+        cells.push({ name: "xgd" });
         if (!cells.length) return;
-        // 整个表情区统一接一层点击, 按触点找最近的格子:
-        // 单格各自绑点击时, 点在格子边缘会落到弹窗底图上, 表现就是"第一下没反应, 再点一下才发送"
-        // 监听挂在 emojis(父节点)上, 子节点吞掉/冒泡过来的点击都能收到; 坐标仍按 grid 换算
-        var root = panel;
-        root.off(cc.Node.EventType.TOUCH_END);
-        root.on(cc.Node.EventType.TOUCH_END, function (ev) {
-            // 本引擎只有 getLocation(已换算成设计分辨率), 没有 getUILocation
-            var p = grid.convertToNodeSpaceAR(cc.v2(ev.getLocation()));
-            var best = null, bd = 1e9;
-            for (var i = 0; i < cells.length; ++i) {
-                var dx = p.x - cells[i].x, dy = p.y - cells[i].y;
-                var d = dx * dx + dy * dy;
-                if (d < bd) { bd = d; best = cells[i]; }
-            }
-            // 面板范围内点哪都发最近的那个, 不再用半径卡(否则格子四角会点不到)
-            if (!best) return;
-            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("btnClick.wav");
-            self._onEmojiPicked(best.name);
+        console.log("[BB] chat 原动态表情格子=" + cells.length + " 骨骼=" + Object.keys(this._emojiSpine).length);
+    },
+
+    // userinfo 互动表情: 显示由场景节点决定, 代码只绑点击(扣费)
+    _buildUserInfoInteract: function () {
+        var emo = this._dynEmojiList;
+        if (!emo || this._uiInteractBuilt) return;
+        var grid = this.findNode(emo, "New Layout") || (emo.children && emo.children[0]);
+        if (!grid) return;
+        this._uiInteractBuilt = true;
+        var self = this;
+        var cells = [];
+        this._interactNames.forEach(function (name) {
+            var cell = grid.getChildByName(name);
+            if (!cell) return;
+            cell.on(cc.Node.EventType.TOUCH_END, function () {
+                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("btnClick.wav");
+                self._sendDynEmoji(name);
+            });
+            cells.push(cell);
         });
-        console.log("[BB] 表情区点击已绑定 格子=" + cells.length + " 骨骼=" + Object.keys(this._emojiSpine).length);
+        // 场景里原有的旧表情格(不属于互动列表)隐藏, 不参与这个列表
+        grid.children.forEach(function (c) {
+            if (self._interactNames.indexOf(c.name) < 0) {
+                var btn = c.getComponent(cc.Button);
+                if (btn) { btn.clickEvents = []; btn.enabled = false; }
+                c.off(cc.Node.EventType.TOUCH_END);
+                c.active = false;
+            }
+        });
+        this._uiInteractCells = cells;
+        this._uiInteractGrid = grid;
+        console.log("[BB] userinfo 互动表情格子=" + cells.length);
+    },
+
+    // ===== 互动表情(逆向包 Common/chat/anim) =====
+    // 资源与原表情统一放在 anims/smile, 由 _loadEmojiSpines 一起加载
+
+    // 骨骼里主动画通常叫 animation, 东南西北中叫 1
+    _firstAnimName: function (sd) {
+        var j = sd && sd.skeletonJson;
+        var ks = (j && j.animations) ? Object.keys(j.animations) : [];
+        if (ks.indexOf("animation") >= 0) return "animation";
+        return ks.length ? ks[0] : "animation";
     },
 
     // userinfo 内的动态表情面板: 场景里已放好布局, 这里只补输入拦截和关闭绑定
@@ -1052,7 +1074,8 @@ cc.Class({
         var root = (sn && sn.root) ? sn.root : this.findNode(this.node, "bbSeat" + slot);
         if (!root) return null;
         var icon = this.findNode(root, "icon") || root;
-        var sd = this._emojiSpine && this._emojiSpine[name];
+        var sd = (this._emojiSpine && this._emojiSpine[name]) ||
+                 (this._interactSpine && this._interactSpine[name]);
         if (!sd) return null;
         var old = icon.getChildByName("emoteSpine");
         if (old) old.destroy();
@@ -1062,7 +1085,22 @@ cc.Class({
         var wr = icon.getBoundingBoxToWorld();
         var w = wr.width > 0 ? wr.width : 120;
         var h = wr.height > 0 ? wr.height : w;
-        var scale = (w / sz.w) * 1.8;
+        var scale = (w / sz.w) * 3.6;
+        // 屏幕可视范围(转到本节点坐标系): 表情整体必须落在这个范围内
+        var vs = cc.view.getVisibleSize(), vo = cc.view.getVisibleOrigin();
+        var p0 = this.node.convertToNodeSpaceAR(cc.v2(vo.x, vo.y));
+        var p1 = this.node.convertToNodeSpaceAR(cc.v2(vo.x + vs.width, vo.y + vs.height));
+        var scrMinX = Math.min(p0.x, p1.x), scrMaxX = Math.max(p0.x, p1.x);
+        var scrMinY = Math.min(p0.y, p1.y), scrMaxY = Math.max(p0.y, p1.y);
+        var bdW = (bd.maxX - bd.minX) * scale;
+        var bdH = (bd.maxY - bd.minY) * scale;
+        // 素材比屏幕还大时按屏幕缩放, 否则只做位置约束
+        var fit = Math.min(1, (scrMaxX - scrMinX) * 0.98 / bdW, (scrMaxY - scrMinY) * 0.98 / bdH);
+        if (fit < 1) {
+            scale *= fit;
+            bdW *= fit;
+            bdH *= fit;
+        }
         var n = new cc.Node("emoteSpine");
         n.parent = this.node;
         n.zIndex = 9999;
@@ -1079,11 +1117,22 @@ cc.Class({
         } else {
             pos.y -= artCY;
         }
+        // 位置约束: 素材包围盒整块挪进屏幕
+        var hw = bdW / 2, hh = bdH / 2;
+        if (pos.x - hw < scrMinX) pos.x = scrMinX + hw;
+        if (pos.x + hw > scrMaxX) pos.x = scrMaxX - hw;
+        if (pos.y - hh < scrMinY) pos.y = scrMinY + hh;
+        if (pos.y + hh > scrMaxY) pos.y = scrMaxY - hh;
         n.setPosition(pos);
         n.scale = scale;
         var sk = n.addComponent(sp.Skeleton);
         sk.skeletonData = sd;
-        sk.setAnimation(0, "animation", !!loop);
+        // 互动特效只播一次, 播完自动移除; 普通表情按 loop 循环
+        var oneShot = !!(this._interactSpine && this._interactSpine[name]);
+        sk.setAnimation(0, this._firstAnimName(sd), oneShot ? false : !!loop);
+        if (oneShot && sk.setCompleteListener) {
+            sk.setCompleteListener(function () { if (cc.isValid(n)) n.destroy(); });
+        }
         return n;
     },
 
@@ -1101,7 +1150,26 @@ cc.Class({
         var wr = icon.getBoundingBoxToWorld();
         var w = wr.width > 0 ? wr.width : 120;
         var h = wr.height > 0 ? wr.height : w;
-        var scale = (w / fo.width) * 1.8;
+        var scale = (w / fo.width) * 3.6;
+        // 帧尺寸不一(300/350/460), 按最大帧约束, 保证每一帧都不出屏
+        var maxFW = 0, maxFH = 0;
+        for (var fi = 0; fi < frames.length; ++fi) {
+            var fs = frames[fi].getOriginalSize();
+            if (fs.width > maxFW) maxFW = fs.width;
+            if (fs.height > maxFH) maxFH = fs.height;
+        }
+        var vs = cc.view.getVisibleSize(), vo = cc.view.getVisibleOrigin();
+        var p0 = this.node.convertToNodeSpaceAR(cc.v2(vo.x, vo.y));
+        var p1 = this.node.convertToNodeSpaceAR(cc.v2(vo.x + vs.width, vo.y + vs.height));
+        var scrMinX = Math.min(p0.x, p1.x), scrMaxX = Math.max(p0.x, p1.x);
+        var scrMinY = Math.min(p0.y, p1.y), scrMaxY = Math.max(p0.y, p1.y);
+        var bdW = maxFW * scale, bdH = maxFH * scale;
+        var fit = Math.min(1, (scrMaxX - scrMinX) * 0.98 / bdW, (scrMaxY - scrMinY) * 0.98 / bdH);
+        if (fit < 1) {
+            scale *= fit;
+            bdW *= fit;
+            bdH *= fit;
+        }
         var n = new cc.Node("emoteAnim");
         n.parent = this.node;
         n.zIndex = 9999;
@@ -1113,8 +1181,13 @@ cc.Class({
         var pos = this.node.convertToNodeSpaceAR(wp);
         if (slot === 3) {
             // 最上座: 素材顶边与头像顶边平齐, 往下展开
-            pos.y = pos.y + h / 2 - fo.height * scale / 2;
+            pos.y = pos.y + h / 2 - bdH / 2;
         }
+        var hw = bdW / 2, hh = bdH / 2;
+        if (pos.x - hw < scrMinX) pos.x = scrMinX + hw;
+        if (pos.x + hw > scrMaxX) pos.x = scrMaxX - hw;
+        if (pos.y - hh < scrMinY) pos.y = scrMinY + hh;
+        if (pos.y + hh > scrMaxY) pos.y = scrMaxY - hh;
         n.scale = scale;
         n.setPosition(pos);
         var idx = 0;
@@ -1194,7 +1267,7 @@ cc.Class({
     },
 
     // 在指定玩家座位边上显示气泡(节点与位置全在场景 bbSeatX/bbBubble), 2 秒后自动隐藏
-    _showBubble: function (senderUserId, content, isEmoji, forceStatic) {
+    _showBubble: function (senderUserId, content, isEmoji) {
         if (!content) return;
         var slot = this._slotIdxOfUser(senderUserId);
         // 动态表情必须落在发送者自己的头像上: 找不到座位就不播, 免得播到别人头上
@@ -1222,9 +1295,10 @@ cc.Class({
         if (isEmoji) {
             var raw = String(content).replace(/\.png$/i, "");
             // 动态表情: 在场景 bbBubbleEmoji 上叠加骨骼动画(位置/尺寸/层级不动), 循环播到气泡收起
-            // forceStatic(静态表情面板发的)时即使同名有骨骼也按静态帧显示
-            var isXgd = (raw === "xgd") && !forceStatic;
-            var sd = !forceStatic && !isXgd && this._emojiSpine && this._emojiSpine[raw];
+            var isXgd = (raw === "xgd");
+            var sd = !isXgd &&
+                     ((this._emojiSpine && this._emojiSpine[raw]) ||
+                      (this._interactSpine && this._interactSpine[raw]));
             console.log("[BB] emoji-bubble 内容=" + raw + " 骨骼=" + (!!sd) + " 图集=" + isXgd + " 槽位=" + slot);
             if (em && (sd || isXgd)) {
                 this._clearEmojiSpine(sn);
@@ -1356,12 +1430,12 @@ cc.Class({
         if (cc.vv && cc.vv.net && !this._replay) cc.vv.net.send("quick_chat", index);
     },
 
-    // 静态表情(聊天弹窗): 免费, 只广播不扣费
+    // chat 原 16 个动态表情: 免费发送; free 只控制扣费, 不影响动态播放
     _sendEmoji: function (name) {
         if (this._chatPanel) this._chatPanel.active = false;
         var myUid = cc.vv && cc.vv.userMgr && cc.vv.userMgr.userId;
         console.log("[BB] emoji send: " + name);
-        this._showBubble(myUid, name, true, true);
+        this._showBubble(myUid, name, true);
         if (cc.vv && cc.vv.net && !this._replay) cc.vv.net.send("emoji", { name: name, free: true });
     },
 
@@ -1389,8 +1463,8 @@ cc.Class({
             } catch (e) {}
         }
         // 播放位置以 target(被指定的玩家)为准, 老协议没有 target 时退回发送者
-        // free=true 是静态表情面板发的, 按静态帧显示
-        this._showBubble(d.target || d.sender, content, true, !!d.free);
+        // free 只决定是否扣费; 原 16 个免费表情仍按骨骼或 xgd 图集动态播放
+        this._showBubble(d.target || d.sender, content, true);
     },
 
     _bindEvents: function () {
@@ -1977,6 +2051,7 @@ cc.Class({
             sn0._uid = 0;   // 清掉上一次渲染的玩家id, 否则按uid找座位会命中隐藏的旧槽位
             sn0._uname = "";
             if (sn0.okSprite) sn0.okSprite.active = false;   // 默认隐藏, 只有点了准备才亮
+            if (sn0.swSprite) sn0.swSprite.active = false;   // 未占位不显示
             if (sn0.userSprite) sn0.userSprite.color = cc.Color.WHITE;
             if (sn0.icon) {
                 var clr = sn0.icon.getComponent("ImageLoader");
@@ -2005,10 +2080,12 @@ cc.Class({
                 if (sn.readyMark) sn.readyMark.active = false;
                 if (sn.okSprite) sn.okSprite.active = false;
                 if (sn.icon) sn.icon.active = false;
+                if (sn.swSprite) sn.swSprite.active = false;   // 空位: 与头像一样隐藏
                 if (sn.userSprite) { sn.userSprite.active = true; sn.userSprite.color = cc.Color.WHITE; }
                 continue;
             }
             if (sn.icon) sn.icon.active = true;
+            if (sn.swSprite) sn.swSprite.active = true;   // 有玩家: 与头像/昵称同时段显示
             if (sn.userSprite) sn.userSprite.color = cc.Color.WHITE;
             this.setStr(sn.nameLabel, infos[j].info.name || "");
             this.setStr(sn.scoreLabel, infos[j].info.score != null ? ("" + infos[j].info.score) : "");
@@ -2040,6 +2117,7 @@ cc.Class({
                 if (snE.zhuang) snE.zhuang.active = false;
                 if (snE.readyMark) snE.readyMark.active = false;
                 if (snE.okSprite) snE.okSprite.active = false;
+                if (snE.swSprite) snE.swSprite.active = false;   // 开局后空位同样隐藏
                 if (snE.cardsNode) snE.cardsNode.active = false;
                 if (snE.rowCards) snE.rowCards.active = false;
                 if (snE.summary) snE.summary.active = false;
@@ -2999,32 +3077,36 @@ cc.Class({
         var list = this._animOn("anim_dq", false, 1) ? (this._daqiangList || []) : [];
         var ql = this._animOn("anim_qld", false, 1) ? (this._quanleidaList || []) : [];
         if (!list.length && !ql.length) { if (done) done(); return; }
-        var i = 0;
-        function step() {
-            if (!cc.isValid(self.node)) return;
-            if (i >= list.length) {
-                if (ql.length) {
-                    var p0 = self._revealByGs[ql[0]];
-                    self._playVoice(p0 && p0.sex, "quanleida");
-                    self._fxQuanleida();
-                    self.scheduleOnce(function () { if (done) done(); }, 2.0);
-                } else if (done) done();
-                return;
-            }
-            var pr = list[i++];
-            var shooter = self._revealByGs[pr.from];
-            self._playVoice(shooter && shooter.sex, "daqiang");
-            for (var k = 0; k < 3; ++k) {
-                (function (kk) {
-                    setTimeout(function () {
-                        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("da_qiang_one.mp3");
-                    }, kk * 300);
-                })(k);
-            }
-            self._fxGunShot(pr.from, pr.to);
-            self.scheduleOnce(step, 1.5);
+        // 打枪按实际对数一枪一枪串行播, 但总时长固定 1.5 秒(按对数均分间隔),
+        // 这样 2 人和 6 人从亮牌结束到小局结算弹窗的时间一致; 之前是按每枪固定 1.5 秒串行, 对数越多等得越久
+        var DQ_TOTAL = 1.5;
+        var gap = list.length > 1 ? (DQ_TOTAL / list.length) : 0;
+        for (var i = 0; i < list.length; ++i) {
+            (function (idx, pr) {
+                self.scheduleOnce(function () {
+                    if (!cc.isValid(self.node)) return;
+                    var shooter = self._revealByGs[pr.from];
+                    self._playVoice(shooter && shooter.sex, "daqiang");
+                    for (var k = 0; k < 3; ++k) {
+                        (function (kk) {
+                            setTimeout(function () {
+                                if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("da_qiang_one.mp3");
+                            }, kk * 300);
+                        })(k);
+                    }
+                    self._fxGunShot(pr.from, pr.to);
+                }, idx * gap);
+            })(i, list[i]);
         }
-        step();
+        self.scheduleOnce(function () {
+            if (!cc.isValid(self.node)) return;
+            if (ql.length) {
+                var p0 = self._revealByGs[ql[0]];
+                self._playVoice(p0 && p0.sex, "quanleida");
+                self._fxQuanleida();
+                self.scheduleOnce(function () { if (done) done(); }, 2.0);
+            } else if (done) done();
+        }, list.length ? DQ_TOTAL : 0);
     },
     // 全垒打: qldAnimat 19帧@60ms 播屏幕中心
     _fxQuanleida: function (done) {

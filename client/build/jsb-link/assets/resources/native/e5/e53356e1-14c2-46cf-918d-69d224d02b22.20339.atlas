@@ -1,0 +1,27 @@
+
+fanqie.png
+size: 256,128
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+Tomatoes1
+  rotate: false
+  xy: 165, 47
+  size: 67, 66
+  orig: 67, 66
+  offset: 0, 0
+  index: -1
+Tomatoes2
+  rotate: false
+  xy: 89, 40
+  size: 74, 73
+  orig: 74, 73
+  offset: 0, 0
+  index: -1
+Tomatoes3
+  rotate: false
+  xy: 2, 2
+  size: 85, 111
+  orig: 85, 111
+  offset: 0, 0
+  index: -1

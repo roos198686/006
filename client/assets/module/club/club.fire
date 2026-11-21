@@ -20281,7 +20281,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        -372.812,
+        -495.812,
         17.376999999999995,
         0,
         0,
@@ -20351,7 +20351,7 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 12,
-    "_left": 547.188,
+    "_left": 424.188,
     "_right": 0,
     "_top": 0,
     "_bottom": 27.377,
@@ -20627,7 +20627,7 @@
       "__id__": 434
     },
     "_children": [],
-    "_active": true,
+    "_active": false,
     "_components": [
       {
         "__id__": 445

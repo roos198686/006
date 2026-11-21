@@ -1,0 +1,125 @@
+
+shanyaodengchang.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+dabi
+  rotate: false
+  xy: 298, 60
+  size: 21, 32
+  orig: 21, 32
+  offset: 0, 0
+  index: -1
+guan
+  rotate: false
+  xy: 2, 133
+  size: 295, 121
+  orig: 295, 121
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: false
+  xy: 2, 21
+  size: 70, 67
+  orig: 70, 67
+  offset: 0, 0
+  index: -1
+shou
+  rotate: false
+  xy: 105, 2
+  size: 21, 33
+  orig: 21, 33
+  offset: 0, 0
+  index: -1
+tou
+  rotate: true
+  xy: 299, 94
+  size: 160, 201
+  orig: 160, 201
+  offset: 0, 0
+  index: -1
+tou1
+  rotate: false
+  xy: 162, 82
+  size: 60, 49
+  orig: 60, 49
+  offset: 0, 0
+  index: -1
+tou2
+  rotate: false
+  xy: 74, 37
+  size: 64, 51
+  orig: 64, 51
+  offset: 0, 0
+  index: -1
+wenzi
+  rotate: false
+  xy: 2, 90
+  size: 158, 41
+  orig: 158, 41
+  offset: 0, 0
+  index: -1
+xiaobi
+  rotate: true
+  xy: 224, 61
+  size: 36, 49
+  orig: 36, 49
+  offset: 0, 0
+  index: -1
+xin1
+  rotate: true
+  xy: 2, 3
+  size: 16, 28
+  orig: 16, 28
+  offset: 0, 0
+  index: -1
+xin2
+  rotate: false
+  xy: 140, 57
+  size: 18, 31
+  orig: 18, 31
+  offset: 0, 0
+  index: -1
+xin3
+  rotate: false
+  xy: 275, 60
+  size: 21, 37
+  orig: 21, 37
+  offset: 0, 0
+  index: -1
+youmeimao
+  rotate: false
+  xy: 350, 81
+  size: 26, 11
+  orig: 26, 11
+  offset: 0, 0
+  index: -1
+youyan
+  rotate: true
+  xy: 74, 2
+  size: 33, 29
+  orig: 33, 29
+  offset: 0, 0
+  index: -1
+zoumeimao
+  rotate: true
+  xy: 502, 229
+  size: 25, 8
+  orig: 25, 8
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 224, 99
+  size: 68, 32
+  orig: 68, 32
+  offset: 0, 0
+  index: -1
+zuoyan
+  rotate: false
+  xy: 321, 67
+  size: 27, 25
+  orig: 27, 25
+  offset: 0, 0
+  index: -1

@@ -1,0 +1,146 @@
+
+haixiu.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+dian1
+  rotate: false
+  xy: 281, 76
+  size: 8, 8
+  orig: 8, 8
+  offset: 0, 0
+  index: -1
+dian2
+  rotate: false
+  xy: 367, 184
+  size: 15, 15
+  orig: 15, 15
+  offset: 0, 0
+  index: -1
+dian3
+  rotate: false
+  xy: 349, 180
+  size: 16, 16
+  orig: 16, 16
+  offset: 0, 0
+  index: -1
+dian4
+  rotate: false
+  xy: 159, 12
+  size: 21, 21
+  orig: 21, 21
+  offset: 0, 0
+  index: -1
+dian5
+  rotate: false
+  xy: 109, 4
+  size: 29, 29
+  orig: 29, 29
+  offset: 0, 0
+  index: -1
+haixiu
+  rotate: false
+  xy: 195, 161
+  size: 95, 90
+  orig: 95, 90
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: false
+  xy: 195, 86
+  size: 94, 73
+  orig: 94, 73
+  offset: 0, 0
+  index: -1
+tou
+  rotate: false
+  xy: 2, 35
+  size: 191, 216
+  orig: 191, 216
+  offset: 0, 0
+  index: -1
+tou1
+  rotate: false
+  xy: 195, 41
+  size: 60, 43
+  orig: 60, 43
+  offset: 0, 0
+  index: -1
+tou2
+  rotate: false
+  xy: 292, 198
+  size: 69, 53
+  orig: 69, 53
+  offset: 0, 0
+  index: -1
+youdabi
+  rotate: false
+  xy: 257, 42
+  size: 22, 42
+  orig: 22, 42
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 460, 220
+  size: 29, 31
+  orig: 29, 31
+  offset: 0, 0
+  index: -1
+youxiaobi
+  rotate: true
+  xy: 2, 2
+  size: 31, 56
+  orig: 31, 56
+  offset: 0, 0
+  index: -1
+youxiaobi2
+  rotate: false
+  xy: 363, 201
+  size: 38, 50
+  orig: 38, 50
+  offset: 0, 0
+  index: -1
+youxiaobi3
+  rotate: true
+  xy: 292, 170
+  size: 26, 55
+  orig: 26, 55
+  offset: 0, 0
+  index: -1
+zuodabi
+  rotate: false
+  xy: 140, 7
+  size: 17, 26
+  orig: 17, 26
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 491, 223
+  size: 17, 28
+  orig: 17, 28
+  offset: 0, 0
+  index: -1
+zuoshou1
+  rotate: true
+  xy: 60, 7
+  size: 26, 47
+  orig: 26, 47
+  offset: 0, 0
+  index: -1
+zuoshou2
+  rotate: false
+  xy: 403, 204
+  size: 32, 47
+  orig: 32, 47
+  offset: 0, 0
+  index: -1
+zuoxiaobi
+  rotate: false
+  xy: 437, 209
+  size: 21, 42
+  orig: 21, 42
+  offset: 0, 0
+  index: -1

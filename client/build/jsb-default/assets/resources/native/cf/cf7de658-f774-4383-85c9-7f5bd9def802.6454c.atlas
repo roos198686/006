@@ -1,0 +1,153 @@
+
+zhuoji.png
+size: 1024,64
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+body
+  rotate: false
+  xy: 81, 7
+  size: 68, 55
+  orig: 68, 55
+  offset: 0, 0
+  index: -1
+feather
+  rotate: true
+  xy: 645, 44
+  size: 18, 24
+  orig: 18, 24
+  offset: 0, 0
+  index: -1
+feather2
+  rotate: false
+  xy: 537, 15
+  size: 29, 15
+  orig: 29, 15
+  offset: 0, 0
+  index: -1
+footleft
+  rotate: false
+  xy: 448, 2
+  size: 30, 28
+  orig: 30, 28
+  offset: 0, 0
+  index: -1
+footleftA
+  rotate: false
+  xy: 480, 2
+  size: 27, 28
+  orig: 27, 28
+  offset: 0, 0
+  index: -1
+footright
+  rotate: false
+  xy: 415, 2
+  size: 31, 28
+  orig: 31, 28
+  offset: 0, 0
+  index: -1
+footrightA
+  rotate: false
+  xy: 509, 3
+  size: 26, 27
+  orig: 26, 27
+  offset: 0, 0
+  index: -1
+jiguanleft
+  rotate: true
+  xy: 537, 2
+  size: 11, 26
+  orig: 11, 26
+  offset: 0, 0
+  index: -1
+jiguanright
+  rotate: true
+  xy: 671, 48
+  size: 14, 24
+  orig: 14, 24
+  offset: 0, 0
+  index: -1
+quantou1
+  rotate: false
+  xy: 212, 11
+  size: 44, 51
+  orig: 44, 51
+  offset: 0, 0
+  index: -1
+shouzhang
+  rotate: false
+  xy: 151, 6
+  size: 59, 56
+  orig: 59, 56
+  offset: 0, 0
+  index: -1
+taildown
+  rotate: false
+  xy: 604, 41
+  size: 39, 21
+  orig: 39, 21
+  offset: 0, 0
+  index: -1
+tailup
+  rotate: true
+  xy: 519, 32
+  size: 30, 47
+  orig: 30, 47
+  offset: 0, 0
+  index: -1
+tailzhong
+  rotate: false
+  xy: 258, 20
+  size: 51, 42
+  orig: 51, 42
+  offset: 0, 0
+  index: -1
+tailzhong2
+  rotate: false
+  xy: 311, 29
+  size: 51, 33
+  orig: 51, 33
+  offset: 0, 0
+  index: -1
+toubu1
+  rotate: true
+  xy: 364, 27
+  size: 35, 49
+  orig: 35, 49
+  offset: 0, 0
+  index: -1
+toubu1dise
+  rotate: true
+  xy: 415, 32
+  size: 30, 50
+  orig: 30, 50
+  offset: 0, 0
+  index: -1
+toubu2
+  rotate: true
+  xy: 568, 2
+  size: 29, 33
+  orig: 29, 33
+  offset: 0, 0
+  index: -1
+toubu2dise
+  rotate: true
+  xy: 467, 32
+  size: 30, 50
+  orig: 30, 50
+  offset: 0, 0
+  index: -1
+wing
+  rotate: false
+  xy: 568, 33
+  size: 34, 29
+  orig: 34, 29
+  offset: 0, 0
+  index: -1
+zhangshou
+  rotate: false
+  xy: 2, 9
+  size: 77, 53
+  orig: 77, 53
+  offset: 0, 0
+  index: -1

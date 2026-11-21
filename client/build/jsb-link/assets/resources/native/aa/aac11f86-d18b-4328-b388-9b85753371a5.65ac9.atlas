@@ -1,0 +1,125 @@
+
+anzhongguancha.png
+size: 1024,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+ershi
+  rotate: false
+  xy: 632, 216
+  size: 33, 37
+  orig: 33, 37
+  offset: 0, 0
+  index: -1
+ershi1
+  rotate: false
+  xy: 242, 64
+  size: 32, 35
+  orig: 32, 35
+  offset: 0, 0
+  index: -1
+fashi1
+  rotate: false
+  xy: 2, 32
+  size: 191, 110
+  orig: 191, 110
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: false
+  xy: 589, 181
+  size: 41, 72
+  orig: 41, 72
+  offset: 0, 0
+  index: -1
+shoubi
+  rotate: true
+  xy: 242, 101
+  size: 41, 35
+  orig: 41, 35
+  offset: 0, 0
+  index: -1
+tou
+  rotate: true
+  xy: 282, 69
+  size: 184, 187
+  orig: 184, 187
+  offset: 0, 0
+  index: -1
+toufa1
+  rotate: true
+  xy: 532, 118
+  size: 56, 53
+  orig: 56, 53
+  offset: 0, 0
+  index: -1
+toufa2
+  rotate: false
+  xy: 471, 176
+  size: 116, 77
+  orig: 116, 77
+  offset: 0, 0
+  index: -1
+toufa3
+  rotate: false
+  xy: 195, 48
+  size: 45, 94
+  orig: 45, 94
+  offset: 0, 0
+  index: -1
+toufa4
+  rotate: false
+  xy: 471, 117
+  size: 59, 57
+  orig: 59, 57
+  offset: 0, 0
+  index: -1
+wenzi
+  rotate: true
+  xy: 2, 144
+  size: 109, 278
+  orig: 109, 278
+  offset: 0, 0
+  index: -1
+youmeimao
+  rotate: false
+  xy: 195, 38
+  size: 27, 8
+  orig: 27, 8
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 48, 3
+  size: 22, 27
+  orig: 22, 27
+  offset: 0, 0
+  index: -1
+youyan
+  rotate: false
+  xy: 2, 2
+  size: 44, 28
+  orig: 44, 28
+  offset: 0, 0
+  index: -1
+zuomeimao
+  rotate: false
+  xy: 471, 74
+  size: 19, 8
+  orig: 19, 8
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: false
+  xy: 632, 190
+  size: 18, 24
+  orig: 18, 24
+  offset: 0, 0
+  index: -1
+zuoyan
+  rotate: false
+  xy: 471, 84
+  size: 43, 31
+  orig: 43, 31
+  offset: 0, 0
+  index: -1

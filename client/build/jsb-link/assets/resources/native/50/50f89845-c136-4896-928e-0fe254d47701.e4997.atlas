@@ -1,0 +1,27 @@
+
+bixin.png
+size: 128,128
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+bixin
+  rotate: false
+  xy: 2, 32
+  size: 64, 84
+  orig: 64, 84
+  offset: 0, 0
+  index: -1
+damuzi
+  rotate: false
+  xy: 68, 61
+  size: 56, 55
+  orig: 56, 55
+  offset: 0, 0
+  index: -1
+love
+  rotate: false
+  xy: 2, 2
+  size: 33, 28
+  orig: 33, 28
+  offset: 0, 0
+  index: -1

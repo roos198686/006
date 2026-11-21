@@ -1,0 +1,244 @@
+
+jidan.png
+size: 4096,2048
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+Image2/Image/300321000
+  rotate: false
+  xy: 1881, 1242
+  size: 26, 36
+  orig: 548, 498
+  offset: 235, 454
+  index: -1
+Image2/Image/300321001
+  rotate: false
+  xy: 2261, 1199
+  size: 26, 36
+  orig: 548, 498
+  offset: 240, 409
+  index: -1
+Image2/Image/300321002
+  rotate: true
+  xy: 1039, 177
+  size: 61, 124
+  orig: 548, 498
+  offset: 244, 365
+  index: -1
+Image2/Image/300321003
+  rotate: true
+  xy: 357, 77
+  size: 33, 127
+  orig: 548, 498
+  offset: 248, 320
+  index: -1
+Image2/Image/300321004
+  rotate: true
+  xy: 712, 123
+  size: 43, 212
+  orig: 548, 498
+  offset: 236, 276
+  index: -1
+Image2/Image/300321005
+  rotate: true
+  xy: 2, 2
+  size: 70, 204
+  orig: 548, 498
+  offset: 213, 231
+  index: -1
+Image2/Image/300321006
+  rotate: true
+  xy: 1881, 936
+  size: 299, 378
+  orig: 548, 498
+  offset: 126, 112
+  index: -1
+Image2/Image/300321007
+  rotate: true
+  xy: 3706, 1152
+  size: 400, 367
+  orig: 548, 498
+  offset: 75, 69
+  index: -1
+Image2/Image/300321008
+  rotate: false
+  xy: 1039, 894
+  size: 423, 421
+  orig: 548, 498
+  offset: 57, 69
+  index: -1
+Image2/Image/300321009
+  rotate: false
+  xy: 2871, 1274
+  size: 456, 396
+  orig: 548, 498
+  offset: 23, 57
+  index: -1
+Image2/Image/300321010
+  rotate: false
+  xy: 1950, 1237
+  size: 459, 433
+  orig: 548, 498
+  offset: 20, 57
+  index: -1
+Image2/Image/300321011
+  rotate: false
+  xy: 2411, 1248
+  size: 458, 422
+  orig: 548, 498
+  offset: 20, 68
+  index: -1
+Image2/Image/300321012
+  rotate: true
+  xy: 3329, 1213
+  size: 457, 375
+  orig: 548, 498
+  offset: 21, 68
+  index: -1
+Image2/Image/300321013
+  rotate: false
+  xy: 2, 1163
+  size: 468, 430
+  orig: 548, 498
+  offset: 22, 60
+  index: -1
+Image2/Image/300321014
+  rotate: true
+  xy: 3713, 1554
+  size: 471, 376
+  orig: 548, 498
+  offset: 22, 60
+  index: -1
+Image2/Image/300321015
+  rotate: false
+  xy: 2, 1595
+  size: 471, 430
+  orig: 548, 498
+  offset: 22, 60
+  index: -1
+Image2/Image/300321016
+  rotate: false
+  xy: 1479, 1280
+  size: 469, 390
+  orig: 548, 498
+  offset: 23, 60
+  index: -1
+Image2/Image/300321017
+  rotate: false
+  xy: 993, 1317
+  size: 484, 353
+  orig: 548, 498
+  offset: 23, 60
+  index: -1
+Image2/Image/300321018
+  rotate: true
+  xy: 357, 112
+  size: 522, 353
+  orig: 548, 498
+  offset: 23, 60
+  index: -1
+Image2/Image/300321019
+  rotate: true
+  xy: 357, 636
+  size: 525, 353
+  orig: 548, 498
+  offset: 23, 60
+  index: -1
+Image2/Image/300321020
+  rotate: false
+  xy: 3182, 1672
+  size: 529, 353
+  orig: 548, 498
+  offset: 18, 60
+  index: -1
+Image2/Image/300321021
+  rotate: false
+  xy: 2650, 1672
+  size: 530, 353
+  orig: 548, 498
+  offset: 16, 60
+  index: -1
+Image2/Image/300321022
+  rotate: true
+  xy: 2, 74
+  size: 542, 353
+  orig: 548, 498
+  offset: 3, 60
+  index: -1
+Image2/Image/300321023
+  rotate: false
+  xy: 475, 1672
+  size: 544, 353
+  orig: 548, 498
+  offset: 1, 60
+  index: -1
+Image2/Image/300321024
+  rotate: true
+  xy: 2, 618
+  size: 543, 353
+  orig: 548, 498
+  offset: 1, 60
+  index: -1
+Image2/Image/300321025
+  rotate: false
+  xy: 1021, 1672
+  size: 543, 353
+  orig: 548, 498
+  offset: 1, 60
+  index: -1
+Image2/Image/300321026
+  rotate: false
+  xy: 1566, 1672
+  size: 542, 353
+  orig: 548, 498
+  offset: 1, 60
+  index: -1
+Image2/Image/300321027
+  rotate: false
+  xy: 2110, 1672
+  size: 538, 353
+  orig: 548, 498
+  offset: 3, 60
+  index: -1
+Image2/Image/300321028
+  rotate: false
+  xy: 475, 1329
+  size: 516, 341
+  orig: 548, 498
+  offset: 3, 72
+  index: -1
+Image2/Image/300321029
+  rotate: true
+  xy: 712, 653
+  size: 497, 325
+  orig: 548, 498
+  offset: 6, 73
+  index: -1
+Image2/Image/300321030
+  rotate: true
+  xy: 712, 168
+  size: 483, 325
+  orig: 548, 498
+  offset: 16, 73
+  index: -1
+Image2/Image/300321031
+  rotate: false
+  xy: 1039, 567
+  size: 415, 325
+  orig: 548, 498
+  offset: 47, 73
+  index: -1
+Image2/Image/300321032
+  rotate: false
+  xy: 1039, 240
+  size: 415, 325
+  orig: 548, 498
+  offset: 47, 73
+  index: -1
+Image2/Image/300321033
+  rotate: false
+  xy: 1464, 953
+  size: 415, 325
+  orig: 548, 498
+  offset: 47, 73
+  index: -1

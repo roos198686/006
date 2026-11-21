@@ -1,0 +1,76 @@
+
+baoza1.png
+size: 4096,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+Image02/Image/300511000
+  rotate: false
+  xy: 1420, 2
+  size: 440, 434
+  orig: 500, 452
+  offset: 36, 16
+  index: -1
+Image02/Image/300511001
+  rotate: false
+  xy: 1862, 51
+  size: 444, 385
+  orig: 500, 452
+  offset: 28, 10
+  index: -1
+Image02/Image/300511003
+  rotate: false
+  xy: 464, 48
+  size: 492, 388
+  orig: 500, 452
+  offset: 4, 6
+  index: -1
+Image02/Image/300511005
+  rotate: false
+  xy: 958, 24
+  size: 460, 412
+  orig: 500, 452
+  offset: 20, 16
+  index: -1
+Image02/Image/300511007
+  rotate: false
+  xy: 2, 12
+  size: 460, 424
+  orig: 500, 452
+  offset: 20, 4
+  index: -1
+Image02/Image/300511009
+  rotate: false
+  xy: 2308, 66
+  size: 368, 370
+  orig: 500, 452
+  offset: 67, 24
+  index: -1
+Image02/Image/300511011
+  rotate: false
+  xy: 2678, 68
+  size: 370, 368
+  orig: 500, 452
+  offset: 66, 28
+  index: -1
+Image02/Image/300511013
+  rotate: false
+  xy: 3050, 69
+  size: 359, 367
+  orig: 500, 452
+  offset: 70, 28
+  index: -1
+Image02/Image/300511015
+  rotate: false
+  xy: 3411, 228
+  size: 188, 208
+  orig: 500, 452
+  offset: 156, 42
+  index: -1
+zhadan1
+  rotate: false
+  xy: 3411, 135
+  size: 84, 91
+  orig: 91, 91
+  offset: 0, 0
+  index: -1

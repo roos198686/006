@@ -84,6 +84,51 @@ function getBaseInfo(userid,callback){
     },cc.vv.http.master_url);
 };
 
+//默认占位头像帧(所有 ImageLoader 实例共享一份, 只加载一次):
+//场景里挂的是 hall_ui 图集子帧"用户栏-默认头像", 但 Cocos 2.4 的 resources 包不把图集子帧注册成
+//可按 uuid 加载的资源, 场景序列化的 spriteFrame 引用运行时会解析为 null; 这里按官方方式先加载图集
+//再 getSpriteFrame 取真正的默认头像帧, 后续实例直接复用 cc.resources 缓存
+var DEFAULT_AVATAR_FRAME = "用户栏-默认头像";
+var _defaultAvatarFrame = null;
+var _defaultAvatarLoading = false;
+var _defaultAvatarWaiters = [];
+
+function _pickDefaultFrame(atlas){
+    if(!atlas || !atlas.getSpriteFrame){ return null; }
+    return atlas.getSpriteFrame(DEFAULT_AVATAR_FRAME + ".png") || atlas.getSpriteFrame(DEFAULT_AVATAR_FRAME);
+}
+
+//场景里 icon 的 Sprite 自带 _atlas 引用(该图集随场景一起加载), 可以同步按名取默认头像帧,
+//不用等 cc.resources.load 的异步回调, 也就不会因为加载慢/失败而一直空白
+function _frameFromSpriteAtlas(spr){
+    try{
+        var atlas = spr && spr._atlas;
+        return atlas ? _pickDefaultFrame(atlas) : null;
+    }catch(e){ return null; }
+}
+
+//已加载的图集(别的模块先加载过 hall_ui 时直接复用)
+function _frameFromCachedAtlas(){
+    try{
+        var atlas = (cc.resources.get) ? cc.resources.get("images/atlas/hall_ui", cc.SpriteAtlas) : null;
+        return _pickDefaultFrame(atlas);
+    }catch(e){ return null; }
+}
+
+function _ensureDefaultAvatarFrame(cb){
+    if(_defaultAvatarFrame){ cb(_defaultAvatarFrame); return; }
+    _defaultAvatarWaiters.push(cb);
+    if(_defaultAvatarLoading){ return; }
+    _defaultAvatarLoading = true;
+    cc.resources.load("images/atlas/hall_ui", cc.SpriteAtlas, function(err, atlas){
+        _defaultAvatarLoading = false;
+        var f = (!err && atlas) ? _pickDefaultFrame(atlas) : null;
+        if(f){ _defaultAvatarFrame = f; }
+        var ws = _defaultAvatarWaiters; _defaultAvatarWaiters = [];
+        for(var i=0;i<ws.length;i++){ ws[i](_defaultAvatarFrame); }
+    });
+}
+
 cc.Class({
     extends: cc.Component,
 
@@ -96,7 +141,35 @@ cc.Class({
         this._defaultFrame = null;
         var spr0 = this.node.getComponent(cc.Sprite);
         if(spr0){ this._defaultFrame = spr0.spriteFrame; }
+        //优先同步取帧:场景 Sprite 自带的图集 -> 已缓存的图集 -> 再异步加载(前一帧就能显示默认头像)
+        if(!this._frameHasTexture(this._defaultFrame)){
+            var syncFrame = _frameFromSpriteAtlas(spr0) || _frameFromCachedAtlas();
+            if(syncFrame && this._frameHasTexture(syncFrame)){ this._defaultFrame = syncFrame; }
+        }
         this.setupSpriteFrame();
+        //场景默认帧是 hall_ui 图集子帧, 当前运行时按 uuid 解析为 null/无纹理:
+        //从图集按名取真正的默认头像帧补上(仅在场景默认帧无效时才加载, 已加载的实例直接复用)
+        if(!this._frameHasTexture(this._defaultFrame)){
+            var self = this;
+            _ensureDefaultAvatarFrame(function(f){
+                if(!f || !cc.isValid(self.node)){ return; }
+                if(!self._frameHasTexture(self._defaultFrame)){ self._defaultFrame = f; }
+                self.setupSpriteFrame();
+            });
+        }
+    },
+
+    //判断一个 SpriteFrame 是否真能渲染: 帧对象可能反序列化出来了, 但纹理没加载(宽高为0),
+    //只看"有没有纹理对象"会把这种空帧当成有效帧留着, 结果一直空白
+    _frameHasTexture:function(frame){
+        if(!frame){ return false; }
+        try{
+            var tex = (typeof frame.getTexture === "function") ? frame.getTexture() : frame._texture;
+            if(!tex){ return false; }
+            var w = (tex.width != null) ? tex.width : tex._width;
+            var h = (tex.height != null) ? tex.height : tex._height;
+            return !!(w > 0 && h > 0);
+        }catch(e){ return false; }
     },
 
     setUserID:function(userid){
@@ -122,8 +195,7 @@ cc.Class({
         this._userid = uid;
         this._spriteFrame = null;
         this._appliedKey = null;
-        var spr = this.node.getComponent(cc.Sprite);
-        if(spr){ spr.spriteFrame = this._defaultFrame || null; } //先回到占位图, 不残留旧头像
+        this.setupSpriteFrame(); //先回到占位图, 不残留旧头像
         getBaseInfo(userid,function(code,info){
             if(self._userid !== uid){ return; }
             self._applyInfo(uid,info);
@@ -170,17 +242,18 @@ cc.Class({
         this._userid = null;
         this._spriteFrame = null;
         this._appliedKey = null;
-        var spr = this.node.getComponent(cc.Sprite);
-        if(spr){ spr.spriteFrame = this._defaultFrame || null; }
+        this.setupSpriteFrame();
     },
 
-    //只把头像帧设到本节点的 Sprite 上:不新建节点、不改尺寸/位置/锚点/遮罩/圆角
+    //把当前该显示的帧设到本节点的 Sprite 上:有真实头像用真实头像, 否则用场景默认帧
+    //(默认帧是 hall_ui 图集里的"用户栏-默认头像", onLoad 里已确保其纹理有效)
     setupSpriteFrame:function(){
-        if(this._spriteFrame){
-            var spr = this.node.getComponent(cc.Sprite);
-            if(spr){
-                spr.spriteFrame = this._spriteFrame;
-            }
+        var spr = this.node.getComponent(cc.Sprite);
+        if(!spr){ return; }
+        var frame = this._spriteFrame;
+        if(!frame && this._frameHasTexture(this._defaultFrame)){
+            frame = this._defaultFrame;
         }
+        spr.spriteFrame = frame || null;
     },
 });

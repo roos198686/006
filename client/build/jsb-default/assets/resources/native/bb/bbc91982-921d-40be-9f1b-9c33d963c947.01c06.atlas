@@ -1,0 +1,76 @@
+
+zhong.png
+size: 512,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+h2
+  rotate: false
+  xy: 238, 394
+  size: 103, 73
+  orig: 103, 73
+  offset: 0, 0
+  index: -1
+h1
+  rotate: false
+  xy: 343, 394
+  size: 103, 73
+  orig: 103, 73
+  offset: 0, 0
+  index: -1
+b1
+  rotate: false
+  xy: 1, 1
+  size: 247, 391
+  orig: 247, 391
+  offset: 0, 0
+  index: -1
+zi
+  rotate: false
+  xy: 351, 1
+  size: 43, 247
+  orig: 43, 247
+  offset: 0, 0
+  index: -1
+yb2
+  rotate: false
+  xy: 126, 394
+  size: 110, 80
+  orig: 110, 80
+  offset: 0, 0
+  index: -1
+yb1
+  rotate: false
+  xy: 1, 394
+  size: 123, 91
+  orig: 123, 91
+  offset: 0, 0
+  index: -1
+tb2
+  rotate: false
+  xy: 325, 250
+  size: 75, 50
+  orig: 75, 50
+  offset: 0, 0
+  index: -1
+tb1
+  rotate: false
+  xy: 250, 207
+  size: 73, 53
+  orig: 73, 53
+  offset: 0, 0
+  index: -1
+b2
+  rotate: false
+  xy: 250, 1
+  size: 99, 149
+  orig: 99, 149
+  offset: 0, 0
+  index: -1
+b3
+  rotate: false
+  xy: 250, 152
+  size: 74, 53
+  orig: 74, 53
+  offset: 0, 0
+  index: -1

@@ -1,0 +1,48 @@
+
+tuoguan.png
+size: 175,39
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+z1
+  rotate: false
+  xy: 2, 2
+  size: 34, 35
+  orig: 34, 37
+  offset: 0, 1
+  index: -1
+z2
+  rotate: true
+  xy: 38, 2
+  size: 35, 33
+  orig: 35, 33
+  offset: 0, 0
+  index: -1
+z3
+  rotate: true
+  xy: 73, 4
+  size: 33, 31
+  orig: 35, 33
+  offset: 1, 1
+  index: -1
+z4
+  rotate: false
+  xy: 106, 4
+  size: 27, 33
+  orig: 27, 33
+  offset: 0, 0
+  index: -1
+z5
+  rotate: false
+  xy: 135, 3
+  size: 26, 34
+  orig: 26, 34
+  offset: 0, 0
+  index: -1
+z6
+  rotate: false
+  xy: 163, 26
+  size: 10, 11
+  orig: 10, 11
+  offset: 0, 0
+  index: -1

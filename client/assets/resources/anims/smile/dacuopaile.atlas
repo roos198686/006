@@ -1,0 +1,167 @@
+
+dacuopaile.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+lei1
+  rotate: false
+  xy: 446, 200
+  size: 22, 10
+  orig: 22, 10
+  offset: 0, 0
+  index: -1
+lei2
+  rotate: false
+  xy: 360, 160
+  size: 11, 7
+  orig: 11, 7
+  offset: 0, 0
+  index: -1
+lei3
+  rotate: false
+  xy: 489, 197
+  size: 14, 13
+  orig: 14, 13
+  offset: 0, 0
+  index: -1
+lei4
+  rotate: true
+  xy: 278, 145
+  size: 11, 6
+  orig: 11, 6
+  offset: 0, 0
+  index: -1
+lei5
+  rotate: true
+  xy: 262, 38
+  size: 18, 9
+  orig: 18, 9
+  offset: 0, 0
+  index: -1
+lei6
+  rotate: false
+  xy: 360, 169
+  size: 16, 11
+  orig: 16, 11
+  offset: 0, 0
+  index: -1
+lei7
+  rotate: true
+  xy: 392, 171
+  size: 7, 11
+  orig: 7, 11
+  offset: 0, 0
+  index: -1
+leishui1
+  rotate: false
+  xy: 470, 200
+  size: 17, 10
+  orig: 17, 10
+  offset: 0, 0
+  index: -1
+lleishui2
+  rotate: false
+  xy: 378, 170
+  size: 12, 8
+  orig: 12, 8
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: false
+  xy: 285, 182
+  size: 91, 71
+  orig: 91, 71
+  offset: 0, 0
+  index: -1
+tou
+  rotate: true
+  xy: 2, 2
+  size: 154, 199
+  orig: 154, 199
+  offset: 0, 0
+  index: -1
+tou1
+  rotate: false
+  xy: 203, 38
+  size: 57, 48
+  orig: 57, 48
+  offset: 0, 0
+  index: -1
+tou2
+  rotate: false
+  xy: 378, 202
+  size: 66, 51
+  orig: 66, 51
+  offset: 0, 0
+  index: -1
+wenzi
+  rotate: false
+  xy: 2, 158
+  size: 281, 95
+  orig: 281, 95
+  offset: 0, 0
+  index: -1
+youdabi
+  rotate: true
+  xy: 324, 160
+  size: 20, 34
+  orig: 20, 34
+  offset: 0, 0
+  index: -1
+youshou
+  rotate: false
+  xy: 285, 159
+  size: 37, 21
+  orig: 37, 21
+  offset: 0, 0
+  index: -1
+youxiaobi1
+  rotate: false
+  xy: 203, 4
+  size: 31, 32
+  orig: 31, 32
+  offset: 0, 0
+  index: -1
+youxiaobi2
+  rotate: false
+  xy: 262, 58
+  size: 13, 28
+  orig: 13, 28
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 203, 88
+  size: 73, 68
+  orig: 73, 68
+  offset: 0, 0
+  index: -1
+zuodabi
+  rotate: true
+  xy: 413, 182
+  size: 18, 25
+  orig: 18, 25
+  offset: 0, 0
+  index: -1
+zuoshou
+  rotate: true
+  xy: 446, 212
+  size: 41, 59
+  orig: 41, 59
+  offset: 0, 0
+  index: -1
+zuoxiaobi1
+  rotate: false
+  xy: 236, 4
+  size: 28, 32
+  orig: 28, 32
+  offset: 0, 0
+  index: -1
+zuoxiaobi2
+  rotate: true
+  xy: 378, 180
+  size: 20, 33
+  orig: 20, 33
+  offset: 0, 0
+  index: -1

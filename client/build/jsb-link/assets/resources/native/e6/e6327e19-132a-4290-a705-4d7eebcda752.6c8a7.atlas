@@ -1,0 +1,181 @@
+
+zhadan.png
+size: 1024,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+1
+  rotate: false
+  xy: 763, 117
+  size: 47, 49
+  orig: 47, 49
+  offset: 0, 0
+  index: -1
+10
+  rotate: true
+  xy: 557, 164
+  size: 90, 97
+  orig: 90, 97
+  offset: 0, 0
+  index: -1
+11
+  rotate: true
+  xy: 656, 168
+  size: 86, 97
+  orig: 86, 97
+  offset: 0, 0
+  index: -1
+12
+  rotate: true
+  xy: 848, 168
+  size: 86, 90
+  orig: 86, 90
+  offset: 0, 0
+  index: -1
+13
+  rotate: false
+  xy: 179, 34
+  size: 83, 81
+  orig: 83, 81
+  offset: 0, 0
+  index: -1
+14
+  rotate: false
+  xy: 404, 102
+  size: 83, 69
+  orig: 83, 69
+  offset: 0, 0
+  index: -1
+15
+  rotate: true
+  xy: 706, 93
+  size: 15, 37
+  orig: 15, 37
+  offset: 0, 0
+  index: -1
+16
+  rotate: true
+  xy: 812, 121
+  size: 12, 23
+  orig: 12, 23
+  offset: 0, 0
+  index: -1
+2
+  rotate: false
+  xy: 706, 110
+  size: 55, 56
+  orig: 55, 56
+  offset: 0, 0
+  index: -1
+3
+  rotate: false
+  xy: 489, 101
+  size: 61, 70
+  orig: 61, 70
+  offset: 0, 0
+  index: -1
+4
+  rotate: false
+  xy: 634, 85
+  size: 70, 77
+  orig: 70, 77
+  offset: 0, 0
+  index: -1
+5
+  rotate: true
+  xy: 552, 85
+  size: 77, 80
+  orig: 77, 80
+  offset: 0, 0
+  index: -1
+6
+  rotate: false
+  xy: 940, 170
+  size: 80, 84
+  orig: 80, 84
+  offset: 0, 0
+  index: -1
+7
+  rotate: false
+  xy: 94, 27
+  size: 83, 86
+  orig: 83, 86
+  offset: 0, 0
+  index: -1
+8
+  rotate: true
+  xy: 755, 168
+  size: 86, 91
+  orig: 86, 91
+  offset: 0, 0
+  index: -1
+9
+  rotate: false
+  xy: 2, 15
+  size: 90, 98
+  orig: 90, 98
+  offset: 0, 0
+  index: -1
+boom
+  rotate: false
+  xy: 404, 173
+  size: 151, 81
+  orig: 151, 81
+  offset: 0, 0
+  index: -1
+closeeyes
+  rotate: false
+  xy: 94, 17
+  size: 30, 8
+  orig: 30, 8
+  offset: 0, 0
+  index: -1
+dise
+  rotate: false
+  xy: 2, 115
+  size: 141, 139
+  orig: 141, 139
+  offset: 0, 0
+  index: -1
+fire
+  rotate: false
+  xy: 812, 135
+  size: 36, 31
+  orig: 36, 31
+  offset: 0, 0
+  index: -1
+leidi
+  rotate: true
+  xy: 2, 6
+  size: 7, 32
+  orig: 7, 32
+  offset: 0, 0
+  index: -1
+light
+  rotate: false
+  xy: 94, 2
+  size: 13, 13
+  orig: 13, 13
+  offset: 0, 0
+  index: -1
+yanbai
+  rotate: false
+  xy: 850, 134
+  size: 32, 32
+  orig: 32, 32
+  offset: 0, 0
+  index: -1
+yanwu2
+  rotate: false
+  xy: 274, 126
+  size: 128, 128
+  orig: 128, 128
+  offset: 0, 0
+  index: -1
+zhadan
+  rotate: false
+  xy: 145, 117
+  size: 127, 137
+  orig: 127, 137
+  offset: 0, 0
+  index: -1

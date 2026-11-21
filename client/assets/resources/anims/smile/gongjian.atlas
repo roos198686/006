@@ -1,0 +1,41 @@
+
+gongjian.png
+size: 256,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+images/arrow
+  rotate: false
+  xy: 121, 26
+  size: 25, 119
+  orig: 25, 119
+  offset: 0, 0
+  index: -1
+images/bow
+  rotate: false
+  xy: 2, 42
+  size: 69, 184
+  orig: 69, 184
+  offset: 0, 0
+  index: -1
+images/fx1
+  rotate: true
+  xy: 73, 24
+  size: 202, 46
+  orig: 202, 46
+  offset: 0, 0
+  index: -1
+images/fx2
+  rotate: false
+  xy: 121, 147
+  size: 86, 79
+  orig: 86, 79
+  offset: 0, 0
+  index: -1
+images/line
+  rotate: false
+  xy: 2, 2
+  size: 4, 38
+  orig: 4, 38
+  offset: 0, 0
+  index: -1

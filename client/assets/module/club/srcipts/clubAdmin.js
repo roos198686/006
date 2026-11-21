@@ -230,9 +230,7 @@ cc.Class({
             this._codeiLabel.active = hasParent;
             if (hasParent) {
                 var r1 = Number(d.parent_profit_ratio) || 0;
-                var r2 = Number(d.parent_hidden_profit_ratio) || 0;
-                var r3 = Number(d.parent_fee_profit_ratio) || 0;
-                this._codeiLabel.getComponent(cc.Label).string = "我的抽点数：" + r1 + "/" + r2 + "/" + r3 + "%";
+                this._codeiLabel.getComponent(cc.Label).string = "我的抽点数：" + r1 + "%";
             }
         }
         // 系统设置(进场费/表情费/洗牌费)仅一级俱乐部可配置, 下级俱乐部隐藏入口

@@ -1773,14 +1773,20 @@ cc.Class({
         var maxP = this._clubMaxPlayers(t);
         var pf = this._clubCardTpl(maxP);
         if(!pf){ console.log("[俱乐部]场景缺少sampleCard0模板,无法建牌桌卡片"); return; }
-        //两行显示、靠左对齐:先排满上下两行,多了往右扩列;tables锚点(0,1)原点即左上,超出tablesView后左右拖动
+        //流水布局:上下两行,卡片按各自实际宽度从左往右依次排,排不下再往右扩;
+        //2人桌模板两侧留白很大(650宽只放了400的桌面),宽度固定为450,避免占位过宽
         var GAPX = 5, GAPY = 5, PAD = 5; //卡片间距/边距
-        var CW = pf.width, CH = pf.height;
-        var col = Math.floor(idx / 2);
+        var tblTpl = pf.getChildByName("tbl");
+        var CW = (maxP === 2 && tblTpl) ? 450 : pf.width;
+        var CH = pf.height;
+        var flow = parent._clubFlow;
+        if(!flow){ flow = parent._clubFlow = { x: [PAD, PAD] }; }
         var row = idx % 2;
-        var x = PAD + CW / 2 + col * (CW + GAPX);
+        var x = flow.x[row] + CW / 2;
         var y = -(PAD + CH / 2 + row * (CH + GAPY));
+        flow.x[row] += CW + GAPX;   //该行游标右移至下一张卡片的左缘
         var card = cc.instantiate(pf);
+        card.width = CW;            //卡片边界跟随桌面宽度,2人桌不再占650
         card.active = true; //模板节点是隐藏的,克隆出来要显式打开
         card.setPosition(x, y);
         parent.addChild(card);
@@ -2417,13 +2423,12 @@ cc.Class({
             var tpl = self._clubCardTpl();
             if(tpl){ tpl.active = false; }
             self._clubTablesNode.removeAllChildren();
-            //两行排列/间距全部由tables节点上的cc.Layout组件控制(场景里调),JS不写位置;
-            //只按列数撑开容器宽度,供超出tablesView后左右拖动(容器高度固定530由场景控制,两行排满后往右换列)
-            var viewW = self._clubTablesNode.parent.width;
-            var cardW = tpl ? tpl.width : 360;
-            var cols = Math.max(1, Math.ceil(viewTables.length / 2));
-            self._clubTablesNode.width = Math.max(viewW, cols * (cardW + 5) + 5);
+            //流水布局:游标在 _clubAddTableCard 里按卡片实际宽度推进,这里只复位
+            self._clubTablesNode._clubFlow = null;
+            if(self._clubTablesRestX != null){ self._clubTablesNode.x = self._clubTablesRestX; } //上次拖到左边后重建要回到起始位置
+            var viewTablesW = self._clubTablesNode.parent.width;
             if(viewTables.length == 0){
+                self._clubTablesNode.width = viewTablesW;
                 self._clubRenderTableChips();
                 self._clubAddRow(self._clubTablesNode,0,"暂无桌面(管理员后台添加)","",null,520);
                 return;
@@ -2431,6 +2436,10 @@ cc.Class({
             viewTables.forEach(function(t,i){
                 self._clubAddTableCard(self._clubTablesNode,i,t);
             });
+            //容器宽度=两行实际占用宽度的最大值;超出tablesView后左右拖动
+            var flow = self._clubTablesNode._clubFlow;
+            var needW = flow ? Math.max(flow.x[0], flow.x[1]) : viewTablesW;
+            self._clubTablesNode.width = Math.max(viewTablesW, needW);
             self._clubRenderTableChips();
         });
     },

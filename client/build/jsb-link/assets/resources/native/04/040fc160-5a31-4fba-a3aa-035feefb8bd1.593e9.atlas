@@ -1,0 +1,55 @@
+
+bobo.png
+size: 128,128
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+closeeyes
+  rotate: false
+  xy: 98, 77
+  size: 19, 11
+  orig: 19, 11
+  offset: 0, 0
+  index: -1
+eyesbrowleft
+  rotate: false
+  xy: 98, 107
+  size: 28, 19
+  orig: 28, 19
+  offset: 0, 0
+  index: -1
+eyesbrowright
+  rotate: false
+  xy: 98, 90
+  size: 27, 15
+  orig: 27, 15
+  offset: 0, 0
+  index: -1
+face
+  rotate: false
+  xy: 2, 32
+  size: 94, 94
+  orig: 94, 94
+  offset: 0, 0
+  index: -1
+love
+  rotate: false
+  xy: 2, 2
+  size: 27, 28
+  orig: 27, 28
+  offset: 0, 0
+  index: -1
+mouth
+  rotate: false
+  xy: 31, 4
+  size: 23, 26
+  orig: 23, 26
+  offset: 0, 0
+  index: -1
+openeyes
+  rotate: false
+  xy: 56, 12
+  size: 13, 18
+  orig: 13, 18
+  offset: 0, 0
+  index: -1

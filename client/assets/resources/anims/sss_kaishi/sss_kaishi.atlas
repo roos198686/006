@@ -1,0 +1,61 @@
+sss_kaishi.png
+size: 1024,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+tx1
+  rotate: false
+  xy: 596, 238
+  size: 349, 240
+  orig: 349, 240
+  offset: 0, 0
+  index: -1
+tx2
+  rotate: false
+  xy: 2, 2
+  size: 138, 123
+  orig: 138, 123
+  offset: 0, 0
+  index: -1
+tx3
+  rotate: false
+  xy: 733, 80
+  size: 177, 156
+  orig: 177, 156
+  offset: 0, 0
+  index: -1
+yxks_kaishi
+  rotate: false
+  xy: 2, 127
+  size: 504, 145
+  orig: 504, 145
+  offset: 0, 0
+  index: -1
+yxks_kaishi1_00000
+  rotate: false
+  xy: 2, 274
+  size: 592, 204
+  orig: 592, 204
+  offset: 0, 0
+  index: -1
+yxks_shouqiang
+  rotate: false
+  xy: 508, 15
+  size: 223, 221
+  orig: 223, 221
+  offset: 0, 0
+  index: -1
+yxks_zidanke1
+  rotate: false
+  xy: 947, 428
+  size: 56, 50
+  orig: 56, 50
+  offset: 0, 0
+  index: -1
+yxks_zidanke2
+  rotate: false
+  xy: 142, 88
+  size: 48, 37
+  orig: 48, 37
+  offset: 0, 0
+  index: -1

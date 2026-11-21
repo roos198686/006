@@ -1,0 +1,48 @@
+
+pencaoqiang.png
+size: 512,128
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+dollarA
+  rotate: false
+  xy: 186, 39
+  size: 89, 87
+  orig: 89, 87
+  offset: 0, 0
+  index: -1
+dollarB
+  rotate: false
+  xy: 430, 62
+  size: 47, 64
+  orig: 47, 64
+  offset: 0, 0
+  index: -1
+gun
+  rotate: false
+  xy: 2, 10
+  size: 182, 116
+  orig: 182, 116
+  offset: 0, 0
+  index: -1
+gunbg
+  rotate: false
+  xy: 277, 56
+  size: 77, 70
+  orig: 77, 70
+  offset: 0, 0
+  index: -1
+gunpao
+  rotate: false
+  xy: 356, 2
+  size: 47, 53
+  orig: 47, 53
+  offset: 0, 0
+  index: -1
+qiangtuo
+  rotate: true
+  xy: 356, 57
+  size: 69, 72
+  orig: 69, 72
+  offset: 0, 0
+  index: -1

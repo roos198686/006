@@ -42,6 +42,9 @@ cc.Class({
         if(cc.vv == null){
             return;
         }
+        //本组件(场景)真正就绪的时刻: 用作"忽略切场景补发 stray TOUCH_END"的时间锚点。
+        //不能用 cc.vv.roomEnteredAt(它在 login_finished、场景加载前就赋值), 否则窗口会吞掉用户进房后的第一次真实点击
+        this._roomReadyAt = Date.now();
         //上报"麻将场景已加载"到大厅服:真机看不到控制台,用来确认卡在场景加载前还是加载后
         try{
             if(cc.vv.http && cc.vv.http.sendRequest){
@@ -223,7 +226,8 @@ cc.Class({
         }
         for(var i = 0; i < this._seats2.length; ++i){
             if(this._seats2[i] && this._seats2[i].node){
-                this._seats2[i].node.active = (i < count);
+                //2座场景: 两个座位始终保留(空位显示默认头像框), 避免对家座位被seats.length误隐藏
+                this._seats2[i].node.active = this._seats2.length <= 2 ? true : (i < count);
             }
         }
     },
@@ -971,6 +975,11 @@ cc.Class({
     initSingleSeat:function(seat){
         this.applySeatCount(); //new_user/user_state_changed进房阶段即隐藏多余的4人座位框
         var index = cc.vv.gameNetMgr.getLocalIndex(seat.seatindex);
+        //2座场景(无金等): 服务端座位号可能按4人房分配, localIndex越界会在下面直接return,
+        //对家头像因此一直不显示; 这里固定自己=0、对家=1(up), 不受座位号分布影响
+        if(this._seats2.length === 2){
+            index = (seat.seatindex === cc.vv.gameNetMgr.seatIndex) ? 0 : 1;
+        }
         var isOffline = !seat.online;
         var isZhuang = seat.seatindex == cc.vv.gameNetMgr.button;
         
@@ -1002,12 +1011,12 @@ cc.Class({
         cc.vv.popupMgr.showSettings();   
     },
 
-    //进房瞬间系统可能补发一次 TOUCH_END(切场景时常见), 落到返回/退出按钮上会立刻发 exit,
-    //把刚建好的房间拆掉(服务端: 建表→login→exit→解散). 进房1.5秒内的退出类点击一律忽略.
+    //进房瞬间系统可能补发一次 TOUCH_END(切场景时常见), 落到返回/退出按钮上会误触确认框。
+    //只拦截场景就绪后极短时间(<500ms, 通常首帧内)内的点击; 锚点用本组件 onLoad 时刻, 窗口足够短,
+    //不会再吞掉用户进房后的第一次真实点击(原先用 login_finished 时刻 + 1.5s 窗口导致要点两次)
     _ignoreEarlyRoomTap:function(){
-        var at = (cc.vv && cc.vv.roomEnteredAt) ? cc.vv.roomEnteredAt : 0;
-        if(at && (Date.now() - at) < 1500){
-            console.log("[room] 忽略进房瞬间的退出点击(切场景补发的TOUCH_END)");
+        var at = this._roomReadyAt || 0;
+        if(at && (Date.now() - at) < 500){
             return true;
         }
         return false;

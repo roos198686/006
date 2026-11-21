@@ -1,0 +1,76 @@
+
+xi.png
+size: 512,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+h2
+  rotate: false
+  xy: 164, 437
+  size: 113, 70
+  orig: 113, 70
+  offset: 0, 0
+  index: -1
+h1
+  rotate: false
+  xy: 289, 323
+  size: 80, 98
+  orig: 80, 98
+  offset: 0, 0
+  index: -1
+b2
+  rotate: false
+  xy: 1, 344
+  size: 161, 154
+  orig: 161, 154
+  offset: 0, 0
+  index: -1
+b1
+  rotate: false
+  xy: 1, 1
+  size: 286, 341
+  orig: 286, 341
+  offset: 0, 0
+  index: -1
+b3
+  rotate: false
+  xy: 371, 323
+  size: 71, 95
+  orig: 71, 95
+  offset: 0, 0
+  index: -1
+zi
+  rotate: false
+  xy: 289, 1
+  size: 43, 238
+  orig: 43, 238
+  offset: 0, 0
+  index: -1
+yb2
+  rotate: false
+  xy: 289, 241
+  size: 110, 80
+  orig: 110, 80
+  offset: 0, 0
+  index: -1
+yb1
+  rotate: false
+  xy: 164, 344
+  size: 123, 91
+  orig: 123, 91
+  offset: 0, 0
+  index: -1
+tb2
+  rotate: false
+  xy: 279, 437
+  size: 75, 50
+  orig: 75, 50
+  offset: 0, 0
+  index: -1
+tb1
+  rotate: false
+  xy: 371, 420
+  size: 73, 53
+  orig: 73, 53
+  offset: 0, 0
+  index: -1

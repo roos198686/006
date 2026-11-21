@@ -1,0 +1,300 @@
+
+huaban1.png
+size: 4096,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+flower/flower/300211000
+  rotate: false
+  xy: 3694, 202
+  size: 119, 103
+  orig: 326, 311
+  offset: 99, 99
+  index: -1
+flower/flower/300211001
+  rotate: false
+  xy: 3694, 202
+  size: 119, 103
+  orig: 326, 311
+  offset: 99, 99
+  index: -1
+flower/flower/300211002
+  rotate: false
+  xy: 3549, 178
+  size: 143, 127
+  orig: 326, 311
+  offset: 86, 87
+  index: -1
+flower/flower/300211003
+  rotate: false
+  xy: 3549, 178
+  size: 143, 127
+  orig: 326, 311
+  offset: 86, 87
+  index: -1
+flower/flower/300211004
+  rotate: true
+  xy: 2358, 104
+  size: 191, 165
+  orig: 326, 311
+  offset: 63, 67
+  index: -1
+flower/flower/300211005
+  rotate: true
+  xy: 2358, 104
+  size: 191, 165
+  orig: 326, 311
+  offset: 63, 67
+  index: -1
+flower/flower/300211006
+  rotate: false
+  xy: 1659, 128
+  size: 233, 178
+  orig: 326, 311
+  offset: 41, 65
+  index: -1
+flower/flower/300211007
+  rotate: false
+  xy: 1659, 128
+  size: 233, 178
+  orig: 326, 311
+  offset: 41, 65
+  index: -1
+flower/flower/300211008
+  rotate: false
+  xy: 2129, 112
+  size: 227, 183
+  orig: 326, 311
+  offset: 47, 65
+  index: -1
+flower/flower/300211009
+  rotate: false
+  xy: 2129, 112
+  size: 227, 183
+  orig: 326, 311
+  offset: 47, 65
+  index: -1
+flower/flower/300211010
+  rotate: false
+  xy: 2129, 112
+  size: 227, 183
+  orig: 326, 311
+  offset: 47, 65
+  index: -1
+flower/flower/300211011
+  rotate: false
+  xy: 2187, 297
+  size: 248, 213
+  orig: 326, 311
+  offset: 33, 38
+  index: -1
+flower/flower/300211012
+  rotate: false
+  xy: 2937, 307
+  size: 248, 203
+  orig: 326, 311
+  offset: 33, 48
+  index: -1
+flower/flower/300211013
+  rotate: false
+  xy: 3187, 307
+  size: 248, 203
+  orig: 326, 311
+  offset: 33, 48
+  index: -1
+flower/flower/300211014
+  rotate: false
+  xy: 2437, 301
+  size: 248, 209
+  orig: 326, 311
+  offset: 33, 42
+  index: -1
+flower/flower/300211015
+  rotate: false
+  xy: 3437, 307
+  size: 248, 203
+  orig: 326, 311
+  offset: 33, 48
+  index: -1
+flower/flower/300211016
+  rotate: false
+  xy: 2687, 301
+  size: 248, 209
+  orig: 326, 311
+  offset: 33, 42
+  index: -1
+flower/flower/300211017
+  rotate: false
+  xy: 3687, 307
+  size: 248, 203
+  orig: 326, 311
+  offset: 33, 48
+  index: -1
+flower/flower/300211018
+  rotate: false
+  xy: 2955, 137
+  size: 179, 168
+  orig: 326, 311
+  offset: 99, 58
+  index: -1
+flower/flower/300211019
+  rotate: false
+  xy: 2748, 122
+  size: 205, 177
+  orig: 326, 311
+  offset: 82, 52
+  index: -1
+flower/flower/300211020
+  rotate: false
+  xy: 2525, 112
+  size: 221, 187
+  orig: 326, 311
+  offset: 72, 47
+  index: -1
+flower/flower/300211021
+  rotate: false
+  xy: 1894, 108
+  size: 233, 196
+  orig: 326, 311
+  offset: 65, 42
+  index: -1
+flower/flower/300211022
+  rotate: false
+  xy: 1120, 79
+  size: 240, 201
+  orig: 326, 311
+  offset: 58, 40
+  index: -1
+flower/flower/300211023
+  rotate: false
+  xy: 281, 31
+  size: 250, 214
+  orig: 326, 311
+  offset: 53, 34
+  index: -1
+flower/flower/300211024
+  rotate: false
+  xy: 1120, 282
+  size: 260, 228
+  orig: 326, 311
+  offset: 46, 27
+  index: -1
+flower/flower/300211025
+  rotate: false
+  xy: 849, 269
+  size: 269, 241
+  orig: 326, 311
+  offset: 38, 21
+  index: -1
+flower/flower/300211026
+  rotate: false
+  xy: 2, 3
+  size: 277, 246
+  orig: 326, 311
+  offset: 30, 21
+  index: -1
+flower/flower/300211027
+  rotate: false
+  xy: 567, 262
+  size: 280, 248
+  orig: 326, 311
+  offset: 27, 20
+  index: -1
+flower/flower/300211028
+  rotate: false
+  xy: 2, 251
+  size: 287, 259
+  orig: 326, 311
+  offset: 25, 16
+  index: -1
+flower/flower/300211029
+  rotate: true
+  xy: 567, 2
+  size: 258, 269
+  orig: 326, 311
+  offset: 21, 13
+  index: -1
+flower/flower/300211030
+  rotate: true
+  xy: 291, 247
+  size: 263, 274
+  orig: 326, 311
+  offset: 16, 10
+  index: -1
+flower/flower/300211031
+  rotate: true
+  xy: 1382, 297
+  size: 213, 275
+  orig: 326, 311
+  offset: 65, 8
+  index: -1
+flower/flower/300211032
+  rotate: true
+  xy: 1659, 308
+  size: 202, 274
+  orig: 326, 311
+  offset: 64, 7
+  index: -1
+flower/flower/300211033
+  rotate: true
+  xy: 1935, 306
+  size: 204, 250
+  orig: 326, 311
+  offset: 64, 35
+  index: -1
+flower/flower/300211034
+  rotate: true
+  xy: 1382, 137
+  size: 158, 255
+  orig: 326, 311
+  offset: 111, 35
+  index: -1
+flower/flower/300211035
+  rotate: false
+  xy: 3937, 250
+  size: 139, 260
+  orig: 326, 311
+  offset: 132, 35
+  index: -1
+flower/flower/300211036
+  rotate: true
+  xy: 3344, 166
+  size: 139, 203
+  orig: 326, 311
+  offset: 132, 95
+  index: -1
+flower/flower/300211037
+  rotate: true
+  xy: 3136, 167
+  size: 138, 206
+  orig: 326, 311
+  offset: 131, 95
+  index: -1
+flower/flower/300211038
+  rotate: false
+  xy: 533, 144
+  size: 21, 101
+  orig: 326, 311
+  offset: 191, 95
+  index: -1
+flower/flower/300211039
+  rotate: true
+  xy: 281, 8
+  size: 21, 103
+  orig: 326, 311
+  offset: 191, 95
+  index: -1
+flower/flower/300211040
+  rotate: true
+  xy: 556, 234
+  size: 11, 9
+  orig: 326, 311
+  offset: 201, 190
+  index: -1
+meigui1
+  rotate: false
+  xy: 3815, 215
+  size: 73, 90
+  orig: 91, 91
+  offset: 6, 1
+  index: -1

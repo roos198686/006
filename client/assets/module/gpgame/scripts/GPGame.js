@@ -2026,10 +2026,13 @@ cc.Class({
             if (iconNode) iconNode.active = true;
             var frameNode = this.findNode(v.root, "Z_user");
             if (frameNode) frameNode.active = true;
-            if (iconNode && uid > 0) {
+            //无论是否有玩家都挂上 ImageLoader: 空位 uid=0 时不调 setUserID,
+            //但 ImageLoader.onLoad 会检测到场景序列化的默认帧(图集子帧)运行时无纹理,
+            //自动从 hall_ui 图集取真正的"用户栏-默认头像"补上, 否则空位头像区整块空白
+            if (iconNode) {
                 var il = iconNode.getComponent("ImageLoader");
                 if (!il) { try { il = iconNode.addComponent("ImageLoader"); } catch (e) { il = null; } }
-                if (il && il.setUserID) il.setUserID(uid);
+                if (il && uid > 0 && il.setUserID) il.setUserID(uid);
             }
             // 报单标识: 剩1张时座位上方脉冲红标
             this._updateWarnBadge(v.root, (playing && gs) ? (gs.count || 0) : -1);

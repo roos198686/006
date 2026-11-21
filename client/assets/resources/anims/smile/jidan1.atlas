@@ -1,0 +1,146 @@
+
+jidan1.png
+size: 4096,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+jidan
+  rotate: false
+  xy: 2, 2
+  size: 26, 36
+  orig: 52, 53
+  offset: 13, 9
+  index: -1
+jidan/jidan/300311000
+  rotate: false
+  xy: 3709, 252
+  size: 299, 194
+  orig: 409, 391
+  offset: 54, 112
+  index: -1
+jidan/jidan/300311001
+  rotate: true
+  xy: 1412, 45
+  size: 401, 276
+  orig: 409, 391
+  offset: 2, 69
+  index: -1
+jidan/jidan/300311002
+  rotate: true
+  xy: 581, 39
+  size: 407, 276
+  orig: 409, 391
+  offset: 1, 69
+  index: -1
+jidan/jidan/300311003
+  rotate: true
+  xy: 2, 40
+  size: 406, 288
+  orig: 409, 391
+  offset: 1, 57
+  index: -1
+jidan/jidan/300311004
+  rotate: true
+  xy: 292, 39
+  size: 407, 287
+  orig: 409, 391
+  offset: 1, 58
+  index: -1
+jidan/jidan/300311005
+  rotate: true
+  xy: 859, 40
+  size: 406, 275
+  orig: 409, 391
+  offset: 1, 70
+  index: -1
+jidan/jidan/300311006
+  rotate: true
+  xy: 1136, 41
+  size: 405, 274
+  orig: 409, 391
+  offset: 2, 71
+  index: -1
+jidan/jidan/300311007
+  rotate: true
+  xy: 1690, 43
+  size: 403, 274
+  orig: 409, 391
+  offset: 2, 71
+  index: -1
+jidan/jidan/300311008
+  rotate: true
+  xy: 1966, 42
+  size: 404, 270
+  orig: 409, 391
+  offset: 1, 75
+  index: -1
+jidan/jidan/300311009
+  rotate: true
+  xy: 2238, 44
+  size: 402, 260
+  orig: 409, 391
+  offset: 3, 85
+  index: -1
+jidan/jidan/300311010
+  rotate: true
+  xy: 2500, 44
+  size: 402, 260
+  orig: 409, 391
+  offset: 2, 85
+  index: -1
+jidan/jidan/300311011
+  rotate: true
+  xy: 3024, 46
+  size: 400, 260
+  orig: 409, 391
+  offset: 3, 85
+  index: -1
+jidan/jidan/300311012
+  rotate: true
+  xy: 2762, 45
+  size: 401, 260
+  orig: 409, 391
+  offset: 2, 85
+  index: -1
+jidan/jidan/300311013
+  rotate: true
+  xy: 3286, 51
+  size: 395, 260
+  orig: 409, 391
+  offset: 7, 85
+  index: -1
+jidan/jidan/300311014
+  rotate: true
+  xy: 3286, 51
+  size: 395, 260
+  orig: 409, 391
+  offset: 7, 85
+  index: -1
+jidan/jidan/300311015
+  rotate: true
+  xy: 3548, 76
+  size: 370, 159
+  orig: 409, 391
+  offset: 24, 92
+  index: -1
+jidan/jidan/300311016
+  rotate: true
+  xy: 3548, 76
+  size: 370, 159
+  orig: 409, 391
+  offset: 24, 92
+  index: -1
+jidan/jidan/300311017
+  rotate: true
+  xy: 3709, 29
+  size: 221, 147
+  orig: 409, 391
+  offset: 173, 104
+  index: -1
+jidan/jidan/300311018
+  rotate: true
+  xy: 3709, 29
+  size: 221, 147
+  orig: 409, 391
+  offset: 173, 104
+  index: -1

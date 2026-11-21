@@ -1,0 +1,76 @@
+
+dong.png
+size: 512,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+h2
+  rotate: false
+  xy: 229, 316
+  size: 81, 90
+  orig: 81, 90
+  offset: 0, 0
+  index: -1
+b2
+  rotate: false
+  xy: 229, 1
+  size: 203, 220
+  orig: 203, 220
+  offset: 0, 0
+  index: -1
+h1
+  rotate: false
+  xy: 312, 334
+  size: 81, 90
+  orig: 81, 90
+  offset: 0, 0
+  index: -1
+b1
+  rotate: false
+  xy: 1, 1
+  size: 226, 319
+  orig: 226, 319
+  offset: 0, 0
+  index: -1
+b3
+  rotate: false
+  xy: 395, 334
+  size: 71, 95
+  orig: 71, 95
+  offset: 0, 0
+  index: -1
+zi
+  rotate: false
+  xy: 434, 1
+  size: 43, 249
+  orig: 43, 249
+  offset: 0, 0
+  index: -1
+yb2
+  rotate: false
+  xy: 354, 252
+  size: 110, 80
+  orig: 110, 80
+  offset: 0, 0
+  index: -1
+yb1
+  rotate: false
+  xy: 229, 223
+  size: 123, 91
+  orig: 123, 91
+  offset: 0, 0
+  index: -1
+tb2
+  rotate: false
+  xy: 1, 322
+  size: 75, 50
+  orig: 75, 50
+  offset: 0, 0
+  index: -1
+tb1
+  rotate: false
+  xy: 1, 408
+  size: 73, 53
+  orig: 73, 53
+  offset: 0, 0
+  index: -1

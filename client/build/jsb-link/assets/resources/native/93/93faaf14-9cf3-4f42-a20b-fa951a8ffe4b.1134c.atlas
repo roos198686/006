@@ -1,0 +1,118 @@
+
+yiqifacai.png
+size: 512,256
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+qian1
+  rotate: true
+  xy: 328, 211
+  size: 43, 48
+  orig: 43, 48
+  offset: 0, 0
+  index: -1
+qian2
+  rotate: false
+  xy: 180, 19
+  size: 40, 31
+  orig: 40, 31
+  offset: 0, 0
+  index: -1
+qian3
+  rotate: false
+  xy: 282, 128
+  size: 32, 30
+  orig: 32, 30
+  offset: 0, 0
+  index: -1
+qian4
+  rotate: false
+  xy: 163, 52
+  size: 61, 28
+  orig: 61, 28
+  offset: 0, 0
+  index: -1
+qian5
+  rotate: false
+  xy: 428, 201
+  size: 37, 26
+  orig: 37, 26
+  offset: 0, 0
+  index: -1
+qian6
+  rotate: false
+  xy: 428, 229
+  size: 60, 25
+  orig: 60, 25
+  offset: 0, 0
+  index: -1
+shenti
+  rotate: false
+  xy: 163, 136
+  size: 77, 74
+  orig: 77, 74
+  offset: 0, 0
+  index: -1
+tou
+  rotate: false
+  xy: 2, 49
+  size: 159, 205
+  orig: 159, 205
+  offset: 0, 0
+  index: -1
+tou1
+  rotate: false
+  xy: 163, 82
+  size: 63, 52
+  orig: 63, 52
+  offset: 0, 0
+  index: -1
+tou2
+  rotate: false
+  xy: 242, 160
+  size: 62, 50
+  orig: 62, 50
+  offset: 0, 0
+  index: -1
+wenzi
+  rotate: false
+  xy: 163, 212
+  size: 163, 42
+  orig: 163, 42
+  offset: 0, 0
+  index: -1
+youdabi
+  rotate: false
+  xy: 139, 4
+  size: 39, 43
+  orig: 39, 43
+  offset: 0, 0
+  index: -1
+youxiaobi
+  rotate: true
+  xy: 86, 2
+  size: 45, 51
+  orig: 45, 51
+  offset: 0, 0
+  index: -1
+zui
+  rotate: false
+  xy: 2, 2
+  size: 82, 45
+  orig: 82, 45
+  offset: 0, 0
+  index: -1
+zuodabi
+  rotate: false
+  xy: 242, 129
+  size: 38, 29
+  orig: 38, 29
+  offset: 0, 0
+  index: -1
+zuoxiaobi
+  rotate: true
+  xy: 378, 210
+  size: 44, 48
+  orig: 44, 48
+  offset: 0, 0
+  index: -1

@@ -465,11 +465,16 @@ cc.Class({
         this._bindUI();
         // 进房/发牌前, 座位上 13 张手牌全部隐藏(等发牌动画再逐张亮出)
         this._resetSeatsCards(false);
+        this._spine = {};
         this._loadCards();
+        this._loadSz();
         this._loadImgs();
         this._loadStartFx();
+        this._loadSpines();
+        this._loadGunFrames();
         this._bindNet();
         this._refreshSeats();
+        this._szResetAll();            // 开局前不显示比牌分数
         this.renderAll();
         if (cc.vv.audioMgr) cc.vv.audioMgr.playBGM("bgFight.mp3");
         this.schedule(this._tick, 1);
@@ -593,6 +598,13 @@ cc.Class({
                 bx: srNode.scaleX, by: srNode.scaleY   // 场景里设置好的原始缩放
             };
         }
+        // 比牌分数显示: 自己(带 qd/zd/hd/zf)三道常显, 其他座位只有 jklSprite 临时显示本道盈亏
+        var szRoot = this._findIn(root, "SZSprite");
+        var szJkl = szRoot ? this._findIn(szRoot, "jklSprite") : null;
+        var szQd = szRoot ? this._findIn(szRoot, "qdSprite") : null;
+        var szZd = szRoot ? this._findIn(szRoot, "zdSprite") : null;
+        var szHd = szRoot ? this._findIn(szRoot, "hdSprite") : null;
+        var szZf = szRoot ? this._findIn(szRoot, "zfSprite") : null;
         return {
             root: root, k: k, box: box, cards: cards, spots: spots,
             // 牌盒里所有子节点的原始层级(亮牌提到最前层后按这个顺序还原)
@@ -608,6 +620,7 @@ cc.Class({
             nameLb: userNode ? this._labelOf(userNode.getChildByName("name")) : null,
             scoreLb: userNode ? this._labelOf(userNode.getChildByName("score")) : null,
             summary: this._labelOf(this._findIn(root, "bbSummary")),
+            szRoot: szRoot, szJkl: szJkl, szQd: szQd, szZd: szZd, szHd: szHd, szZf: szZf, _sz: null,
             badges: null, specialBadge: null,
             roomSeat: -1, player: null, confirmed: false, special: null,
             results: null
@@ -625,14 +638,15 @@ cc.Class({
             for (var w = 0; w < bg.children.length; ++w) {
                 if (bg.children[w].name.indexOf("bbarrbg") === 0) { wrap = bg.children[w]; break; }
             }
-            var cards = [], typeSp = null;
+            var cards = [], typeSp = null, nameSp = null;
             for (var c = 0; c < wrap.children.length; ++c) {
                 var cn = wrap.children[c];
                 if (cn.name.indexOf("bbArrCard") === 0) cards.push(cn);
                 else if (cn.name === "Spritea") typeSp = cn;
+                else if (cn.name === "Sprite") nameSp = cn;
             }
             cards = this._sortedByX(cards);
-            var row = { bg: bg, wrap: wrap, cards: cards, typeSp: typeSp };
+            var row = { bg: bg, wrap: wrap, cards: cards, typeSp: typeSp, nameSp: nameSp, check: null, close: null };
             p.rows.push(row);
             (function (road, rowInfo) {
                 self._bindTap(rowInfo.bg, function (ev) {
@@ -644,6 +658,44 @@ cc.Class({
                     (function (idx) {
                         self._bindTap(rowInfo.cards[idx], function () { self.onRowCardTap(road, idx); }, true);
                     })(ci);
+                }
+                // 摆满合法时显示绿色 ✓(视频里每道左侧的对勾)
+                var check = new cc.Node("rowCheck");
+                check.parent = rowInfo.wrap;
+                var ty = rowInfo.typeSp;
+                check.setPosition(ty ? ty.x : 100, ty ? ty.y + 96 : 60);
+                check.setContentSize(64, 64);
+                var klb = check.addComponent(cc.Label);
+                klb.string = "\u2713";
+                klb.fontSize = 52;
+                klb.lineHeight = 56;
+                klb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+                klb.verticalAlign = cc.Label.VerticalAlign.CENTER;
+                check.color = cc.color(90, 230, 120);
+                var kol = check.addComponent(cc.LabelOutline);
+                kol.color = cc.color(0, 60, 0, 200);
+                kol.width = 3;
+                check.active = false;
+                rowInfo.check = check;
+                // 手动摆牌: 每道右侧一个 X, 点一下把这一道的牌收回手牌(视频里的行删除按钮)
+                if (!isAuto) {
+                    var close = new cc.Node("rowClose");
+                    close.parent = rowInfo.bg;
+                    var last = rowInfo.cards[rowInfo.cards.length - 1];
+                    close.setPosition(last ? last.x + 118 : 200, 0);
+                    close.setContentSize(72, 72);
+                    var clb = close.addComponent(cc.Label);
+                    clb.string = "\u2715";
+                    clb.fontSize = 44;
+                    clb.lineHeight = 50;
+                    clb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+                    clb.verticalAlign = cc.Label.VerticalAlign.CENTER;
+                    var col = close.addComponent(cc.LabelOutline);
+                    col.color = cc.color(0, 0, 0, 200);
+                    col.width = 3;
+                    close.active = false;
+                    rowInfo.close = close;
+                    self._bindTap(close, function () { self.onRevoke(road); });
                 }
             })(ROAD_BY_ROW[i], row);
         }
@@ -662,11 +714,34 @@ cc.Class({
                 var zn = this._findIn(root, "zdSprite" + z);
                 if (!zn) continue;
                 var parts = zn.children.slice().sort(function (a, b) { return b.y - a.y; });
-                p.zd.push({ root: zn, parts: parts });
-                (function (idx) {
-                    self._bindTap(zn, function () { self.onPickCandidate(idx); });
+                p.zd.push({ root: zn, parts: parts, home: { x: zn.x, y: zn.y } });
+                (function (slot) {
+                    self._bindTap(zn, function () { self.onPickSlot(slot); });
                 })(z);
             }
+            // 推荐牌型一页 3 个, 左右箭头翻页(视频里的 ◀ ▶)
+            p.page = 0;
+            var holder = this._findIn(root, "allNode-a") || root;
+            var mkArrow = function (txt, x) {
+                var n = new cc.Node("sssArrow");
+                n.parent = holder;
+                n.setPosition(x, -500);
+                n.setContentSize(96, 96);
+                var lb = n.addComponent(cc.Label);
+                lb.string = txt;
+                lb.fontSize = 56;
+                lb.lineHeight = 60;
+                lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+                lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
+                var ol = n.addComponent(cc.LabelOutline);
+                ol.color = cc.color(0, 0, 0, 200);
+                ol.width = 3;
+                return n;
+            };
+            p.arrowL = mkArrow("\u25c0", -390);
+            p.arrowR = mkArrow("\u25b6", 400);
+            this._bindTap(p.arrowL, function () { self.onPage(-1); });
+            this._bindTap(p.arrowR, function () { self.onPage(1); });
         } else {
             var pk = this._findIn(root, "Spritepk");
             if (pk) {
@@ -696,8 +771,19 @@ cc.Class({
         var self = this, n = this._n;
         n.seats = [];
         for (var k = 0; k < 6; ++k) n.seats.push(this._seatInfo(this._find("bbSeat" + k), k));
+        // 场景初始的牌位/角度/缩放记为"家": 亮牌复原一律回到这里, 不受运行期任何改动影响
+        for (var si = 0; si < n.seats.length; ++si) {
+            var sc = n.seats[si];
+            if (!sc) continue;
+            for (var ci = 0; ci < sc.cards.length; ++ci) {
+                var cn = sc.cards[ci];
+                cn.__sssHome = { x: cn.x, y: cn.y, angle: cn.angle, sx: cn.scaleX, sy: cn.scaleY };
+            }
+        }
         n.auto = this._panelInfo(this._find("bbArrange-a"), true);
         n.manual = this._panelInfo(this._find("bbArrange"), false);
+        this._setupPanelLabels(n.auto, true);
+        this._setupPanelLabels(n.manual, false);
         n.prepare = this._find("prepare");
         n.settle = this._find("settlePanel");
         n.gameResult = this._find("game_result");
@@ -747,6 +833,317 @@ cc.Class({
                 n.alert.active = false;
                 self._confirmOk = null;
             }, true);
+        }
+    },
+
+    // 摆牌面板按钮文字: 自动页=手动, 手动页=自动; 重置按钮改成"取消"
+    _setupPanelLabels: function (p, isAuto) {
+        if (!p) return;
+        var ln = isAuto ? "bbAutoBtnLabel-a" : "bbAutoBtnLabel";
+        var toggle = this._labelOf(this._findIn(p.autoBtn, ln));
+        if (toggle) toggle.string = isAuto ? "\u624b\u52a8" : "\u81ea\u52a8";
+        var cancel = this._labelOf(this._findIn(p.reopenBtn, ln));
+        if (cancel) cancel.string = "\u53d6\u6d88";
+    },
+
+    // 逆向包里的十三水动画: 开始比牌/打枪/全垒打(各一个 animation)
+    _loadSpines: function () {
+        if (typeof sp === "undefined") return;
+        var self = this;
+        var list = {
+            sss_kaishi: "anims/sss_kaishi/sss_kaishi",
+            kaiqiang: "anims/kaiqiang/kaiqiang",
+            quanleida: "anims/quanleida/quanleida"
+        };
+        for (var k in list) {
+            (function (key, path) {
+                cc.resources.load(path, sp.SkeletonData, function (err, sd) {
+                    if (err || !sd) { console.log("[SSS] spine 加载失败", key, err); return; }
+                    self._spine[key] = sd;
+                });
+            })(k, list[k]);
+        }
+    },
+
+    // 打枪/中枪用宝宝场景原来的帧动画(images/bbfx_dq 12帧, images/bbfx_zq 3帧)
+    _loadGunFrames: function () {
+        var self = this;
+        var load = function (dir, key) {
+            cc.resources.loadDir(dir, cc.SpriteFrame, function (err, arr) {
+                if (err || !arr || !arr.length) return;
+                arr.sort(function (a, b) {
+                    var na = parseInt(a.name, 10), nb = parseInt(b.name, 10);
+                    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                    return a.name < b.name ? -1 : (a.name > b.name ? 1 : 0);
+                });
+                self[key] = arr;
+            });
+        };
+        load("images/bbfx_dq", "_dqFrames");
+        load("images/bbfx_zq", "_zqFrames");
+    },
+
+    // 在桌子中央播一个 spine 动画, 播完回调(带兜底定时器)
+    _fxSpine: function (key, scale, done) {
+        var sd = this._spine && this._spine[key];
+        if (typeof sp === "undefined" || !sd) { if (done) done(); return; }
+        var node = null;
+        var finished = false;
+        var fin = function () {
+            if (finished) return;
+            finished = true;
+            if (node && cc.isValid(node)) node.destroy();
+            if (done) done();
+        };
+        try {
+            node = new cc.Node("sssFx_" + key);
+            node.parent = this.node;
+            var vs = cc.view.getVisibleSize();
+            node.setPosition(this.node.convertToNodeSpaceAR(cc.v2(vs.width / 2, vs.height / 2)));
+            node.setSiblingIndex(this.node.children.length - 1);
+            var sk = node.addComponent(sp.Skeleton);
+            sk.skeletonData = sd;
+            sk.premultipliedAlpha = false;
+            node.setScale(scale || 1);
+            sk.setAnimation(0, "animation", false);
+            sk.setCompleteListener(fin);
+        } catch (e) {
+            console.log("[SSS] spine 播放失败", key, e);
+            fin();
+            return;
+        }
+        setTimeout(fin, 4000);   // 兜底, 防止 complete 回调丢失卡住流程
+    },
+
+    // 打枪对: 从服务端 details 里还原"谁打谁"(note=打枪 则 a 打 b, 被打枪 则 b 打 a)
+    _gunPairs: function () {
+        var details = (this._lastResult && this._lastResult.details) || [];
+        var byGs = {};
+        for (var k = 0; k < this._n.seats.length; ++k) {
+            var seat = this._n.seats[k];
+            if (!seat || !seat.results || seat.results.gameSeat === undefined) continue;
+            byGs[seat.results.gameSeat] = seat;
+        }
+        var out = [];
+        for (var i = 0; i < details.length; ++i) {
+            var d = details[i];
+            if (!d || !d.gun) continue;
+            var gunned = d.note === "\u88ab\u6253\u67aa";
+            var fs = byGs[gunned ? d.b : d.a], ts = byGs[gunned ? d.a : d.b];
+            if (fs && ts) out.push({ from: fs, to: ts });
+        }
+        return out;
+    },
+
+    _seatFxPos: function (seat) {
+        var n = seat && (seat.avatarNode || seat.userNode || seat.root);
+        if (!n || !cc.isValid(n)) return null;
+        return this.node.convertToNodeSpaceAR(n.convertToWorldSpaceAR(cc.v2(0, 0)));
+    },
+
+    // 一次打枪: 射击者处播枪口动画(朝目标), 被打者处播中枪爆炸
+    _fxGunShot: function (fromSeat, toSeat) {
+        var p0 = this._seatFxPos(fromSeat), p1 = this._seatFxPos(toSeat);
+        var self = this;
+        var dq = this._dqFrames;
+        if (p0 && dq && dq.length) {
+            var node = new cc.Node("sssDq");
+            node.parent = this.node;
+            node.zIndex = 999;
+            var sp0 = node.addComponent(cc.Sprite);
+            sp0.spriteFrame = dq[0];
+            node.setPosition(p0);
+            if (p1) {
+                var ang = Math.atan2(p1.y - p0.y, p1.x - p0.x) * 180 / Math.PI;
+                if (p1.x < p0.x) { node.scaleX = -0.8; node.scaleY = 0.8; node.angle = ang + 180; }
+                else { node.setScale(0.8); node.angle = ang; }
+            } else node.setScale(0.8);
+            var idx = 0, cnt = dq.length;
+            var timer = setInterval(function () {
+                if (!cc.isValid(node)) { clearInterval(timer); return; }
+                if (++idx >= cnt) { clearInterval(timer); node.destroy(); return; }
+                sp0.spriteFrame = dq[idx];
+            }, 100);
+        } else if (!dq || !dq.length) {
+            // 帧动画没加载到: 退回逆向包 spine
+            this._fxSpine("kaiqiang", 1.0, null);
+        }
+        var zq = this._zqFrames;
+        if (p1 && zq && zq.length) {
+            var zn = new cc.Node("sssZq");
+            zn.parent = this.node;
+            zn.zIndex = 999;
+            var sp1 = zn.addComponent(cc.Sprite);
+            sp1.spriteFrame = zq[0];
+            zn.setPosition(p1);
+            zn.setScale(0.8);
+            var zi = 0, zc = zq.length;
+            var zt = setInterval(function () {
+                if (!cc.isValid(zn)) { clearInterval(zt); return; }
+                if (++zi >= zc) { clearInterval(zt); zn.destroy(); return; }
+                sp1.spriteFrame = zq[zi];
+            }, 400);
+        }
+    },
+
+    // 亮牌结束: 有几对打枪就依次开几枪(宝宝原版帧动画), 最后全垒打, 播完再弹结算
+    _playEndFx: function (done) {
+        var self = this;
+        var pairs = this._gunPairs();
+        var qld = false;
+        for (var k = 0; k < this._n.seats.length; ++k) {
+            var seat = this._n.seats[k];
+            if (seat && seat.results && seat.results.quanleida) qld = true;
+        }
+        if (!pairs.length && !qld) { if (done) done(); return; }
+        var i = 0;
+        var endStep = function () {
+            if (!qld) { if (done) done(); return; }
+            if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("win.wav");
+            self._fxSpine("quanleida", 1.2, function () { if (done) done(); });
+        };
+        var gunStep = function () {
+            if (!cc.isValid(self.node)) return;
+            if (i >= pairs.length) { endStep(); return; }
+            var pr = pairs[i++];
+            for (var s = 0; s < 3; ++s) {
+                (function (kk) {
+                    setTimeout(function () {
+                        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("da_qiang_one.mp3");
+                    }, kk * 300);
+                })(s);
+            }
+            self._fxGunShot(pr.from, pr.to);
+            setTimeout(gunStep, 1500);
+        };
+        gunStep();
+    },
+
+    // ================= 比牌盈亏显示(sz 图集: 1 组为加, 2 组为减) =================
+    _loadSz: function () {
+        var self = this;
+        cc.resources.load("images/atlas/sz", cc.SpriteAtlas, function (err, atlas) {
+            if (err || !atlas) { console.log("[SSS] sz 图集加载失败", err); return; }
+            self._szAtlas = atlas;
+            for (var k = 0; k < self._n.seats.length; ++k) self._applySz(self._n.seats[k]);
+        });
+    },
+    // idx: 1=符号位, 2..11=数字 0..9
+    _szFrame: function (set, idx) {
+        if (!this._szAtlas) return null;
+        var nm = "zhuomian_" + set + "_" + (idx < 10 ? "0" + idx : "" + idx);
+        return this._szAtlas.getSpriteFrame(nm + ".png") || this._szAtlas.getSpriteFrame(nm) || null;
+    },
+    // 在一个节点里按位数横向拼数字, 节点本身位置/大小不动
+    _szDraw: function (node, val) {
+        if (!node) return;
+        var sp = node.getComponent(cc.Sprite);
+        if (sp) sp.enabled = false;
+        for (var c = node.children.length - 1; c >= 0; --c) {
+            if (node.children[c].name === "szChar") node.children[c].destroy();
+        }
+        node.active = true;
+        val = Math.round(Number(val) || 0);
+        var set = val < 0 ? 2 : 1;
+        var frames = [];
+        if (val < 0) frames.push(this._szFrame(2, 1));
+        else if (val > 0) frames.push(this._szFrame(1, 1));
+        var ds = String(Math.abs(val)).split("");
+        for (var d = 0; d < ds.length; ++d) frames.push(this._szFrame(set, 2 + Number(ds[d])));
+        var n = frames.length, made = 0;
+        for (var i = 0; i < n; ++i) {
+            if (!frames[i]) continue;
+            var cn = new cc.Node("szChar");
+            cn.parent = node;
+            cn.addComponent(cc.Sprite).spriteFrame = frames[i];
+            cn.setPosition((i - (n - 1) / 2) * 30, 0);
+            made++;
+        }
+        if (!made) node.active = false;
+    },
+    _szHide: function (node) {
+        if (!node) return;
+        for (var c = node.children.length - 1; c >= 0; --c) {
+            if (node.children[c].name === "szChar") node.children[c].destroy();
+        }
+        node.active = false;
+    },
+    _szUpdate: function (seat, key, val) {
+        if (!seat || !seat.szRoot) return;
+        seat._sz = seat._sz || {};
+        seat._sz[key] = val;
+        this._applySz(seat);
+    },
+    _applySz: function (seat) {
+        if (!seat || !seat.szRoot) return;
+        var v = seat._sz || {};
+        var self = this;
+        var put = function (node, val) { if (val == null) self._szHide(node); else self._szDraw(node, val); };
+        if (seat.szQd) {
+            // 自己: 前/中/后道 + 总分, 从比牌开始一直显示
+            put(seat.szQd, v.head); put(seat.szZd, v.mid); put(seat.szHd, v.tail); put(seat.szZf, v.total);
+            seat.szRoot.active = true;
+        } else {
+            put(seat.szJkl, v.jkl);
+            seat.szRoot.active = (v.jkl != null);
+        }
+    },
+    // 从比牌明细算出每家每一道的盈亏(打枪整对 x2, 再乘底分)
+    _calcRoadDeltas: function (data) {
+        var map = {};
+        var results = data.results || [];
+        for (var i = 0; i < results.length; ++i) {
+            if (results[i]) map[results[i].gameSeat] = i;
+        }
+        var base = Number(data.baseScore) || 1;
+        var out = {};
+        var details = data.details || [];
+        for (var d = 0; d < details.length; ++d) {
+            var dt = details[d];
+            var ra = map[dt.a], rb = map[dt.b];
+            var mult = dt.gun ? 2 : 1;
+            var roads = dt.roads || [];
+            for (var r = 0; r < roads.length; ++r) {
+                var it = roads[r];
+                var g = (Number(it.gain) || 0) * base * mult;
+                if (ra != null) {
+                    out[ra] = out[ra] || { head: 0, mid: 0, tail: 0, known: true };
+                    out[ra][it.road] += g;
+                }
+                if (rb != null) {
+                    out[rb] = out[rb] || { head: 0, mid: 0, tail: 0, known: true };
+                    out[rb][it.road] -= g;
+                }
+            }
+        }
+        return out;
+    },
+    // 亮完某家某道: 显示这一道的盈亏(自己写进 qd/zd/hd, 其他座位写 jkl)
+    _szShowRoad: function (seat, road) {
+        if (!seat || !seat.szRoot) return;
+        var d = this._roadDeltas && this._roadDeltas[seat.roomSeat];
+        if (!d || !d.known) return;
+        var val = Number(d[road]) || 0;
+        this._szUpdate(seat, seat.szQd ? road : "jkl", val);
+    },
+    _szHideJklAll: function () {
+        for (var k = 0; k < this._n.seats.length; ++k) {
+            var s = this._n.seats[k];
+            if (!s || s.szQd || !s.szJkl) continue;
+            this._szHide(s.szJkl);
+            if (s.szRoot) s.szRoot.active = false;
+        }
+    },
+    // 新一局: 清掉所有分数显示
+    _szResetAll: function () {
+        this._roadDeltas = null;
+        for (var k = 0; k < this._n.seats.length; ++k) {
+            var s = this._n.seats[k];
+            if (!s) continue;
+            s._sz = {};
+            if (!s.szQd) this._szHide(s.szJkl);
+            this._szHide(s.szQd); this._szHide(s.szZd); this._szHide(s.szHd); this._szHide(s.szZf);
+            if (s.szRoot) s.szRoot.active = false;
         }
     },
 
@@ -864,6 +1261,7 @@ cc.Class({
     applyStart: function (data) {
         if (!data) return;
         this._cancelReveal();
+        this._szResetAll();            // 新一局: 上一局的比牌分数全部清掉
         this._cards = (data.myCards || []).map(Number).sort(function (a, b) { return a - b; });
         this._confirmed = !!(data.confirmed || data.confirm);
         this._pendingConfirm = false;
@@ -978,6 +1376,14 @@ cc.Class({
             for (var i = 0; i < seat.cards.length; ++i) {
                 var card = seat.cards[i];
                 card.stopAllActions();
+                // 上一局亮牌时摆直/放大过的牌, 换局前先还原成场景原始状态
+                if (card.__sssOrig) {
+                    var o0 = card.__sssOrig;
+                    card.setPosition(o0.x, o0.y);
+                    card.angle = o0.angle;
+                    card.setScale(o0.sx, o0.sy);
+                    delete card.__sssOrig;
+                }
                 card.active = false;
                 card.opacity = 255;
                 var sp = card.getComponent(cc.Sprite);
@@ -1200,14 +1606,8 @@ cc.Class({
         if (!seat || !seat.mb || !seat.mbSp) return;
         var f = this._img(imgName);
         if (!f) { seat.mb.active = false; return; }
-        seat.mbSp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+        seat.mbSp.sizeMode = cc.Sprite.SizeMode.RAW;  // 保持原图尺寸
         seat.mbSp.spriteFrame = f;
-        var rect = f.getRect ? f.getRect() : null;
-        var w = rect ? rect.width : 360;
-        var h = rect ? rect.height : 180;
-        var maxW = (seat.k === 0) ? 280 : 150;
-        var sc = Math.min(1, maxW / w);
-        seat.mb.setContentSize(w * sc, h * sc);
         seat.mb.active = true;
     },
 
@@ -1344,36 +1744,44 @@ cc.Class({
             node.active = has;
             if (has) this._setCardFrame(node, ids[i]);
         }
+        var nm = typeImgOf(road, ids);
         if (rowInfo.typeSp) {
-            var nm = typeImgOf(road, ids);
             var sp = rowInfo.typeSp.getComponent(cc.Sprite);
             if (sp) sp.spriteFrame = this._img(nm);
             rowInfo.typeSp.active = !!nm;
         }
+        // 摆满且合法时显示 ✓
+        if (rowInfo.check) rowInfo.check.active = !!nm;
+        // 手动摆牌: 该道有牌才显示右侧 X
+        if (rowInfo.close) rowInfo.close.active = ids.length > 0 && this._phase === "arrange" && !this._confirmed;
     },
 
     _renderPanel: function (p) {
         if (!p) return;
-        // 弹窗收起时清掉还没飞完的残影: 节点不可见会暂停动作, 留到下一局就像"上一把的数据"
-        if (!p.isAuto && p.root && !p.root.active) this._cleanFlyGhosts(p);
+        // 手动面板每次重排都清掉在飞/残留的残影(点清除时最明显), 避免停在牌面上
+        if (!p.isAuto) this._cleanFlyGhosts(p);
         for (var i = 0; i < p.rows.length; ++i) {
             var road = ROAD_BY_ROW[i];
             this._renderRow(p.rows[i], road, this._roads[road] || []);
         }
         if (!p.isAuto) return;
-        // 右侧 4 个最佳搭配
+        // 推荐牌型: 一页 3 个, 箭头翻页
+        var total = this._candidates.length;
+        var per = 3;
+        var maxPage = Math.max(0, Math.ceil(total / per) - 1);
+        if ((p.page || 0) > maxPage) p.page = maxPage;
         for (var z = 0; z < p.zd.length; ++z) {
             var item = p.zd[z];
-            var cand = this._candidates[z];
+            var idx = (p.page || 0) * per + z;
+            var cand = (z < per && idx < total) ? this._candidates[idx] : null;
+            if (!cand) { item.root.active = false; continue; }
             item.root.active = true;
-            if (!cand) {
-                // 这手牌凑不出这种组合: 保留框体并置灰
-                for (var pj = 0; pj < item.parts.length; ++pj) item.parts[pj].active = false;
-                item.root.color = cc.color(110, 110, 110);
-                item.root.opacity = 255;
-                continue;
-            }
-            item.root.color = cc.color(255, 255, 255);
+            // 一页 3 个居中排布, 两边留给箭头
+            item.root.setPosition((z - 1) * 230, item.home ? item.home.y : item.root.y);
+            var sel = (idx === this._autoIdx);
+            item.root.color = sel ? cc.color(255, 232, 160) : cc.color(255, 255, 255);
+            item.root.opacity = sel ? 255 : 175;
+            item.root.setScale(sel ? 1.06 : 1, sel ? 1.06 : 1);
             var roads = [cand.head, cand.mid, cand.tail];
             for (var j = 0; j < item.parts.length && j < 3; ++j) {
                 var part = item.parts[j];
@@ -1383,8 +1791,9 @@ cc.Class({
                 if (sp2) sp2.spriteFrame = this._img(nm);
                 part.active = !!nm;
             }
-            item.root.opacity = (z === this._autoIdx) ? 255 : 170;
         }
+        if (p.arrowL) p.arrowL.active = total > per && (p.page || 0) > 0;
+        if (p.arrowR) p.arrowR.active = total > per && (p.page || 0) < maxPage;
     },
 
     _renderHand: function () {
@@ -1424,6 +1833,9 @@ cc.Class({
         var arranging = (this._phase === "arrange") && !this._confirmed;
         if (n.auto) n.auto.root.active = arranging && this._autoMode;
         if (n.manual) n.manual.root.active = arranging && !this._autoMode;
+        // 自动推荐时只有"确定比牌"; 手动摆牌时才有"取消"
+        if (n.auto && n.auto.reopenBtn) n.auto.reopenBtn.active = false;
+        if (n.manual && n.manual.reopenBtn) n.manual.reopenBtn.active = arranging && !this._autoMode;
         if (n.prepare) n.prepare.active = (this._phase === "idle" || (this._phase === "end" && !this._final));
     },
 
@@ -1519,6 +1931,24 @@ cc.Class({
         this.renderAll();
     },
 
+    // 翻页后点第 slot 个推荐(一页 3 个)
+    onPickSlot: function (slot) {
+        if (!this._canArrange() || !this._autoMode) return;
+        var p = this._n.auto;
+        this.onPickCandidate(((p && p.page) || 0) * 3 + slot);
+    },
+
+    onPage: function (dir) {
+        if (!this._canArrange() || !this._autoMode) return;
+        var p = this._n.auto;
+        if (!p) return;
+        var maxPage = Math.max(0, Math.ceil(this._candidates.length / 3) - 1);
+        var np = Math.max(0, Math.min(maxPage, (p.page || 0) + dir));
+        if (np === p.page) return;
+        p.page = np;
+        this._renderPanel(p);
+    },
+
     onAuto: function () {
         if (!this._canArrange()) return;
         this._autoMode = true;
@@ -1557,14 +1987,11 @@ cc.Class({
 
     onReopen: function () {
         if (!this._canArrange()) return;
+        // 手动摆牌点"取消": 回到自动推荐
+        if (!this._autoMode) { this.onAuto(); return; }
         this._picked = {};
-        if (this._autoMode) {
-            this._buildCandidates();
-            if (this._candidates.length) this._applyCandidate(0);
-        } else {
-            this._roads = { head: [], mid: [], tail: [] };
-            this._hand = this._cards.slice().sort(function (a, b) { return a - b; });
-        }
+        this._buildCandidates();
+        if (this._candidates.length) this._applyCandidate(0);
         this.renderAll();
     },
 
@@ -1618,6 +2045,19 @@ cc.Class({
         var id = arr.splice(idx, 1)[0];
         this._hand.push(id);
         this._hand.sort(function (a, b) { return a - b; });
+        this.renderAll();
+    },
+
+    // 点该道右侧 X: 整道收回手牌
+    onRevoke: function (road) {
+        if (!this._canArrange() || this._autoMode) return;
+        var arr = this._roads[road] || [];
+        if (!arr.length) return;
+        for (var i = 0; i < arr.length; ++i) this._hand.push(arr[i]);
+        this._roads[road] = [];
+        this._hand.sort(function (a, b) { return a - b; });
+        this._picked = {};
+        this._cleanFlyGhosts(this._n.manual);   // 清除时把还在飞的残影一起清掉
         this.renderAll();
     },
 
@@ -1748,7 +2188,16 @@ cc.Class({
         }
         this._updateMbs();
 
-        // 亮牌顺序: 头道所有人轮流 -> 中道 -> 后道
+        // 分数显示: 自己(带 qd/zd/hd/zf)从比牌开始常显, 其他座位等某道亮完再临时显示
+        this._roadDeltas = this._calcRoadDeltas(data);
+        for (var sz = 0; sz < this._n.seats.length; ++sz) {
+            var ssz = this._n.seats[sz];
+            if (!ssz) continue;
+            ssz._sz = {};
+            this._applySz(ssz);
+        }
+
+        // 亮牌顺序: 先头道所有人轮流亮完, 再中道, 最后后道
         var steps = [];
         var order = ["head", "mid", "tail"];
         for (var oi = 0; oi < order.length; ++oi) {
@@ -1768,14 +2217,20 @@ cc.Class({
             if (prevRoad && prevRoad !== st.road) {
                 self._hideRoadBadges(prevRoad);
                 self._restoreRoadAll(prevRoad);
+                self._szHideJklAll();          // 上一道结算完: 其他座位的临时盈亏收起
             }
             prevRoad = st.road;
             var arr = (st.seat.results.arrange && st.seat.results.arrange[st.road]) || [];
-            self._revealRoad(st.seat, st.road, arr);
+            // 单道亮牌出异常不能中断整个亮牌流程
+            try { self._revealRoad(st.seat, st.road, arr); } catch (e) { console.log("[SSS] 亮牌异常", st.road, e); }
+            try { self._szShowRoad(st.seat, st.road); } catch (e) { }
             if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("fanpai.mp3");
-            self._revealTimer = setTimeout(next, 420);
+            // 等这一道放大展示 + 归位做完, 再亮下一个人/下一道
+            self._revealTimer = setTimeout(next, 1400);
         };
-        this._revealTimer = setTimeout(next, 500);
+        // "开始比牌"动画只是氛围, 不能阻塞亮牌: 动画加载失败/播放异常也必须按时亮牌
+        try { this._fxSpine("sss_kaishi", 1.0, null); } catch (e) { console.log("[SSS] 开始比牌动画异常", e); }
+        this._revealTimer = setTimeout(next, 900);
     },
 
     // 把某家的三道牌摆到座位 13 个节点(face=true 直接明牌)
@@ -1835,11 +2290,20 @@ cc.Class({
         this._restoreChildOrder(seat);
     },
 
-    // 兜底: 只还原牌盒里牌节点的层级, 位置/角度/缩放始终是场景自己的, 不需要也不允许用 JS 去写
+    // 兜底: 亮牌被打断时, 把摆直/放大过的牌按原始位置/角度/缩放/层级还原
     _restoreAllRoadsNow: function () {
         for (var k = 0; k < this._n.seats.length; ++k) {
             var seat = this._n.seats[k];
             if (!seat || !seat.cards) continue;
+            for (var i = 0; i < seat.cards.length; ++i) {
+                var n = seat.cards[i];
+                var o = n && (n.__sssHome || n.__sssOrig);
+                if (!o) continue;
+                n.stopAllActions();
+                n.setPosition(o.x, o.y);
+                n.angle = o.angle;
+                n.setScale(o.sx, o.sy);
+            }
             this._restoreChildOrder(seat);
         }
     },
@@ -1867,8 +2331,8 @@ cc.Class({
         // 牌面已翻开, 牌背上的"特殊牌型"图片收起
         if (seat.specialBadge) seat.specialBadge.active = false;
         var disp = this._dispIds(ids);
-        // 先播放放大缩小两次的展示组, 播完隐藏后再翻开 bbCards 里对应道的牌
-        this._playSpot(seat, road, disp);
+        // 直接用座位自己的 13 张牌: 提到最前 -> 摆直 -> 放大 -> 上方显示牌型 -> 归位亮面
+        this._straightenRoad(seat, road, disp);
     },
 
     // 按牌型排: 同一组(对子/三条/铁支/葫芦)的牌放一起, 组大的在前, 组内点数从大到小
@@ -1883,42 +2347,93 @@ cc.Class({
         });
     },
 
-    // 亮牌展示组: 填入这一道的牌与牌型文字, 放大->缩小->放大->缩小 后隐藏
-    _playSpot: function (seat, road, disp) {
+    // 亮这一道: 用座位自己的真实牌节点, 提到最前 -> 旋转归零 -> 排到同一条基准线 -> 放大,
+    // 牌型显示在牌的上方; 停留后按原位置/角度/缩放/层级归位, 再亮牌面
+    _straightenRoad: function (seat, road, disp) {
         var self = this;
-        var spot = seat.spots && seat.spots[road];
-        if (!spot || !spot.root || !cc.isValid(spot.root)) { this._flipRoad(seat, road, disp); return; }
-        for (var i = 0; i < spot.cards.length; ++i) {
-            var cn = spot.cards[i];
-            var has = i < disp.length;
-            cn.active = has;
-            var sp0 = cn.getComponent(cc.Sprite);
-            if (sp0) sp0.spriteFrame = has ? this._frameOf(disp[i]) : null;
+        if (!seat || !seat.box) return;
+        // 第一步: 先把这一道牌翻成牌面(亮牌), 之后的摆直/放大/回位全程都是亮着的牌
+        this._flipRoad(seat, road, disp);
+        var start = ROAD_START[road];
+        var nodes = [];
+        for (var i = 0; i < disp.length; ++i) {
+            var n = seat.cards[start + i];
+            if (!n) continue;
+            if (!n.__sssOrig) {
+                n.__sssOrig = n.__sssHome || { x: n.x, y: n.y, angle: n.angle, sx: n.scaleX, sy: n.scaleY };
+            }
+            n.stopAllActions();
+            n.active = true;
+            n.opacity = 255;
+            // 放大展示阶段仍是牌背, 牌面等归位后再亮(见 _flipRoad)
+            nodes.push(n);
         }
-        var nm = typeImgOf(road, disp);
-        if (spot.dao) {
-            var lb = spot.dao.getComponent(cc.Label);
-            if (lb) lb.string = nm || "";
-            spot.dao.active = !!nm;
+        if (!nodes.length) return;
+        // 整道提到牌盒最上层, 牌与牌保持场景里的前后顺序
+        var order = seat.childOrder || [];
+        nodes.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+        for (var q = 0; q < nodes.length; ++q) nodes[q].setSiblingIndex(seat.box.children.length - 1);
+
+        // 基准线: 这一道牌的平均位置, 横向等间距
+        var sumX = 0, sumY = 0;
+        for (var s = 0; s < nodes.length; ++s) { sumX += nodes[s].x; sumY += nodes[s].y; }
+        var cx = sumX / nodes.length, cy = sumY / nodes.length;
+        var up = 1.35;   // 亮牌放大倍数(所有人一致)
+        var cw = nodes[0].width * nodes[0].__sssOrig.sx * up;
+        // 牌与牌要像原版一样叠着: 间距取这一道在场景里的实际步进(约 40px), 再按放大比例放大
+        var gap = 0, gc = 0;
+        for (var g = 1; g < nodes.length; ++g) {
+            var dx = nodes[g].__sssOrig.x - nodes[g - 1].__sssOrig.x;
+            if (dx < 0) dx = -dx;
+            if (dx > 0) { gap += dx; gc++; }
         }
-        spot.root.active = true;
-        spot.root.opacity = 255;
-        spot.root.stopAllActions();
-        spot.root.setScale(spot.bx, spot.by);
-        if (spot.root.parent) spot.root.setSiblingIndex(spot.root.parent.children.length - 1);
-        spot.root.runAction(cc.sequence(
-            cc.scaleTo(0.16, spot.bx * 1.18, spot.by * 1.18).easing(cc.easeSineOut()),
-            cc.scaleTo(0.16, spot.bx, spot.by).easing(cc.easeSineIn()),
-            cc.scaleTo(0.16, spot.bx * 1.18, spot.by * 1.18).easing(cc.easeSineOut()),
-            cc.scaleTo(0.16, spot.bx, spot.by).easing(cc.easeSineIn()),
-            cc.delayTime(0.12),
-            cc.callFunc(function () {
-                if (!cc.isValid(spot.root)) return;
-                spot.root.active = false;
-                spot.root.setScale(spot.bx, spot.by);
-                self._flipRoad(seat, road, disp);
-            })
-        ));
+        gap = gc ? gap / gc * 1.45 : cw * 0.5;   // 比场景里的叠放再拉开
+        gap *= up;
+        if (gap > cw * 0.82) gap = cw * 0.82;    // 最多留 82% 牌宽, 仍保持重叠
+        for (var t = 0; t < nodes.length; ++t) {
+            var node = nodes[t];
+            var o = node.__sssOrig;
+            var tx = cx + (t - (nodes.length - 1) / 2) * gap;
+            // 用 tween 直接写 x/y/angle/scale, 避免 rotateTo 在 2D 下角度不生效
+            node.stopAllActions();
+            cc.tween(node).to(0.28, {
+                x: tx, y: cy, angle: 0,
+                scaleX: o.sx * up, scaleY: o.sy * up
+            }).start();
+        }
+        // 牌型压在牌的上方
+        var ch = nodes[0].height * nodes[0].__sssOrig.sy * up;
+        this._showRoadBadge(seat, road, disp, cy + ch * 0.5 + (seat.k === 0 ? 34 : 24), cx);
+
+        // 第二步: 停留展示 -> 缩小/复位旋转/回原层级(动画) -> 牌型留在原位上方
+        // 复原不依赖亮牌 token: 到点必须把牌放回场景原样
+        var token = this._revealToken;
+        setTimeout(function () {
+            if (!cc.isValid(self.node) || !cc.isValid(seat.box)) return;
+            self._restoreRoadNodes(seat, road);
+            setTimeout(function () {
+                if (!cc.isValid(self.node) || !cc.isValid(seat.box)) return;
+                if (token === self._revealToken) self._showRoadBadge(seat, road, disp);
+            }, 340);
+        }, 1200);
+    },
+
+    // 这一道牌按原始位置/角度/缩放/层级放回
+    _restoreRoadNodes: function (seat, road) {
+        var start = ROAD_START[road], cap = ROAD_CAP[road];
+        for (var i = 0; i < cap; ++i) {
+            var n = seat.cards[start + i];
+            var o = n && (n.__sssHome || n.__sssOrig);
+            if (!o) continue;
+            n.stopAllActions();
+            // 位置/角度/缩放全部按原值写回
+            cc.tween(n).to(0.25, {
+                x: o.x, y: o.y, angle: o.angle,
+                scaleX: o.sx, scaleY: o.sy
+            }).start();
+        }
+        var self = this;
+        setTimeout(function () { if (cc.isValid(self.node) && cc.isValid(seat.box)) self._restoreChildOrder(seat); }, 260);
     },
 
     // 收起所有亮牌展示组(换局/重进/取消亮牌)
@@ -1944,19 +2459,14 @@ cc.Class({
         for (var i = 0; i < disp.length; ++i) {
             var node = seat.cards[start + i];
             if (!node) continue;
-            node.stopAllActions();
+            // 不能 stopAllActions: 归位动作可能还差最后几帧, 打断会停在半路
             node.active = true;
             node.opacity = 255;
             var sp = node.getComponent(cc.Sprite);
             if (sp) sp.spriteFrame = this._frameOf(disp[i]);
             roadNodes.push(node);
         }
-        // 层次重置: 这一道的牌按场景牌盒里原本的先后顺序依次提到最上层(整道压在其它牌之上)
-        var order = seat.childOrder || [];
-        roadNodes.sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
-        for (var q = 0; q < roadNodes.length; ++q) {
-            if (box) roadNodes[q].setSiblingIndex(box.children.length - 1);
-        }
+        // 亮完按原层级放回, 不再整道提到最上
         this._showRoadBadge(seat, road, disp);
     },
 
@@ -1980,7 +2490,7 @@ cc.Class({
     },
 
     // 牌面牌型图片(亮到的这一道)
-    _showRoadBadge: function (seat, road, ids) {
+    _showRoadBadge: function (seat, road, ids, aboveY, atX) {
         if (!seat || !seat.box) return;
         var nm = typeImgOf(road, ids);
         if (!nm) return;
@@ -1999,18 +2509,22 @@ cc.Class({
         if (sp) sp.spriteFrame = f;
         badge.active = !!f;
         badge.opacity = 255;
-        var start = ROAD_START[road];
-        var x = 0, y = 0, cnt = 0;
-        for (var i = 0; i < ids.length; ++i) {
-            var c = seat.cards[start + i];
-            if (!c) continue;
-            x += c.x; y += c.y; cnt++;
-        }
-        if (cnt) {
-            x /= cnt;
-            // 压在牌面上显示("在牌正面显示牌型")
-            y = (y / cnt) + (seat.k === 0 ? 10 : 5);
-            badge.setPosition(x, y);
+        if (aboveY !== undefined && aboveY !== null) {
+            // 放大展示时: 牌型在这道牌正上方
+            badge.setPosition(atX || 0, aboveY);
+        } else {
+            // 归位后: 牌型同样摆在整道牌的上方
+            var start = ROAD_START[road];
+            var x = 0, y = 0, cnt = 0, hw = 0;
+            for (var i = 0; i < ids.length; ++i) {
+                var c = seat.cards[start + i];
+                if (!c) continue;
+                x += c.x; y += c.y; cnt++;
+                hw = Math.max(hw, c.height * c.scaleY);
+            }
+            if (cnt) {
+                badge.setPosition(x / cnt, (y / cnt) + hw * 0.5 + (seat.k === 0 ? 20 : 14));
+            }
         }
         badge.setSiblingIndex(seat.box.children.length - 1);
         badge.stopAllActions();
@@ -2037,6 +2551,10 @@ cc.Class({
         this._revealing = false;
         this._phase = "settle";
         this._roundRevealed = true;   // 本局已亮完: 桌上保持牌面, 不再被重绘成牌背
+        // 三道全部结算完: 临时盈亏收起, 自己的总分常显到下一局开始
+        this._szHideJklAll();
+        var meSz = this._ownSeat();
+        if (meSz && meSz.results) this._szUpdate(meSz, "total", Number(meSz.results.delta) || 0);
         // 特殊牌型: bbMb 显示特殊牌型图片
         for (var k = 0; k < this._n.seats.length; ++k) {
             var seat = this._n.seats[k];
@@ -2065,7 +2583,7 @@ cc.Class({
             self._hideRoadBadges("head");
             self._hideRoadBadges("mid");
             self._hideRoadBadges("tail");
-            self._restoreRoadAll("tail");   // 最后一道亮完, 放回场景位置
+            self._restoreAllRoadsNow();     // 最后一道亮完: 所有牌强制按原位置/角度/缩放/层级复原
             // 最后一局: 亮牌期间收到的总结算, 现在牌已归位, 可以弹了
             if (self._pendingGameEnd) {
                 var pend = self._pendingGameEnd;
@@ -2073,7 +2591,11 @@ cc.Class({
                 self.onGameEnd(pend);
             }
         }, 1.1);
-        this.scheduleOnce(function () { if (cc.isValid(self.node)) self._showSettle(); }, 1.5);
+        // 打枪/全垒打动画播完再弹结算(没有特效时直接弹)
+        this.scheduleOnce(function () {
+            if (!cc.isValid(self.node)) return;
+            self._playEndFx(function () { if (cc.isValid(self.node)) self._showSettle(); });
+        }, 1.5);
         // 亮牌结束: 座位上的"已准备"标记要收掉(结算阶段不需要)
         this._refreshSitUI();
         var me = null;
@@ -2086,6 +2608,7 @@ cc.Class({
     },
 
     _showSettle: function () {
+        this._restoreAllRoadsNow();   // 弹结算前再兜底复原一次
         var panel = this._n.settle;
         if (!panel) return;
         var title = this._labelOf(this._findIn(panel, "settleTitle"));
@@ -2216,7 +2739,10 @@ cc.Class({
     _cancelReveal: function () {
         if (this._revealTimer) { clearTimeout(this._revealTimer); this._revealTimer = null; }
         this._revealToken = (this._revealToken || 0) + 1;
-        if (this._n && this._n.seats) this._hideSpots();
+        if (this._n && this._n.seats) {
+            this._hideSpots();
+            this._restoreAllRoadsNow();
+        }
     },
 
     onExit: function () {

@@ -1,0 +1,383 @@
+quanleida.png
+size: 1024,512
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+007
+  rotate: false
+  xy: 344, 213
+  size: 115, 120
+  orig: 115, 125
+  offset: 0, 0
+  index: -1
+008
+  rotate: false
+  xy: 307, 4
+  size: 88, 44
+  orig: 95, 48
+  offset: 4, 4
+  index: -1
+009
+  rotate: true
+  xy: 630, 151
+  size: 95, 92
+  orig: 95, 96
+  offset: 0, 4
+  index: -1
+010
+  rotate: true
+  xy: 562, 248
+  size: 94, 104
+  orig: 94, 104
+  offset: 0, 0
+  index: -1
+011
+  rotate: false
+  xy: 292, 322
+  size: 9, 11
+  orig: 9, 11
+  offset: 0, 0
+  index: -1
+012
+  rotate: false
+  xy: 156, 2
+  size: 12, 5
+  orig: 12, 5
+  offset: 0, 0
+  index: -1
+013
+  rotate: false
+  xy: 397, 7
+  size: 66, 41
+  orig: 66, 41
+  offset: 0, 0
+  index: -1
+014
+  rotate: false
+  xy: 644, 347
+  size: 72, 62
+  orig: 72, 62
+  offset: 0, 0
+  index: -1
+015
+  rotate: true
+  xy: 826, 358
+  size: 83, 70
+  orig: 109, 70
+  offset: 25, 0
+  index: -1
+016
+  rotate: true
+  xy: 279, 335
+  size: 174, 152
+  orig: 197, 175
+  offset: 12, 10
+  index: -1
+029
+  rotate: false
+  xy: 636, 411
+  size: 98, 98
+  orig: 98, 98
+  offset: 0, 0
+  index: -1
+26
+  rotate: true
+  xy: 465, 7
+  size: 41, 66
+  orig: 42, 69
+  offset: 1, 0
+  index: -1
+27
+  rotate: true
+  xy: 533, 9
+  size: 39, 66
+  orig: 44, 66
+  offset: 5, 0
+  index: -1
+EPIC WIN
+  rotate: false
+  xy: 433, 344
+  size: 152, 58
+  orig: 152, 58
+  offset: 0, 0
+  index: -1
+PP_muzzle_flash
+  rotate: true
+  xy: 571, 98
+  size: 35, 26
+  orig: 42, 30
+  offset: 1, 1
+  index: -1
+Rbishou
+  rotate: false
+  xy: 731, 105
+  size: 68, 78
+  orig: 68, 78
+  offset: 0, 0
+  index: -1
+big_rays
+  rotate: false
+  xy: 609, 53
+  size: 120, 80
+  orig: 120, 80
+  offset: 0, 0
+  index: -1
+blade(1)/blade_00000
+  rotate: true
+  xy: 433, 404
+  size: 105, 99
+  orig: 112, 107
+  offset: 5, 3
+  index: -1
+blade(1)/blade_00001
+  rotate: false
+  xy: 126, 210
+  size: 108, 99
+  orig: 112, 107
+  offset: 0, 3
+  index: -1
+blade(1)/blade_00002
+  rotate: true
+  xy: 461, 239
+  size: 103, 99
+  orig: 112, 107
+  offset: 5, 3
+  index: -1
+blade(1)/blade_00003
+  rotate: false
+  xy: 236, 210
+  size: 106, 99
+  orig: 112, 107
+  offset: 1, 3
+  index: -1
+blade(1)/blade_00004
+  rotate: true
+  xy: 529, 135
+  size: 102, 99
+  orig: 112, 107
+  offset: 5, 3
+  index: -1
+blade(1)/blade_00005
+  rotate: true
+  xy: 534, 407
+  size: 102, 100
+  orig: 112, 107
+  offset: 5, 2
+  index: -1
+dianjubashou
+  rotate: false
+  xy: 307, 50
+  size: 300, 34
+  orig: 308, 57
+  offset: 0, 22
+  index: -1
+dust_a3
+  rotate: false
+  xy: 461, 213
+  size: 24, 24
+  orig: 24, 24
+  offset: 0, 0
+  index: -1
+fire_caracker_A_00000
+  rotate: true
+  xy: 279, 313
+  size: 20, 11
+  orig: 20, 11
+  offset: 0, 0
+  index: -1
+flare
+  rotate: false
+  xy: 601, 16
+  size: 57, 32
+  orig: 57, 32
+  offset: 0, 0
+  index: -1
+images/fire_big_00003
+  rotate: false
+  xy: 853, 303
+  size: 52, 53
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00004
+  rotate: false
+  xy: 898, 388
+  size: 52, 53
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00005
+  rotate: false
+  xy: 855, 161
+  size: 51, 54
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00006
+  rotate: false
+  xy: 718, 355
+  size: 52, 54
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00007
+  rotate: false
+  xy: 918, 456
+  size: 52, 53
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00008
+  rotate: false
+  xy: 839, 74
+  size: 52, 53
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00009
+  rotate: false
+  xy: 858, 249
+  size: 52, 52
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00018
+  rotate: false
+  xy: 839, 19
+  size: 52, 53
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00019
+  rotate: false
+  xy: 772, 357
+  size: 52, 54
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00020
+  rotate: false
+  xy: 731, 49
+  size: 52, 54
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00021
+  rotate: false
+  xy: 785, 49
+  size: 52, 54
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00022
+  rotate: false
+  xy: 801, 129
+  size: 52, 54
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00023
+  rotate: false
+  xy: 804, 217
+  size: 52, 54
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+images/fire_big_00024
+  rotate: false
+  xy: 907, 334
+  size: 52, 52
+  orig: 52, 57
+  offset: 0, 0
+  index: -1
+jiatelin
+  rotate: true
+  xy: 2, 6
+  size: 200, 152
+  orig: 237, 152
+  offset: 0, 0
+  index: -1
+jiatelin2
+  rotate: true
+  xy: 156, 9
+  size: 199, 149
+  orig: 200, 149
+  offset: 1, 0
+  index: -1
+jiatelin3
+  rotate: true
+  xy: 126, 311
+  size: 198, 151
+  orig: 200, 162
+  offset: 0, 0
+  index: -1
+jiatelin4
+  rotate: false
+  xy: 668, 269
+  size: 104, 76
+  orig: 113, 76
+  offset: 0, 0
+  index: -1
+jiatelin5
+  rotate: true
+  xy: 774, 273
+  size: 82, 77
+  orig: 82, 87
+  offset: 0, 10
+  index: -1
+laifuqiang
+  rotate: true
+  xy: 2, 208
+  size: 301, 122
+  orig: 301, 128
+  offset: 0, 0
+  index: -1
+light
+  rotate: true
+  xy: 587, 349
+  size: 56, 55
+  orig: 60, 59
+  offset: 2, 2
+  index: -1
+light_burst_MAIN
+  rotate: false
+  xy: 529, 91
+  size: 40, 42
+  orig: 44, 45
+  offset: 2, 2
+  index: -1
+lizi111
+  rotate: false
+  xy: 724, 185
+  size: 78, 82
+  orig: 86, 88
+  offset: 7, 3
+  index: -1
+qiangkou
+  rotate: false
+  xy: 423, 101
+  size: 104, 110
+  orig: 435, 250
+  offset: 111, 123
+  index: -1
+qiangkouhuoyan
+  rotate: false
+  xy: 814, 443
+  size: 102, 66
+  orig: 107, 73
+  offset: 4, 0
+  index: -1
+zhayao
+  rotate: false
+  xy: 307, 86
+  size: 114, 122
+  orig: 114, 122
+  offset: 0, 0
+  index: -1
+zhihu
+  rotate: false
+  xy: 736, 413
+  size: 76, 96
+  orig: 76, 102
+  offset: 0, 0
+  index: -1
