@@ -38,10 +38,10 @@
 #include "scripting/js-bindings/jswrapper/jsc/ScriptEngine.hpp"
 #endif
 
-// 微信开放平台 iOS 应用配置, 上线前必须替换
-static NSString* const kWXAppId = @"wx_iOS_APPID_HERE";
-// 与微信开放平台登记的 Universal Link 一致, 需要自己的 HTTPS 域名
-static NSString* const kWXUniversalLink = @"https://YOUR_UNIVERSAL_LINK_DOMAIN/baobao/";
+// 微信开放平台移动应用与 Android 共用 AppID
+static NSString* const kWXAppId = @"wx0754417a926b9380";
+// 与微信开放平台登记的 Universal Link 一致
+static NSString* const kWXUniversalLink = @"https://www.vnmstoremall.com/baobao/";
 
 
 
