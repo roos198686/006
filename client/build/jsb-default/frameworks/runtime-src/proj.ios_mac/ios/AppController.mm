@@ -31,7 +31,12 @@
 #import "SDKWrapper.h"
 #import "platform/ios/CCEAGLView-ios.h"
 #import "WXApiObject.h"
+#include "scripting/js-bindings/jswrapper/config.hpp"
+#if SCRIPT_ENGINE_TYPE == SCRIPT_ENGINE_V8
+#include "scripting/js-bindings/jswrapper/v8/ScriptEngine.hpp"
+#else
 #include "scripting/js-bindings/jswrapper/jsc/ScriptEngine.hpp"
+#endif
 
 // 微信开放平台 iOS 应用配置, 上线前必须替换
 static NSString* const kWXAppId = @"wx_iOS_APPID_HERE";
