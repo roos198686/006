@@ -106,6 +106,10 @@ jobs:
           cp /tmp/wxsdk/OpenSDK2.1.0_NoPay/libWeChatSDK.a "$WX/"
           ls -lh "$WX/libWeChatSDK.a"
 
+      - name: Rebuild hot update manifest
+        # 手动构建会把 project/version.manifest 改成带哈希的文件名, iOS 打包前必须重新生成固定入口文件。
+        run: node tools/gen_manifest.js client/build/jsb-default 1.0.26 http://47.243.106.169:9100/hotupdate
+
       - name: Build unsigned iOS app
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
         run: |
