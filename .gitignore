@@ -80,3 +80,6 @@ server_deploy/
 
 # 本地 Android SDK 路径, 不能进仓库(CI 会自己写入)
 **/local.properties
+
+# 微信 iOS 静态库体积较大, 本地保留, CI 构建时从官方下载
+client/build/jsb-default/frameworks/runtime-src/proj.ios_mac/ios/wechat/libWeChatSDK.a

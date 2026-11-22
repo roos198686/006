@@ -40,6 +40,8 @@ public class AppActivity extends Cocos2dxActivity {
         // DO OTHER INITIALIZATION BELOW
         SDKWrapper.getInstance().init(this);
 
+        // 微信登录: 启动即注册, 保证授权回调时 IWXAPI 已就绪
+        com.vivigames.scmj.WXAPI.init(this);
     }
 
     @Override

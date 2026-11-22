@@ -61,15 +61,22 @@ exports.get2 = function (url,data,callback,safe) {
 	if(safe){
 		proto = https;
 	}
-	var req = proto.get(url, function (res) {  
-		//console.log('STATUS: ' + res.statusCode);  
-		//console.log('HEADERS: ' + JSON.stringify(res.headers));  
-		res.setEncoding('utf8');  
-		res.on('data', function (chunk) {  
-			//console.log('BODY: ' + chunk);
-			var json = JSON.parse(chunk);
-			callback(true,json);
-		});  
+	var req = proto.get(url, function (res) {
+		res.setEncoding('utf8');
+		var body = '';
+		res.on('data', function (chunk) {
+			body += chunk;
+		});
+		res.on('end', function () {
+			// 微信等HTTPS接口可能分片返回, 必须收完整再解析, 否则半截JSON直接抛异常
+			try {
+				var json = JSON.parse(body);
+				callback(true, json);
+			} catch (e) {
+				console.log('JSON parse error: ' + e.message + ', url: ' + url.split('?')[0]);
+				callback(false, e);
+			}
+		});
 	});
 	  
 	req.on('error', function (e) {  
@@ -94,15 +101,21 @@ exports.get = function (host,port,path,data,callback,safe) {
 	if(safe){
 		proto = https;
 	}
-	var req = proto.request(options, function (res) {  
-		//console.log('STATUS: ' + res.statusCode);  
-		//console.log('HEADERS: ' + JSON.stringify(res.headers));  
-		res.setEncoding('utf8');  
-		res.on('data', function (chunk) {  
-			//console.log('BODY: ' + chunk);
-			var json = JSON.parse(chunk);
-			callback(true,json);
-		});  
+	var req = proto.request(options, function (res) {
+		res.setEncoding('utf8');
+		var body = '';
+		res.on('data', function (chunk) {
+			body += chunk;
+		});
+		res.on('end', function () {
+			try {
+				var json = JSON.parse(body);
+				callback(true, json);
+			} catch (e) {
+				console.log('JSON parse error: ' + e.message + ', path: ' + path);
+				callback(false, e);
+			}
+		});
 	});
 	  
 	req.on('error', function (e) {  

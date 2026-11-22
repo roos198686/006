@@ -43,6 +43,12 @@
 -keep public class com.anysdk.** { *; }
 -dontwarn com.anysdk.**
 
+# 微信登录: SDK 与桥接/回调类都不能混淆
+-keep class com.tencent.mm.opensdk.** { *; }
+-dontwarn com.tencent.mm.opensdk.**
+-keep class com.vivigames.scmj.** { *; }
+-keep class com.baobao.scmj.wxapi.** { *; }
+
 # This is generated automatically by the Android Gradle plugin.
 -dontwarn android.hardware.BatteryState
 -dontwarn android.hardware.lights.Light

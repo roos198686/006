@@ -30,6 +30,13 @@
 #import "RootViewController.h"
 #import "SDKWrapper.h"
 #import "platform/ios/CCEAGLView-ios.h"
+#import "WXApiObject.h"
+#include "scripting/js-bindings/jswrapper/jsc/ScriptEngine.hpp"
+
+// 微信开放平台 iOS 应用配置, 上线前必须替换
+static NSString* const kWXAppId = @"wx_iOS_APPID_HERE";
+// 与微信开放平台登记的 Universal Link 一致, 需要自己的 HTTPS 域名
+static NSString* const kWXUniversalLink = @"https://YOUR_UNIVERSAL_LINK_DOMAIN/baobao/";
 
 
 
@@ -45,6 +52,8 @@ Application* app = nullptr;
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     [[SDKWrapper getInstance] application:application didFinishLaunchingWithOptions:launchOptions];
+    // 微信登录: 启动即注册
+    [WXApi registerApp:kWXAppId universalLink:kWXUniversalLink];
     // Add the view controller's view to the window and display.
     float scale = [[UIScreen mainScreen] scale];
     CGRect bounds = [[UIScreen mainScreen] bounds];
@@ -124,6 +133,60 @@ Application* app = nullptr;
     app = nil;
 }
 
+
+#pragma mark -
+#pragma mark 微信登录
+
++ (void)login {
+    if (![WXApi isWXAppInstalled]) {
+        [AppController showWxMessage:@"请先安装微信"];
+        return;
+    }
+    SendAuthReq* req = [[SendAuthReq alloc] init];
+    req.scope = @"snsapi_userinfo";
+    req.state = [NSString stringWithFormat:@"baobao_%lld", (long long)([[NSDate date] timeIntervalSince1970] * 1000)];
+    [WXApi sendReq:req completion:nil];
+}
+
++ (void)showWxMessage:(NSString*)msg {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIAlertController* alert = [UIAlertController alertControllerWithTitle:@"提示"
+                                                                       message:msg
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
+        UIWindow* win = [UIApplication sharedApplication].keyWindow;
+        [win.rootViewController presentViewController:alert animated:YES completion:nil];
+    });
+}
+
++ (void)notifyWxCode:(NSString*)code {
+    // 微信 onResp 与 Cocos 主循环同在主线程, 可直接执行 JS
+    std::string js = "if(cc.vv&&cc.vv.anysdkMgr){cc.vv.anysdkMgr.onLoginResp('"
+                   + std::string([code UTF8String]) + "');}";
+    se::ScriptEngine::getInstance()->evalString(js.c_str());
+}
+
+- (BOOL)application:(UIApplication*)application openURL:(NSURL*)url options:(NSDictionary<UIApplicationOpenURLOptionsKey,id>*)options {
+    return [WXApi handleOpenURL:url delegate:self];
+}
+
+- (BOOL)application:(UIApplication*)application continueUserActivity:(NSUserActivity*)userActivity restorationHandler:(void(^)(NSArray*))restorationHandler {
+    return [WXApi handleOpenUniversalLink:userActivity delegate:self];
+}
+
+- (void)onReq:(BaseReq*)req {
+    // 微信向本应用发请求, 登录流程用不到
+}
+
+- (void)onResp:(BaseResp*)resp {
+    if (![resp isKindOfClass:[SendAuthResp class]]) return;
+    SendAuthResp* auth = (SendAuthResp*)resp;
+    if (resp.errCode == WXSuccess && auth.code.length > 0) {
+        [AppController notifyWxCode:auth.code];
+    } else if (resp.errCode != WXErrCodeUserCancel) {
+        [AppController showWxMessage:[NSString stringWithFormat:@"微信授权失败(%d)", resp.errCode]];
+    }
+}
 
 #pragma mark -
 #pragma mark Memory management

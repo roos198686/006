@@ -262,7 +262,9 @@ app.get('/wechat_auth',function(req,res){
 				return;
 			}
 			get_state_info(data.access_token,data.openid,function(suc2,data2){
-				if(!suc2 || data2 == null){
+				// 微信错误时HTTP仍可能200, 必须检查errcode和openid, 否则会建出 wx_undefined 账号
+				if(!suc2 || data2 == null || data2.errcode || !data2.openid){
+					console.log('wechat userinfo failed: ' + JSON.stringify(data2));
 					send(res,{errcode:-1,errmsg:"wechat userinfo failed"});
 					return;
 				}

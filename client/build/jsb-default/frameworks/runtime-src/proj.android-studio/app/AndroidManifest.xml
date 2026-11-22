@@ -16,6 +16,10 @@
         <!-- Tell Cocos2dxActivity the name of our .so -->
         <meta-data android:name="android.app.lib_name"
                    android:value="cocos2djs" />
+
+        <!-- 微信开放平台 Android 应用 AppID, 上线前必须替换 -->
+        <meta-data android:name="WX_APPID"
+                   android:value="wx_ANDROID_APPID_HERE" />
         
         <activity
             android:name="org.cocos2dx.javascript.AppActivity"
@@ -31,6 +35,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 微信授权回调, 包名必须是 applicationId + ".wxapi" -->
+        <activity
+            android:name="com.baobao.scmj.wxapi.WXEntryActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     </application>
     
 </manifest>

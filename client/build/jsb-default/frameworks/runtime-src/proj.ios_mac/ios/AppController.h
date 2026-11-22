@@ -24,14 +24,18 @@
  THE SOFTWARE.
  ****************************************************************************/
 #import <UIKit/UIKit.h>
+#import "WXApi.h"
 
 @class RootViewController;
 
-@interface AppController : NSObject <UIApplicationDelegate>
+@interface AppController : NSObject <UIApplicationDelegate, WXApiDelegate>
 {
 }
 
 @property(nonatomic, readonly) RootViewController* viewController;
+
+// 微信登录: JS 通过 jsb.reflection.callStaticMethod("AppController", "login") 调用
++ (void)login;
 
 @end
 

@@ -96,6 +96,16 @@ jobs:
           cmake --build "$OAL/build-ios" --parallel
           ls -la "$OAL/build-ios/libopenal.a"
 
+      - name: Fetch WechatOpenSDK
+        # 16MB 静态库不入库, 构建时从微信官方下载; 头文件和隐私清单随仓库提交。
+        run: |
+          WX="client/build/jsb-default/frameworks/runtime-src/proj.ios_mac/ios/wechat"
+          mkdir -p "$WX"
+          curl -fsSL https://dldir1.qq.com/WechatWebDev/opensdk/OpenSDK2.1.0_NoPay.zip -o /tmp/wxsdk.zip
+          unzip -o /tmp/wxsdk.zip -d /tmp/wxsdk
+          cp /tmp/wxsdk/OpenSDK2.1.0_NoPay/libWeChatSDK.a "$WX/"
+          ls -lh "$WX/libWeChatSDK.a"
+
       - name: Build unsigned iOS app
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac
         run: |
@@ -108,8 +118,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            HEADER_SEARCH_PATHS="\$(inherited) $OAL/include" \
-            OTHER_LDFLAGS="\$(inherited) -lwebp -L$OAL/build-ios -lopenal -framework CoreAudio -Wl,-sectcreate,__TEXT,__entitlements,ios/SCMJ-mobile.entitlements" \
+            HEADER_SEARCH_PATHS="\$(inherited) $OAL/include \$(SRCROOT)/ios/wechat" \
+            OTHER_LDFLAGS="\$(inherited) -lwebp -L$OAL/build-ios -lopenal -L\$(SRCROOT)/ios/wechat -lWeChatSDK -Objc -framework CoreAudio -framework CoreTelephony -framework SystemConfiguration -framework Security -framework CFNetwork -lz -lsqlite3 -Wl,-sectcreate,__TEXT,__entitlements,ios/SCMJ-mobile.entitlements" \
             build
 
       - name: Package unsigned IPA

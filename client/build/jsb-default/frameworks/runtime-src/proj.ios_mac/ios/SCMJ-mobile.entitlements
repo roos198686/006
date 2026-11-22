@@ -2,5 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!-- 微信 Universal Link 域名, 与 AppController.mm 的 kWXUniversalLink 一致, 上线前替换 -->
+  <key>com.apple.developer.associated-domains</key>
+  <array>
+    <string>applinks:YOUR_UNIVERSAL_LINK_DOMAIN</string>
+  </array>
 </dict>
 </plist>
