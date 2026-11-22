@@ -17,9 +17,9 @@
         <meta-data android:name="android.app.lib_name"
                    android:value="cocos2djs" />
 
-        <!-- 微信开放平台 Android 应用 AppID, 上线前必须替换 -->
+        <!-- 微信开放平台 Android 应用 AppID -->
         <meta-data android:name="WX_APPID"
-                   android:value="wx_ANDROID_APPID_HERE" />
+                   android:value="wx0754417a926b9380" />
         
         <activity
             android:name="org.cocos2dx.javascript.AppActivity"
