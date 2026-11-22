@@ -2186,7 +2186,7 @@ cc.Class({
                 name:ret.name || "",
                 sex:ret.sex,
                 localKey:isLocal ? key : null,
-                url:(key && !isLocal) ? key + ".jpg" : null,
+                url:(key && !isLocal) ? key : null,
                 ts:Date.now()
             };
             if(cc.vv.baseInfoMap == null){ cc.vv.baseInfoMap = {}; }

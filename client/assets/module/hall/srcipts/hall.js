@@ -437,7 +437,7 @@ cc.Class({
                 cc.resources.load("images/avatars/" + ret.headimgurl, cc.SpriteFrame, function(err,sf){ setFrame(sf); });
             }
             else if(ret && ret.headimgurl){
-                cc.assetManager.loadRemote(ret.headimgurl + ".jpg", function(err,tex){
+                cc.assetManager.loadRemote(ret.headimgurl, { ext: ".jpg" }, function(err,tex){
                     if(err || !tex){ return; }
                     setFrame(new cc.SpriteFrame(tex, cc.Rect(0,0,tex.width,tex.height)));
                 });

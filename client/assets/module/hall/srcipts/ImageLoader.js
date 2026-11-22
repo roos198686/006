@@ -1,5 +1,6 @@
 function loadImage(url,code,callback){
-    cc.assetManager.loadRemote(url,function (err,tex) {
+    //微信头像URL通常没有扩展名: 只声明JPG解码格式, 不修改原始地址
+    cc.assetManager.loadRemote(url, { ext: ".jpg" }, function (err,tex) {
         if(err || !tex){ callback(code,null); return; }
         var spriteFrame = new cc.SpriteFrame(tex, cc.Rect(0, 0, tex.width, tex.height));
         callback(code,spriteFrame);
@@ -54,7 +55,7 @@ function getBaseInfo(userid,callback){
                 localKey = ret.headimgurl; //内置头像key
             }
             else{
-                url = ret.headimgurl + ".jpg"; //微信等远程头像
+                url = ret.headimgurl; //微信等远程头像, 保持原始URL
             }
         }
         var info = {

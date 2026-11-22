@@ -753,7 +753,7 @@ cc.Class({
         if (cc.vv.baseInfoMap == null) { cc.vv.baseInfoMap = {}; }
         cc.vv.baseInfoMap[userid] = {
             localKey: isLocal ? headimg : null,
-            url: isLocal ? null : headimg + ".jpg",
+            url: isLocal ? null : headimg,
             ts: Date.now()
         };
         loader.setUserID(userid);
