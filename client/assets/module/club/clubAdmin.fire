@@ -1216,7 +1216,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "314e89335e3db64c"
   },
   {
@@ -1609,7 +1611,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "abec98c56d01c630"
   },
   {
@@ -2002,7 +2006,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "23acef428bf7d05b"
   },
   {
@@ -2395,7 +2401,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "17a2bb0bbb5e823e"
   },
   {
@@ -2788,7 +2796,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "ba08eb21d03d93b8"
   },
   {
@@ -3181,7 +3191,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "75c8bea1391db2ac"
   },
   {
@@ -3571,7 +3583,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "0c6LOuzWdId40uu5Igxlve"
   },
   {
@@ -3934,7 +3948,9 @@
     "_fillStart": 0,
     "_fillRange": 0,
     "_isTrimmedMode": true,
-    "_atlas": { "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261", "__expectedType__": "cc.SpriteAtlas" },
+    "_atlas": {
+      "__uuid__": "e46cf313-38a1-437d-84b5-89027d9fd261"
+    },
     "_id": "ac9fadd1cacb2da3"
   },
   {

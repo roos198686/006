@@ -44,7 +44,7 @@ cc.Class({
     _hallAddr:function(){
         var h = (cc.vv.SI && cc.vv.SI.hall != null) ? String(cc.vv.SI.hall) : "";
         if(!h || h.indexOf("undefined") >= 0 || h.indexOf("null") >= 0){
-            h = "47.239.100.68:9101";
+            h = "47.243.106.169:9101";
         }
         return h;
     },

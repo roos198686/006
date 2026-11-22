@@ -34,8 +34,8 @@ jobs:
 
       - name: Rebuild hot update manifest
         # APK 内置清单版本必须 >= 线上热更版本, 否则新装机一启动会被线上旧热更覆盖(手册 4.6 红线)。
-        # 本次内置 1.0.24, 版本号必须 >= 线上热更版本(线上当前 1.0.23)。
-        run: node tools/gen_manifest.js client/build/jsb-default 1.0.24 http://47.239.100.68:9100/hotupdate
+        # 2026-11-22 迁移新服 47.243.106.169: 首个版本定为 1.0.26(1.0.25 旧IP热更包已作废)。
+        run: node tools/gen_manifest.js client/build/jsb-default 1.0.26 http://47.243.106.169:9100/hotupdate
 
       - name: Build unsigned release APK
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.android-studio
