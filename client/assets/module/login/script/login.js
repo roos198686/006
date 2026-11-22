@@ -98,7 +98,10 @@ cc.Class({
             this._loginBtnRoot = btnRoot;
             //游客登录按钮
             var btnYk = btnRoot.getChildByName("btn_yk");
-            if(btnYk){ btnYk.active = true; }
+            if(btnYk){
+                btnYk.active = true;
+                cc.vv.utils.addClickEvent(btnYk,this.node,"login","onBtnQuickStartClicked");
+            }
             //微信登录按钮(场景内 button1 = 微信登录按钮图):后台关闭微信登录时隐藏
             var btnWx = btnRoot.getChildByName("button1");
             if(btnWx){
