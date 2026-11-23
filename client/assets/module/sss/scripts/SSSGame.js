@@ -38,6 +38,22 @@ var IMG_NAMES = [
     "\u5bf9\u5b50", "\u4e8c\u5bf9", "\u4e09\u6761", "\u51b2\u4e09", "\u987a\u5b50", "\u540c\u82b1", "\u846b\u82a6", "\u94c1\u652f", "\u540c\u82b1\u987a", "\u4e94\u540c"
 ];
 
+// 亮牌报牌语音: 乌龙=1, 对子/二对/三条/顺子/同花/葫芦/铁支/同花顺/五同 = 13~21
+var ROAD_VOICE = { 0: "1", 1: "13", 2: "14", 3: "15", 4: "16", 5: "17", 6: "18", 7: "19", 8: "20", 9: "21" };
+// 特殊牌型整手播报; 三套炸弹即三分天下
+var SPECIAL_VOICE = {
+    "\u81f3\u5c0a\u9752\u9f99": "thirteen_te_shu_1",
+    "\u9752\u9f99": "thirteen_te_shu_1",
+    "\u4e00\u6761\u9f99": "thirteen_te_shu_2",
+    "\u4e09\u540c\u82b1\u987a": "thirteen_te_shu_3",
+    "\u4e09\u5206\u5929\u4e0b": "thirteen_te_shu_4",
+    "\u4e09\u5957\u70b8\u5f39": "thirteen_te_shu_4",
+    "\u56db\u5957\u4e09\u6761": "thirteen_te_shu_5",
+    "\u516d\u5bf9\u534a": "thirteen_te_shu_6",
+    "\u4e09\u987a\u5b50": "thirteen_te_shu_7",
+    "\u4e09\u540c\u82b1": "thirteen_te_shu_8"
+};
+
 // ================= 牌型算法(与服务端 gamemgr_sss.js 一致) =================
 function suitOf(id) { return Math.floor((id % 52) / 13); }
 function rankVal(id) { var i = id % 52 % 13; return i == 0 ? 14 : i + 1; }
@@ -487,6 +503,9 @@ cc.Class({
         if (this._revealTimer) { clearTimeout(this._revealTimer); this._revealTimer = null; }
         if (this._toastTimer) { clearTimeout(this._toastTimer); this._toastTimer = null; }
         if (this._fxTimer) { clearInterval(this._fxTimer); this._fxTimer = null; }
+        if (this._n && this._n.seats) {
+            for (var i = 0; i < this._n.seats.length; ++i) this._clearChatBubble(this._n.seats[i]);
+        }
         if (this._sio && this._sioListeners) {
             this._sio.removeListener("exit_result", this._sioListeners.exit_result);
             this._sio.removeListener("dispress_push", this._sioListeners.dispress_push);
@@ -834,6 +853,7 @@ cc.Class({
                 self._confirmOk = null;
             }, true);
         }
+        this._initChat();
     },
 
     // 摆牌面板按钮文字: 自动页=手动, 手动页=自动; 重置按钮改成"取消"
@@ -844,6 +864,144 @@ cc.Class({
         if (toggle) toggle.string = isAuto ? "\u624b\u52a8" : "\u81ea\u52a8";
         var cancel = this._labelOf(this._findIn(p.reopenBtn, ln));
         if (cancel) cancel.string = "\u53d6\u6d88";
+    },
+
+    // ================= 聊天 / 动态与互动表情 =================
+    _initChat: function () {
+        var self = this, n = this._n;
+        n.userinfo = this._find("userinfo");
+        this._interactUserId = 0;
+        this._chatBubbleBg = null;
+        if (n.userinfo) n.userinfo.active = false;
+        for (var i = 0; i < n.seats.length; ++i) {
+            (function (seat) {
+                if (!seat || !seat.avatarIcon) return;
+                self._bindTap(seat.avatarIcon, function () {
+                    if (seat.player && seat.player.userid > 0) self._openUserInfo(seat.player.userid);
+                });
+            })(n.seats[i]);
+        }
+        var mask = n.userinfo ? this._childLoose(n.userinfo, "New Layout") : null;
+        this._bindTap(mask, function () { self.onUserInfoClose(); }, true);
+        cc.resources.load("images/chat/chat_backbg", cc.SpriteFrame, function (err, frame) {
+            if (err || !frame || !cc.isValid(self.node)) return;
+            self._chatBubbleBg = frame;
+            for (var i = 0; i < self._n.seats.length; ++i) {
+                var seat = self._n.seats[i];
+                var bubble = seat && seat._chatBubble;
+                if (!bubble || !cc.isValid(bubble)) continue;
+                var bg = bubble.getChildByName("chatbg_ld");
+                var sprite = bg ? bg.getComponent(cc.Sprite) : null;
+                if (sprite) {
+                    sprite.spriteFrame = frame;
+                    sprite.type = cc.Sprite.Type.SLICED;
+                    sprite.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+                }
+            }
+        });
+    },
+
+    _resolveEmojiAvatar: function (userId) {
+        var seat = this._seatOfUser(userId);
+        if (!seat || !seat.root.activeInHierarchy || !seat.avatarIcon) return null;
+        return { icon: seat.avatarIcon, key: "sss:" + userId, topAligned: seat.k === 3 };
+    },
+
+    _openUserInfo: function (userId) {
+        var ui = this._n.userinfo;
+        var seat = this._seatOfUser(userId);
+        if (!ui || !seat || !seat.player) return;
+        this._interactUserId = Number(userId);
+        var player = seat.player;
+        var targetIcon = this._childLoose(ui, "icon");
+        var targetSprite = this._spriteOf(targetIcon);
+        var sourceSprite = this._spriteOf(seat.avatarIcon);
+        if (targetSprite && sourceSprite) targetSprite.spriteFrame = sourceSprite.spriteFrame;
+        var name = this._labelOf(this._childLoose(ui, "name"));
+        var id = this._labelOf(this._childLoose(ui, "id"));
+        var ip = this._labelOf(this._childLoose(ui, "ip"));
+        if (name) name.string = player.name || "";
+        if (id) id.string = "ID: " + userId;
+        if (ip) ip.string = "IP: " + String(player.ip || "").replace("::ffff:", "");
+        var info = cc.vv.baseInfoMap ? cc.vv.baseInfoMap[userId] : null;
+        var sex = info ? info.sex : player.sex;
+        var female = this._childLoose(ui, "sex_female");
+        var male = this._childLoose(ui, "sex_male");
+        if (female) female.active = sex == 2;
+        if (male) male.active = sex == 1;
+        if (cc.vv.chat) cc.vv.chat.bindUserInfo(ui);
+        ui.active = true;
+        ui.setSiblingIndex(this.node.children.length - 1);
+    },
+
+    onUserInfoClose: function () {
+        if (this._n.userinfo) this._n.userinfo.active = false;
+        this._interactUserId = 0;
+    },
+
+    _clearChatBubble: function (seat) {
+        if (!seat) return;
+        if (seat._chatTimer) { clearTimeout(seat._chatTimer); seat._chatTimer = null; }
+        if (seat._chatBubble && cc.isValid(seat._chatBubble)) seat._chatBubble.destroy();
+        seat._chatBubble = null;
+    },
+
+    _showChatBubble: function (userId, content) {
+        if (!content) return;
+        var seat = this._seatOfUser(userId);
+        var icon = seat && (seat.avatarIcon || seat.avatarNode);
+        if (!seat || !icon || !cc.isValid(icon)) return;
+        if (cc.vv.chat) cc.vv.chat.clearEmoji(userId);
+        this._clearChatBubble(seat);
+
+        var bubble = new cc.Node("SSSChatBubble");
+        bubble.parent = this.node;
+        bubble.zIndex = 8000;
+        var bg = new cc.Node("chatbg_ld");
+        bg.parent = bubble;
+        var bgSprite = bg.addComponent(cc.Sprite);
+        bgSprite.type = cc.Sprite.Type.SLICED;
+        bgSprite.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+        if (this._chatBubbleBg) bgSprite.spriteFrame = this._chatBubbleBg;
+        bg.color = cc.color(45, 40, 38, 220);
+
+        var textNode = new cc.Node("New Label");
+        textNode.parent = bubble;
+        var text = String(content);
+        var width = Math.max(100, Math.min(240, 28 + text.length * 24));
+        textNode.setContentSize(width - 24, 30);
+        var label = textNode.addComponent(cc.Label);
+        label.fontSize = 24;
+        label.lineHeight = 30;
+        label.overflow = cc.Label.Overflow.RESIZE_HEIGHT;
+        label.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+        label.verticalAlign = cc.Label.VerticalAlign.CENTER;
+        label.string = text;
+        textNode.color = cc.color(255, 255, 255);
+        var outline = textNode.addComponent(cc.LabelOutline);
+        outline.color = cc.color(0, 0, 0, 210);
+        outline.width = 2;
+        bg.setContentSize(width, 58);
+
+        var world = icon.convertToWorldSpaceAR(cc.v2(0, 0));
+        var pos = this.node.convertToNodeSpaceAR(world);
+        var halfW = this.node.width / 2, halfH = this.node.height / 2;
+        pos.y += pos.y > halfH - 170 ? -105 : 105;
+        pos.x = Math.max(-halfW + width / 2 + 12, Math.min(halfW - width / 2 - 12, pos.x));
+        pos.y = Math.max(-halfH + 50, Math.min(halfH - 50, pos.y));
+        bubble.setPosition(pos);
+        seat._chatBubble = bubble;
+
+        this.scheduleOnce(function () {
+            if (!cc.isValid(bubble) || !cc.isValid(textNode)) return;
+            bg.setContentSize(textNode.width + 24, Math.max(58, textNode.height + 20));
+        }, 0);
+        seat._chatTimer = setTimeout(function () {
+            if (seat._chatBubble !== bubble) return;
+            if (cc.isValid(bubble)) bubble.destroy();
+            seat._chatBubble = null;
+            seat._chatTimer = null;
+        }, 2000);
     },
 
     // 逆向包里的十三水动画: 开始比牌/打枪/全垒打(各一个 animation)
@@ -990,15 +1148,16 @@ cc.Class({
     _playEndFx: function (done) {
         var self = this;
         var pairs = this._gunPairs();
-        var qld = false;
+        var qldSeat = null;
         for (var k = 0; k < this._n.seats.length; ++k) {
             var seat = this._n.seats[k];
-            if (seat && seat.results && seat.results.quanleida) qld = true;
+            if (seat && seat.results && seat.results.quanleida && !qldSeat) qldSeat = seat;
         }
-        if (!pairs.length && !qld) { if (done) done(); return; }
+        if (!pairs.length && !qldSeat) { if (done) done(); return; }
         var i = 0;
         var endStep = function () {
-            if (!qld) { if (done) done(); return; }
+            if (!qldSeat) { if (done) done(); return; }
+            self._playVoice(qldSeat, "quanleida");
             if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("win.wav");
             self._fxSpine("quanleida", 1.2, function () { if (done) done(); });
         };
@@ -1006,6 +1165,7 @@ cc.Class({
             if (!cc.isValid(self.node)) return;
             if (i >= pairs.length) { endStep(); return; }
             var pr = pairs[i++];
+            self._playVoice(pr.from, "daqiang");
             for (var s = 0; s < 3; ++s) {
                 (function (kk) {
                     setTimeout(function () {
@@ -1230,6 +1390,20 @@ cc.Class({
         this.node.on("game_num", function () { self.renderAll(); });
         this.node.on("user_state_changed", function () { self._refreshSeats(); });
         this.node.on("new_user", function () { self._refreshSeats(); });
+        this.node.on("chat_push", function (d) {
+            var data = d && d.detail;
+            if (data) self._showChatBubble(data.sender, data.content);
+        });
+        this.node.on("quick_chat_push", function (d) {
+            var data = d && d.detail;
+            if (!data) return;
+            var info = cc.vv.chat ? cc.vv.chat.getQuickChatInfo(data.content) : null;
+            self._showChatBubble(data.sender, info ? info.content : data.content);
+            if (info && info.sound && cc.vv.audioMgr) cc.vv.audioMgr.playSFX(info.sound);
+        });
+        this.node.on("emoji_push", function (d) {
+            if (cc.vv.chat) cc.vv.chat.handleEmojiPush(d && d.detail);
+        });
         this.node.on("dissolve_notice", function () {
             self._confirm("\u5bf9\u65b9\u7533\u8bf7\u89e3\u6563\u623f\u95f4, \u662f\u5426\u540c\u610f?", function () {
                 cc.vv.net.send("dissolve_agree");
@@ -1482,6 +1656,7 @@ cc.Class({
         }
         this.renderAll();
         this._updateMbs();
+        this._playVoice(this._ownSeat(), "qingchupai");
     },
 
     // ================= 座位 =================
@@ -2149,6 +2324,28 @@ cc.Class({
     },
 
     // ================= 比牌: 逐道轮流亮牌 =================
+    _playVoice: function (seat, name) {
+        if (!name || !cc.vv || !cc.vv.audioMgr) return;
+        var sex = (seat && seat.player) ? seat.player.sex : 1;
+        var dir = (sex == 2) ? "nv" : "nan";
+        cc.vv.audioMgr.playSFX("sss/" + dir + "/" + name + ".mp3");
+    },
+
+    // 特殊牌型只在头道首次亮牌时整手播报; 普通牌型亮到哪一道就报哪一道
+    _playRoadVoice: function (seat, road, ids) {
+        if (seat && seat.special) {
+            if (road != "head") return;
+            this._playVoice(seat, SPECIAL_VOICE[seat.special]);
+            return;
+        }
+        if (!ids || ids.length != ROAD_CAP[road]) return;
+        var hand = (road == "head") ? eval3(ids) : eval5(ids);
+        var v = ROAD_VOICE[hand.lv];
+        if (road == "head" && hand.lv == 3) v = "thirteen_type_1";
+        else if (road == "mid" && hand.lv == 6) v = "thirteen_type_2";
+        this._playVoice(seat, v);
+    },
+
     onResult: function (data) {
         if (!data) return;
         this._cancelReveal();
@@ -2225,10 +2422,12 @@ cc.Class({
             try { self._revealRoad(st.seat, st.road, arr); } catch (e) { console.log("[SSS] 亮牌异常", st.road, e); }
             try { self._szShowRoad(st.seat, st.road); } catch (e) { }
             if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("fanpai.mp3");
+            try { self._playRoadVoice(st.seat, st.road, arr); } catch (e) { console.log("[SSS] 报牌语音异常", st.road, e); }
             // 等这一道放大展示 + 归位做完, 再亮下一个人/下一道
             self._revealTimer = setTimeout(next, 1400);
         };
         // "开始比牌"动画只是氛围, 不能阻塞亮牌: 动画加载失败/播放异常也必须按时亮牌
+        this._playVoice(this._ownSeat(), "begin");
         try { this._fxSpine("sss_kaishi", 1.0, null); } catch (e) { console.log("[SSS] 开始比牌动画异常", e); }
         this._revealTimer = setTimeout(next, 900);
     },

@@ -61,16 +61,27 @@ cc.Class({
 
     //本地是否保存了上次的登录态
     hasSavedSession:function(){
-        var acc = cc.sys.localStorage.getItem("login_account");
-        var sign = cc.sys.localStorage.getItem("login_sign");
+        var acc = cc.sys.localStorage.getItem("login_account") || cc.sys.localStorage.getItem("wx_account");
+        var sign = cc.sys.localStorage.getItem("login_sign") || cc.sys.localStorage.getItem("wx_sign");
         return !!(acc && sign);
     },
 
     //用本地保存的登录态自动登录:true=已发起登录,false=没有登录态
     autoLogin:function(onFail){
-        if(!this.hasSavedSession()){ return false; }
-        this.account = cc.sys.localStorage.getItem("login_account");
-        this.sign = cc.sys.localStorage.getItem("login_sign");
+        var acc = cc.sys.localStorage.getItem("login_account");
+        var sign = cc.sys.localStorage.getItem("login_sign");
+        //兼容微信登录已保存wx_*、但通用登录态缺失或失效的情况。
+        if(!acc || !sign){
+            acc = cc.sys.localStorage.getItem("wx_account");
+            sign = cc.sys.localStorage.getItem("wx_sign");
+            if(acc && sign){
+                cc.sys.localStorage.setItem("login_account", acc);
+                cc.sys.localStorage.setItem("login_sign", sign);
+            }
+        }
+        if(!acc || !sign){ return false; }
+        this.account = acc;
+        this.sign = sign;
         //登录态存在时HTTP.url可能还是账号服,这里切回大厅服(与onAuth一致)
         cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(this._hallAddr()) : this._hallAddr());
         this._autoLoginFail = onFail || null;

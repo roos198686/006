@@ -893,6 +893,7 @@ cc.Class({
         
         this.node.on('chat_push',function(data){
             var data = data.detail;
+            if(cc.vv.chat && cc.vv.chat.clearEmoji){ cc.vv.chat.clearEmoji(data.sender); }
             var idx = cc.vv.gameNetMgr.getSeatIndexByID(data.sender);
             var localIdx = cc.vv.gameNetMgr.getLocalIndex(idx);
             var s = self._inGame ? self._seats2[localIdx] : self._seats[localIdx];
@@ -900,6 +901,7 @@ cc.Class({
         });        
         this.node.on('quick_chat_push',function(data){
             var data = data.detail;
+            if(cc.vv.chat && cc.vv.chat.clearEmoji){ cc.vv.chat.clearEmoji(data.sender); }
             var idx = cc.vv.gameNetMgr.getSeatIndexByID(data.sender);
             var localIdx = cc.vv.gameNetMgr.getLocalIndex(idx);
             
@@ -912,11 +914,9 @@ cc.Class({
         });
 
         this.node.on('emoji_push',function(data){
-            var data = data.detail;
-            var idx = cc.vv.gameNetMgr.getSeatIndexByID(data.sender);
-            var localIdx = cc.vv.gameNetMgr.getLocalIndex(idx);
-            var s = self._inGame ? self._seats2[localIdx] : self._seats[localIdx];
-            if(s){ s.emoji(data.content); }
+            if(cc.vv.chat && cc.vv.chat.handleEmojiPush){
+                cc.vv.chat.handleEmojiPush(data.detail);
+            }
         });
 
         //需求1:在 notify 入口打印服务端下发的完整载荷(holds/pengs/chis/gangs),便于实机核对

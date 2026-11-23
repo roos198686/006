@@ -958,6 +958,32 @@ cc.Class({
         this._loadXgdFrames();
         var grid = panel.children && panel.children[0];
         if (!grid || !grid.children || !grid.children.length) return;
+
+        // 场景列表高700，弹框底图只有460高；以底图作为可视窗口，避免第三排伸出弹框。
+        // 调整列表后反向补偿格子容器，首屏表情仍保持场景原来的屏幕坐标。
+        var listBg = panel.parent ? this.findNode(panel.parent, "chat_emojibg") : null;
+        if (listBg && listBg.height > 0) {
+            var listSX = Math.abs(panel.scaleX) || 1;
+            var listSY = Math.abs(panel.scaleY) || 1;
+            var oldListX = panel.x, oldListY = panel.y;
+            panel.height = listBg.height / listSY;
+            panel.setPosition(listBg.x, listBg.y);
+            grid.setPosition(
+                grid.x + (oldListX - panel.x) / listSX,
+                grid.y + (oldListY - panel.y) / listSY
+            );
+        }
+        var listMask = panel.getComponent(cc.Mask) || panel.addComponent(cc.Mask);
+        listMask.type = cc.Mask.Type.RECT;
+        listMask.enabled = true;
+        var listScroll = panel.getComponent(cc.ScrollView) || panel.addComponent(cc.ScrollView);
+        listScroll.horizontal = false;
+        listScroll.vertical = true;
+        listScroll.inertia = true;
+        listScroll.cancelInnerEvents = true;
+        listScroll.content = grid;
+        this._emojiListScroll = listScroll;
+
         this._emojiPanelBuilt = true;
         var self = this;
         var olds = grid.children.slice();
@@ -1355,6 +1381,8 @@ cc.Class({
                     if (tw > 240) tw = 240;
                     txt.width = tw;
                     lb.string = content;
+                    // 与包麻将等浅色气泡场景一致，使用深灰字保证可读性。
+                    lb.node.color = cc.color(60, 60, 60);
                 }
             }
             bubble.active = true;

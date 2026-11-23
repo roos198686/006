@@ -265,7 +265,8 @@ cc.Class({
             var lbl = lblNode.getComponent(cc.Label);
             if(lbl){
                 lbl.string = content;
-                lbl.node.color = cc.color(255,255,255,255);
+                // 这些麻将场景使用浅色气泡底图，文字用深色，避免白字看不见。
+                lbl.node.color = cc.color(60,60,60);
             }
         }
         // chatbg_ld: 气泡底图

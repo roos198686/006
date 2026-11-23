@@ -1,4 +1,6 @@
 // 关牌（扑克）客户端主脚本
+var EmojiController = require("EmojiController");
+
 // 关牌场景(mjgame_gp2)，maxPlayers 由场景序列化决定。
 // 牌面：场景 cardTemplates 节点下预置 48 个牌面模板(Spade3..DiamondA)，运行时按 key 克隆使用。
 cc.Class({
@@ -63,6 +65,7 @@ cc.Class({
         }
 
         this.initView();
+        this._initEmojiController();
         //房间个性化(桌面背景/界面大小/出牌手势)复用麻将的 DeskStyle 组件,场景没挂时运行时补挂
         //注意: cc.vv 是跨场景全局, 上个场景残留的 deskStyle 可能已被销毁, 必须判有效
         if (!cc.vv.deskStyle || !cc.isValid(cc.vv.deskStyle)) {
@@ -76,6 +79,10 @@ cc.Class({
     },
 
     onDestroy: function () {
+        if (this._emojiController) {
+            this._emojiController.destroy();
+            this._emojiController = null;
+        }
         if (this._sio && this._sioListeners) {
             this._sio.removeListener('exit_result', this._sioListeners.exit_result);
             this._sio.removeListener('dispress_push', this._sioListeners.dispress_push);
@@ -290,8 +297,6 @@ cc.Class({
             this._n.tabEmoji = this.findNode(this._n.chatPanel, "tabEmoji");
             this._n.quickchatlist = this.findNode(this._n.chatPanel, "quickchatlist");
             this._n.emojis = this.findNode(this._n.chatPanel, "emojis");
-            //表情页: 场景里的静态表情格子换成骨骼动画(与其它麻将场景同一套 15 个)
-            this._initEmojiSpine();
 
             this.bindButton(this._n.btnChatSend, this.onBtnChatSend, this);
             this.bindButton(this._n.tabQuick, this.onTabQuick, this);
@@ -928,15 +933,14 @@ cc.Class({
             //上一次是动态表情时留下的骨骼节点要先清掉,否则会和文字叠在一起
             var lastSpine = bubble.getChildByName('emojiSpine');
             if (lastSpine) lastSpine.destroy();
-            // 只用一个 Label 显示文字: 之前同时写 ChatBubble 自身的 Label 和子节点 New Label,
-            // 两个 Label 叠在一起 => 聊天文字"重字"
-            var lbl = bubble.getComponent(cc.Label);
+            // 场景文字挂在 New Label 上，ChatBubble 根节点没有 Label；底图在前、文字在后。
+            var inner = bubble.getChildByName('New Label');
+            if (inner) inner.active = true;
+            var lbl = inner ? inner.getComponent(cc.Label) : bubble.getComponent(cc.Label);
             if (lbl) {
                 lbl.string = content;
-                lbl.node.color = cc.color(255, 255, 255); // 深色气泡 + 白字, 不用棕色(会连带把气泡底色染棕)
+                lbl.node.color = cc.color(255, 255, 255); // 深色气泡 + 白字
             }
-            var inner = bubble.getChildByName('New Label');
-            if (inner) inner.active = false;
             // 气泡底色: 场景里 chatbg_ld 没有图, 运行时补一张九宫格白底
             var bg = bubble.getChildByName('chatbg_ld');
             if (bg) {
@@ -958,18 +962,18 @@ cc.Class({
         }
         this.node.on('chat_push', function (d) {
             var data = d.detail;
+            if (self._emojiController) self._emojiController.clear(data.sender);
             showBubble(nm.getSeatIndexByID(data.sender), data.content);
         });
         this.node.on('quick_chat_push', function (d) {
             var data = d.detail;
+            if (self._emojiController) self._emojiController.clear(data.sender);
             // 服务端只回传 itemN,文字在前端固定映射里取
             var txt = (self._quickChatInfo && self._quickChatInfo[data.content]) || data.content;
             showBubble(nm.getSeatIndexByID(data.sender), txt);
         });
-        //动态表情广播: 在发言者座位上播放对应骨骼
         this.node.on('emoji_push', function (d) {
-            var data = d.detail || {};
-            self.showEmojiBubble(nm.getSeatIndexByID(data.sender), data.content);
+            if (self._emojiController) self._emojiController.handlePush(d && d.detail);
         });
         this.node.on('dissolve_notice', function (d) { self.onDissolveNotice(d && d.detail); });
         this.node.on('dissolve_cancel', function () { if (self._n.dissolvePanel) self._n.dissolvePanel.active = false; });
@@ -2021,6 +2025,7 @@ cc.Class({
                 var rsu = roomSeats ? roomSeats[seatIdx] : null;
                 uid = (rsu && rsu.userid > 0) ? rsu.userid : 0;
             }
+            v.userId = uid;
             var iconNode = this.findNode(v.root, "icon");
             //头像/头像框始终保持可见(空位显示场景默认头像):避免被其它清理逻辑隐藏后整块空白
             if (iconNode) iconNode.active = true;
@@ -2839,73 +2844,90 @@ cc.Class({
         if (this._n.emojis) this._n.emojis.active = true;
     },
 
-    //================== 动态表情(骨骼) ==================
+    //================== 共享动态/互动表情 ==================
     _initEmojiSpine: function () {
-        if (!this._n.emojis) return;
-        if (!this._emojiSpineNames) {
-            this._emojiSpineNames = ["yihuo", "kuaidian", "zhenbang", "aini", "daxiao",
-                "yunle", "yishoulanpai", "dengchang", "jingle", "huaixiao",
-                "keshui", "886", "wolaile", "dalaozaici", "biepao"];
-        }
+        // 兼容旧调用：实际初始化和发送统一由共享控制器完成。
+        if (!this._emojiController) this._initEmojiController();
+    },
+
+    _initEmojiController: function () {
+        if (this._emojiController) return;
+        this._n.userinfo = this.findNode(this.node, "userinfo");
+        this._interactUserId = 0;
+        if (this._n.userinfo) this._n.userinfo.active = false;
         var self = this;
-        this._emojiSpine = this._emojiSpine || {};
-        var names = this._emojiSpineNames;
-        var loadOne = function (i) {
-            if (i >= names.length) {
-                if (cc.vv) { cc.vv.emojiSpines = cc.vv.emojiSpines || self._emojiSpine; }
-                self._buildEmojiSpinePanel();
-                return;
+        this._emojiController = new EmojiController({
+            canvas: this.node,
+            chatPanel: this._n.chatPanel,
+            chatEmojiList: this._n.emojis,
+            userinfo: this._n.userinfo,
+            logTag: "GP",
+            getSelfUserId: function () { return cc.vv.userMgr ? cc.vv.userMgr.userId : 0; },
+            getInteractTarget: function () { return self._interactUserId; },
+            resolveAvatar: function (userId) { return self._resolveEmojiAvatar(userId); },
+            closeUserInfo: function () { self.onUserInfoClose(); },
+            isReplay: function () {
+                return !!(cc.vv.replayMgr && cc.vv.replayMgr.isReplay && cc.vv.replayMgr.isReplay());
             }
-            cc.resources.load("anims/smile/" + names[i], sp.SkeletonData, function (err, sd) {
-                if (sd) { self._emojiSpine[names[i]] = sd; }
-                loadOne(i + 1);
-            });
-        };
-        loadOne(0);
-    },
-
-    _emojiSpineSize: function (sd) {
-        var sk = sd && sd.skeletonJson && sd.skeletonJson.skeleton;
-        return { w: (sk && sk.width) || 240, h: (sk && sk.height) || 270 };
-    },
-
-    _buildEmojiSpinePanel: function () {
-        if (this._emojiPanelBuilt || !this._n.emojis) return;
-        var root = this._n.emojis;
-        var grid = root;
-        if (root.children.length === 1 && root.children[0].children.length > 0) {
-            grid = root.children[0];
-        }
-        if (!grid || !grid.children || !grid.children.length) return;
-        this._emojiPanelBuilt = true;
-        var self = this;
-        var names = this._emojiSpineNames;
-        grid.children.slice().forEach(function (old, idx) {
-            var name = names[idx];
-            if (!name) return;
-            var btn = old.getComponent(cc.Button);
-            if (btn) btn.enabled = false;
-            old.off(cc.Node.EventType.TOUCH_END);
-            //每个格子自己接收点击: 不用坐标算最近格, 避免面板缩放/Widget重排后点击位置偏移
-            old.on(cc.Node.EventType.TOUCH_END, function () {
-                if (self._n.chatPanel) self._n.chatPanel.active = false;
-                cc.vv.net.send("emoji", name);
-            });
-            var sd = self._emojiSpine[name];
-            if (!sd) return;
-            var spr = old.getComponent(cc.Sprite);
-            if (spr) spr.enabled = false;
-            var sz = self._emojiSpineSize(sd);
-            var cw = old.width > 0 ? old.width : 80;
-            var ch = old.height > 0 ? old.height : 80;
-            var vis = new cc.Node("skel");
-            vis.parent = old;
-            vis.setPosition(0, 0);
-            vis.scale = Math.min(cw / sz.w, ch / sz.h) * 0.9;
-            var com = vis.addComponent(sp.Skeleton);
-            com.skeletonData = sd;
-            com.setAnimation(0, "animation", true);
         });
+        this._seatViews.forEach(function (view, index) {
+            if (!view || !view.root) return;
+            view.userId = view.userId || 0;
+            var icon = self.findNode(view.root, "icon");
+            if (!icon) return;
+            icon.on(cc.Node.EventType.TOUCH_END, function () {
+                if (view.userId > 0) self._openUserInfo(view.userId);
+            });
+            view.topAligned = index > 0;
+        });
+        var mask = this._n.userinfo ? this._n.userinfo.getChildByName("New Layout") : null;
+        this.bindButton(mask, this.onUserInfoClose, this);
+    },
+
+    _resolveEmojiAvatar: function (userId) {
+        for (var i = 0; i < this._seatViews.length; ++i) {
+            var view = this._seatViews[i];
+            if (!view || !view.root || !view.root.activeInHierarchy || Number(view.userId) !== Number(userId)) continue;
+            return { icon: this.findNode(view.root, "icon"), key: "gp:" + userId, topAligned: !!view.topAligned };
+        }
+        return null;
+    },
+
+    _openUserInfo: function (userId) {
+        var ui = this._n.userinfo;
+        if (!ui || !(userId > 0)) return;
+        this._interactUserId = userId;
+        var nm = cc.vv.gameNetMgr;
+        var data = null;
+        var lists = [nm.seats || [], nm.gpSeats || []];
+        for (var li = 0; li < lists.length && !data; ++li) {
+            for (var si = 0; si < lists[li].length; ++si) {
+                if (lists[li][si] && Number(lists[li][si].userid) === Number(userId)) { data = lists[li][si]; break; }
+            }
+        }
+        var view = null;
+        for (var vi = 0; vi < this._seatViews.length; ++vi) {
+            if (this._seatViews[vi] && Number(this._seatViews[vi].userId) === Number(userId)) { view = this._seatViews[vi]; break; }
+        }
+        var icon = ui.getChildByName("icon");
+        var sourceIcon = view ? this.findNode(view.root, "icon") : null;
+        var sourceSprite = sourceIcon ? sourceIcon.getComponent(cc.Sprite) : null;
+        var targetSprite = icon ? icon.getComponent(cc.Sprite) : null;
+        if (targetSprite && sourceSprite) targetSprite.spriteFrame = sourceSprite.spriteFrame;
+        this.setStr(ui.getChildByName("name"), data ? data.name : "");
+        this.setStr(ui.getChildByName("id"), "ID: " + userId);
+        this.setStr(ui.getChildByName("ip"), "IP: " + String(data && data.ip || "").replace("::ffff:", ""));
+        var info = cc.vv.baseInfoMap ? cc.vv.baseInfoMap[userId] : null;
+        var sex = info ? info.sex : (data && data.sex);
+        var female = ui.getChildByName("sex_female"), male = ui.getChildByName("sex_male");
+        if (female) female.active = sex == 2;
+        if (male) male.active = sex == 1;
+        if (this._emojiController) this._emojiController.bindUserInfo(ui);
+        ui.active = true;
+    },
+
+    onUserInfoClose: function () {
+        if (this._n.userinfo) this._n.userinfo.active = false;
     },
 
     // 聊天面板：点击背景关闭
@@ -2913,45 +2935,14 @@ cc.Class({
         if (this._n.chatPanel) this._n.chatPanel.active = false;
     },
 
-    //在发言者座位的 ChatBubble 里播放表情骨骼
+    // 兼容旧调用：普通表情统一在头像旁播放，不再占用文字气泡。
     showEmojiBubble: function (seatIdx, content) {
-        if (seatIdx == null || seatIdx < 0) return;
-        var sd = this._emojiSpine ? this._emojiSpine[content] : null;
-        if (!sd) return;
+        if (!this._emojiController || seatIdx == null || seatIdx < 0) return;
         var views = this._seatViews, map = this._seatMap;
         var nm = cc.vv.gameNetMgr;
         var viewIdx = (map && map.length) ? map.indexOf(seatIdx) : (seatIdx === nm.seatIndex ? 0 : 1);
-        if (viewIdx < 0 || !views[viewIdx]) return;
-        var bubble = views[viewIdx].root.getChildByName('ChatBubble');
-        if (!bubble) return;
-        bubble.active = true;
-        var lbl = bubble.getComponent(cc.Label);
-        if (lbl) lbl.string = "";
-        var inner = bubble.getChildByName('New Label');
-        if (inner) inner.active = false;
-        var bg = bubble.getChildByName('chatbg_ld');
-        if (bg) bg.active = false;
-        var oldNode = bubble.getChildByName('emojiSpine');
-        if (oldNode) oldNode.destroy();
-        var sk = sd.skeletonJson && sd.skeletonJson.skeleton;
-        var sw = (sk && sk.width) || 240, sh = (sk && sk.height) || 270;
-        var w = bubble.width > 0 ? bubble.width : 140;
-        var h = bubble.height > 0 ? bubble.height : 140;
-        var base = Math.min(w / sw, h / sh) * 0.9;
-        var n = new cc.Node('emojiSpine');
-        n.parent = bubble;
-        n.setPosition(0, 0);
-        n.scale = base;
-        n.runAction(cc.sequence(cc.scaleTo(0.12, base * 1.4), cc.scaleTo(0.18, base)));
-        var com = n.addComponent(sp.Skeleton);
-        com.skeletonData = sd;
-        com.setAnimation(0, "animation", true);
-        this._chatBubbleTimers = this._chatBubbleTimers || {};
-        if (this._chatBubbleTimers[seatIdx]) clearTimeout(this._chatBubbleTimers[seatIdx]);
-        this._chatBubbleTimers[seatIdx] = setTimeout(function () {
-            bubble.active = false;
-            if (cc.isValid(n)) n.destroy();
-        }, 3000);
+        var view = viewIdx >= 0 ? views[viewIdx] : null;
+        if (view && view.userId > 0) this._emojiController.showNormal(view.userId, content);
     },
 
     // 结算时隐藏弹窗后面残留的元素：准备层(准备/退出/解散)、顶部信息条、消息条、右上按钮

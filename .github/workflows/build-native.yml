@@ -34,8 +34,8 @@ jobs:
 
       - name: Rebuild hot update manifest
         # APK 内置清单版本必须 >= 线上热更版本, 否则新装机一启动会被线上旧热更覆盖(手册 4.6 红线)。
-        # 2026-11-22 迁移新服 47.243.106.169: 首个版本定为 1.0.26(1.0.25 旧IP热更包已作废)。
-        run: node tools/gen_manifest.js client/build/jsb-default 1.0.26 http://47.243.106.169:9100/hotupdate
+        # 新服 47.243.106.169 当前内置版本 1.0.28，必须不低于线上热更版本。
+        run: node tools/gen_manifest.js client/build/jsb-default 1.0.28 http://47.243.106.169:9100/hotupdate
 
       - name: Build unsigned release APK
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.android-studio
@@ -108,7 +108,7 @@ jobs:
 
       - name: Rebuild hot update manifest
         # 手动构建会把 project/version.manifest 改成带哈希的文件名, iOS 打包前必须重新生成固定入口文件。
-        run: node tools/gen_manifest.js client/build/jsb-default 1.0.26 http://47.243.106.169:9100/hotupdate
+        run: node tools/gen_manifest.js client/build/jsb-default 1.0.28 http://47.243.106.169:9100/hotupdate
 
       - name: Build unsigned iOS app
         working-directory: client/build/jsb-default/frameworks/runtime-src/proj.ios_mac

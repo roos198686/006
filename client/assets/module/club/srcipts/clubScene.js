@@ -647,13 +647,33 @@ cc.Class({
     //从牌桌返回俱乐部场景时调用:直接打开指定俱乐部的独立玩法详情页(不经过俱乐部弹窗)
     _clubBackToDetail:function(clubid){
         var self = this;
+        //正常进房时已经拿到俱乐部和玩法,回来先用这份数据立即渲染;/club_list 改为后台更新,
+        //不再让牌桌列表排在 club_list -> club_games 两个请求后面空等。
+        var cached = cc.vv.clubReturnCache;
+        var canUseCache = !!(cached && cached.account === cc.vv.userMgr.account
+            && String(cached.backClubId) === String(clubid) && cached.entryClub);
+        if(canUseCache){
+            this._myClubs = cached.clubs || [];
+            this._hallMode = !!cached.hallMode;
+            this._wfOpenDetail(cached.entryClub,this._hallMode,cached.games);
+        }
         cc.vv.http.sendRequest("/club_list",{
             account:cc.vv.userMgr.account,
             sign:cc.vv.userMgr.sign
         },function(ret){
-            if(ret.errcode !== 0){ self.openClubPanel(); return; } //失败兜底:回俱乐部页
+            if(!cc.isValid(self.node)){ return; }
+            if(ret.errcode !== 0){
+                if(!canUseCache){ self.openClubPanel(); } //无缓存时才用列表页兜底,缓存页不被后台刷新失败打断
+                return;
+            }
             self._myClubs = ret.clubs || [];
             self._hallMode = (ret.hall_mode == 1);
+            if(canUseCache){
+                if(cc.vv.clubReturnCache === cached){
+                    cached.clubs = self._myClubs;
+                }
+                return;
+            }
             //大厅模式:不管从哪个俱乐部的牌桌回来,都回总大厅(入口用自己所属俱乐部)
             if(self._hallMode && self._myClubs.length > 0){
                 self._clubOpenHallEntry(self._myClubs[0]);
@@ -675,7 +695,7 @@ cc.Class({
     },
 
     //总牌桌大厅:左侧只列当前有桌的玩法,右侧汇总全平台所有俱乐部的牌桌
-    _clubOpenHallDetail:function(club){
+    _clubOpenHallDetail:function(club, initialGames){
         var self = this;
         this._clubCur = {id:club ? club.id : 0, name:"牌桌大厅", _hall:true, myClub:club};
         this._clubCurGame = null;
@@ -684,21 +704,35 @@ cc.Class({
         this._clubState = "detail";
         this._clubTablesSig = null;
         this._clubSetTop(true,"牌桌大厅");
+        var curState = this._clubCur;
+        var detailSeq = this._clubDetailReqSeq = (this._clubDetailReqSeq || 0) + 1;
+        var hasInitial = Object.prototype.toString.call(initialGames) === "[object Array]";
+        if(hasInitial){
+            this._clubGames = initialGames;
+            this._clubRenderDetail(); //先渲染并立即发起牌桌请求,玩法在后台校验更新
+        }
         cc.vv.http.sendRequest("/club_hall_games",{
             account:cc.vv.userMgr.account,
             sign:cc.vv.userMgr.sign
         },function(ret){
+            if(!cc.isValid(self.node) || self._clubState !== "detail"
+                || self._clubCur !== curState || self._clubDetailReqSeq !== detailSeq){ return; }
             if(ret.errcode !== 0){
-                cc.vv.wc.showError(ret.errmsg || "获取玩法失败");
+                if(!hasInitial){ cc.vv.wc.showError(ret.errmsg || "获取玩法失败"); }
                 return;
             }
-            self._clubGames = ret.games || [];
+            var games = ret.games || [];
+            if(cc.vv.clubReturnCache && cc.vv.clubReturnCache.entryClub === club){
+                cc.vv.clubReturnCache.games = games;
+            }
+            if(hasInitial && JSON.stringify(games) === JSON.stringify(self._clubGames)){ return; }
+            self._clubGames = games;
             self._clubRenderDetail();
         });
     },
 
     //打开独立玩法详情页:整页独立节点(点俱乐部/牌桌返回都走这里)
-    _wfOpenDetail:function(club, isHall){
+    _wfOpenDetail:function(club, isHall, initialGames){
         if(this._wfPanel){ this._wfClose(); } //已打开则先关掉旧页
         var canvas = cc.find("Canvas");
         if(!canvas){ return; }
@@ -730,10 +764,10 @@ cc.Class({
             this._clubDetailBgNode = bakedPage.getChildByName("detailBgImg");
             this._clubDetailFullBg = bakedPage.getChildByName("detailFullBg");
             if(isHall){
-                this._clubOpenHallDetail(club); //总大厅:左玩法右全平台牌桌
+                this._clubOpenHallDetail(club, initialGames); //总大厅:左玩法右全平台牌桌
             }
             else{
-                this._clubOpenDetail(club); //复用原详情渲染(左玩法右牌桌),全部画到独立页上
+                this._clubOpenDetail(club, initialGames); //复用原详情渲染(左玩法右牌桌),全部画到独立页上
             }
             //管理/快速加入/刷新/记录按钮绑定:hall 时 club 是玩家自己的俱乐部,管理页仍可进入
             this._wfBindAddTable(club);
@@ -745,6 +779,7 @@ cc.Class({
     _wfBack:function(){
         cc.vv.fromClubId = null; //用户主动返回俱乐部列表:清掉来源俱乐部标记,避免下次进club场景又跳回详情页
         cc.vv.fromClub = false;
+        cc.vv.clubReturnCache = null;
         this._wfClose();
         this.openClubPanel();
         this._clubShowMine(); //从详情页返回属于列表内操作,恢复到"我的俱乐部"列表
@@ -1321,7 +1356,7 @@ cc.Class({
     },
 
     //俱乐部详情:左侧玩法列表+右侧桌面列表
-    _clubOpenDetail:function(club){
+    _clubOpenDetail:function(club, initialGames){
         var self = this;
         this._clubCur = club;
         this._clubCurGame = null;
@@ -1330,16 +1365,30 @@ cc.Class({
         this._clubState = "detail";
         this._clubTablesSig = null; //进入详情强制按服务端最新数据重建一次牌桌列表(占位/人数)
         this._clubSetTop(true,club.name);
+        var detailSeq = this._clubDetailReqSeq = (this._clubDetailReqSeq || 0) + 1;
+        var hasInitial = Object.prototype.toString.call(initialGames) === "[object Array]";
+        if(hasInitial){
+            this._clubGames = initialGames;
+            this._clubRenderDetail(); //先渲染并立即发起牌桌请求,玩法在后台校验更新
+        }
         cc.vv.http.sendRequest("/club_games",{
             account:cc.vv.userMgr.account,
             sign:cc.vv.userMgr.sign,
             clubid:club.id
         },function(ret){
+            if(!cc.isValid(self.node) || self._clubState !== "detail"
+                || self._clubCur !== club || self._clubDetailReqSeq !== detailSeq){ return; }
             if(ret.errcode !== 0){
-                cc.vv.wc.showError(ret.errmsg || "获取玩法失败");
+                if(!hasInitial){ cc.vv.wc.showError(ret.errmsg || "获取玩法失败"); }
                 return;
             }
-            self._clubGames = ret.games || [];
+            var games = ret.games || [];
+            if(cc.vv.clubReturnCache && cc.vv.clubReturnCache.entryClub === club){
+                cc.vv.clubReturnCache.games = games;
+            }
+            //玩法没变时不重复清空/重建页面,避免刚回来的牌桌再闪一次并多发一次请求
+            if(hasInitial && JSON.stringify(games) === JSON.stringify(self._clubGames)){ return; }
+            self._clubGames = games;
             self._clubRenderDetail();
         });
     },
@@ -2380,12 +2429,19 @@ cc.Class({
         if(!isHall){ reqData.clubid = this._clubCur.id; }
         var gt = this._clubCurGame && this._clubCurGame.game_type;
         if(gt){ reqData.game_type = gt; } //「全部」伪玩法行game_type为空,不传字段
+        //切换玩法/俱乐部或后台玩法刷新可能连续发请求,只允许最后一次回包重建当前页面
+        var reqSeq = this._clubTablesReqSeq = (this._clubTablesReqSeq || 0) + 1;
         cc.vv.http.sendRequest(isHall ? "/club_tables_hall" : "/club_tables",reqData,function(ret){
+            if(!cc.isValid(self.node) || self._clubState !== "detail" || self._clubTablesReqSeq !== reqSeq){ return; }
             if(ret.errcode !== 0){
                 cc.vv.wc.showError(ret.errmsg || "获取桌面失败");
                 return;
             }
             var tables = ret.tables || [];
+            if(cc.vv._exitToHallAt){
+                self._clubDbg("tables ready count=" + tables.length + " exitMs=" + (Date.now() - cc.vv._exitToHallAt));
+                cc.vv._exitToHallAt = 0;
+            }
             self._clubTableList = tables; //留存最新桌面列表,快速加入用
             //整场结算弹窗点了「快速加入」: 列表一回来就自动挑第一张未满桌进入
             self._clubMaybeQuickJoin(tables);
@@ -2497,6 +2553,12 @@ cc.Class({
                 return;
             }
         }
+        cc.vv._enterStartedAt = Date.now();
+        //进房接口等待期间并行预加载目标场景;已预加载时引擎会直接复用,不重复占用网络
+        try{
+            var enterScene = cc.vv.gameNetMgr.sceneForType(t.game_type || t.type);
+            if(enterScene){ cc.director.preloadScene(enterScene,function(){}); }
+        }catch(e){}
         wc.show("正在进入「" + t.name + "」");
         console.log("[进入房间]请求桌面 tableid=" + t.id + " name=" + t.name);
         this._clubDbg("enter tableid=" + t.id + " name=" + t.name + " type=" + (t.game_type || ""));
@@ -2534,7 +2596,8 @@ cc.Class({
                     return;
                 }
                 console.log("[进入房间]成功 roomid=" + ret.roomid + " ip=" + ret.ip + ":" + ret.port);
-                self._clubDbg("enter OK room=" + ret.roomid + " ip=" + ret.ip + ":" + ret.port);
+                self._clubDbg("enter OK room=" + ret.roomid + " ip=" + ret.ip + ":" + ret.port
+                    + " httpMs=" + (Date.now() - (cc.vv._enterStartedAt || Date.now())));
                 clearTimeout(guard);
                 if(self._clubPanel){ self._clubPanel.active = false; }
                 self._clubStopTableWatch(); //离开俱乐部页进入牌桌:断开订阅连接,避免句柄泄漏
@@ -2546,6 +2609,17 @@ cc.Class({
                 else{
                     cc.vv.fromClubId = self._clubCur ? self._clubCur.id : null; //记住来源俱乐部,回俱乐部场景直达它的玩法详情页
                 }
+                //只保留纯数据供退房立即渲染,不保存任何场景节点;用户离开详情或再次进房时会清除/覆盖
+                var curClub = self._clubCur;
+                var fromHall = !!(curClub && curClub._hall);
+                cc.vv.clubReturnCache = {
+                    account:cc.vv.userMgr.account,
+                    backClubId:cc.vv.fromClubId,
+                    hallMode:fromHall,
+                    clubs:(self._myClubs || []).slice(),
+                    entryClub:fromHall ? ((curClub && curClub.myClub) || (self._myClubs && self._myClubs[0])) : curClub,
+                    games:(self._clubGames || []).slice()
+                };
                 cc.vv.gameNetMgr.connectGameServer(ret);
                 //进桌遮罩兜底:登录成功后场景会切到牌桌,但遮罩归谁关没有保证,
                 //这里在场景切换后统一收起,避免玩家一直看到"正在进入房间"
@@ -2568,6 +2642,7 @@ cc.Class({
 
     //关闭俱乐部页:独立场景下即返回大厅场景
     _clubClosePanel:function(){
+        cc.vv.clubReturnCache = null;
         this._clubStopTableWatch();
         if(cc.vv.sceneMgr){
             cc.vv.sceneMgr.load("hall");

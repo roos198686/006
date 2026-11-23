@@ -1,6 +1,6 @@
 // 热更新清单生成器
 // 用法: node tools/gen_manifest.js <构建目录> <版本号> <资源公网地址>
-// 例:   node tools/gen_manifest.js client/build/jsb-default 1.0.6 http://47.239.100.68:9100/hotupdate
+// 例:   node tools/gen_manifest.js client/build/jsb-default 1.0.6 http://47.243.106.169:9100/hotupdate
 //
 // 为什么需要它: Creator 构建在 md5Cache 下有时不重写 project.manifest(或写成上一版的),
 // 导致清单里的文件名和实际产物对不上, 热更会漏下/错下文件。这里按磁盘上真实文件重算 md5。

@@ -30,6 +30,10 @@ cc.Class({
     
     show:function(name,userId,iconSprite,sex,ip){
         if(userId != null && userId > 0){
+            this._userId = userId;
+            if(cc.vv.chat && cc.vv.chat.bindUserInfo){
+                cc.vv.chat.bindUserInfo(this._userinfo);
+            }
             this._userinfo.active = true;
             this._userinfo.getChildByName("icon").getComponent(cc.Sprite).spriteFrame = iconSprite.spriteFrame;
             this._userinfo.getChildByName("name").getComponent(cc.Label).string = name;
