@@ -116,7 +116,8 @@ cc.Class({
             this._n[names[i]] = this.findNode(this.node, names[i]);
         }
         //跑得快布局全部固化在场景里, 代码只写文字/显隐, 不再创建节点或改位置尺寸
-        this._n.bombMulLabel = this._n.playArea ? this.findNode(this._n.playArea, "bombMulLabel") : null;
+        //出牌区各自独立: cardsContainer=自己, cardsContainer1=对家(位置全由场景摆好, JS 不改坐标)
+        this._n.cardsContainer1 = this._n.playArea ? this.findNode(this._n.playArea, "cardsContainer1") : null;
         this._n.frameEfx = this._n.playArea ? this.findNode(this._n.playArea, "frameEfx") : null;
 
         this._seatViews = [];
@@ -218,6 +219,7 @@ cc.Class({
         // 手牌位/出牌位均为场景预置节点，JS 只填牌面与显隐，不创建/移动节点
         this._handSlots = [];
         this._playSlots = [];
+        this._playSlots1 = []; // 对家出牌区槽位
         this._playFlies = [];
         var self2 = this;
         for (var si = 0; si < 16; ++si) {
@@ -244,6 +246,11 @@ cc.Class({
             }
             var ps = this.findNode(this._n.cardsContainer, "playSlot" + si);
             if (ps) this._playSlots.push(ps);
+            // 对家出牌区槽位(cardsContainer1 下的 playSlotN, 场景已摆好)
+            if (this._n.cardsContainer1) {
+                var ps1 = this.findNode(this._n.cardsContainer1, "playSlot" + si);
+                if (ps1) this._playSlots1.push(ps1);
+            }
             // 出牌飞行牌也是场景预置节点, 记录场景位置作为落点
             var pf = this.findNode(this._n.cardsContainer, "playFly" + si);
             if (pf) {
@@ -252,6 +259,9 @@ cc.Class({
                 this._playFlies.push(pf);
             }
         }
+        //出牌槽位按 x 从左到右排序, 配合中间槽位居中(与手牌一致)
+        this._playSlots.sort(function (a, b) { return a.x - b.x; });
+        this._playSlots1.sort(function (a, b) { return a.x - b.x; });
         //槽位按场景 x 从左到右排序: 居中时只用"中间一段"槽位, 不改任何节点坐标
         this._handSlots.sort(function (a, b) { return a.x - b.x; });
         //兜底:如果 cardsContainer 找不到或 playSlots 为空,直接从场景根节点找
@@ -330,9 +340,8 @@ cc.Class({
             }
         }
 
-        // 对家牌背槽位（场景预置，按剩余张数显隐）
+        // 对家牌背槽位（场景预置，按剩余张数显隐中间一段实现居中）
         this._oppSlots = [];
-        this._oppLayout = [];
         for (var oi = 0; oi < 2; ++oi) {
             var row = [];
             for (var ci = 0; ci < 16; ++ci) {
@@ -340,14 +349,8 @@ cc.Class({
                 if (oc) { oc.active = false; row.push(oc); }
             }
             if (row.length > 0) {
-                //记录场景里整排牌背的排布(中心点/间距), 出牌后按剩余张数整排居中
                 row.sort(function (a, b) { return a.x - b.x; });
                 this._oppSlots.push(row);
-                var ox0 = row[0].x, ox1 = row[row.length - 1].x;
-                this._oppLayout.push({
-                    centerX: (ox0 + ox1) / 2,
-                    gap: row.length > 1 ? (ox1 - ox0) / (row.length - 1) : 0
-                });
             }
         }
         // 牌背图已打进 resources/images/atlas/cards 图集, 加载后贴到所有对家牌背节点
@@ -1207,9 +1210,6 @@ cc.Class({
         this._historyRound = 0;
         this._showHistoryIfEnabled();
         this._renderHistory();
-        // 重置炸弹倍数显示
-        this._bombCount = 0;
-        this._updateBombMul();
         var nm = cc.vv.gameNetMgr;
         var turn = (d.startSeat != null) ? d.startSeat : ((d.turn != null) ? d.turn : nm.gpTurn);
         this.applyGame(d.myCards, (d.mySeat != null ? d.mySeat : nm.gpMySeat), turn,
@@ -1226,9 +1226,6 @@ cc.Class({
         this._freePlay = false;
         this._selected = {};
         this._cards = (cc.vv.gameNetMgr.gpMyCards || []).slice();
-        // 炸弹计数与倍数显示(倍数=2^N,与服务端结算一致)
-        if (d.type === 'bomb') { this._bombCount = (this._bombCount || 0) + 1; }
-        this._updateBombMul();
         // 记牌: 推入一条
         if (this._isHistoryEnabled()) {
             this._addHistory({
@@ -1761,19 +1758,6 @@ cc.Class({
         cc.tween(slot).to(0.07, { y: (slot._baseY || 0) + (lift || 0) }, { easing: "quadOut" }).start();
     },
 
-    // 炸弹倍数显示: 有炸弹时出牌区上方显示 炸弹×2^N(节点在场景 playArea/bombMulLabel)
-    _updateBombMul: function () {
-        var lab = (this._n && this._n.bombMulLabel) ? this._n.bombMulLabel.getComponent(cc.Label) : null;
-        if (!lab) return;
-        var cnt = this._bombCount || 0;
-        if (cnt <= 0) {
-            lab.node.active = false;
-            return;
-        }
-        lab.string = "炸弹×" + Math.pow(2, cnt);
-        lab.node.active = true;
-    },
-
     // 报单标识: 某座位剩1张牌时在其上方显示脉冲红标(节点在场景 seatInfo/warnBadge)
     _updateWarnBadge: function (root, remainCount) {
         if (!root) return;
@@ -1855,68 +1839,95 @@ cc.Class({
         //确保出牌区域可见
         if (this._n.playArea) this._n.playArea.active = true;
         if (this._n.cardsContainer) this._n.cardsContainer.active = true;
+        if (this._n.cardsContainer1) this._n.cardsContainer1.active = true;
 
         // 防重入: 动画进行中缓存新请求，动画结束后再渲染
         if (this._playAnimBusy) {
             this._pendingRenderPais = pais;
+            this._pendingRenderSeat = lp ? lp.seatIndex : null;
             return;
         }
 
-        // 判断当前桌面是否有牌(任一 playSlot active)
+        // 按座位路由: seatIndex == _seatMap[0] 是自己 → cardsContainer, 否则对家 → cardsContainer1
+        var isMine = true;
+        if (lp && lp.seatIndex != null && this._seatMap && this._seatMap.length > 0) {
+            isMine = (lp.seatIndex === this._seatMap[0]);
+        }
+        var targetSlots = isMine ? this._playSlots : this._playSlots1;
+
+        // 出牌区任何时刻只保留最新一手: 先清掉另一家的槽位(含上一局残留/换家出牌)
+        var otherSlots = isMine ? this._playSlots1 : this._playSlots;
+        for (var oi = 0; oi < otherSlots.length; ++oi) {
+            this._blankSprite(otherSlots[oi]);
+            otherSlots[oi].active = false;
+        }
+
+        // 判断目标区当前是否有牌(任一 playSlot active)
         var hasCurCards = false;
-        for (var i = 0; i < this._playSlots.length; ++i) {
-            if (this._playSlots[i].active) { hasCurCards = true; break; }
+        for (var i = 0; i < targetSlots.length; ++i) {
+            if (targetSlots[i].active) { hasCurCards = true; break; }
         }
 
         // 有旧牌 → 先淡出再渲染新牌；没旧牌 → 直接渲染
+        // 淡出只作用于本家槽位, 不动容器(避免连带另一家)
         if (hasCurCards) {
             this._playAnimBusy = true;
             var self = this;
-            var container = this._n.cardsContainer;
-            if (container) {
-                var origOpacity = 255;
-                cc.tween(container)
-                    .to(0.07, { opacity: 0 })
-                    .call(function () {
-                        self._fillPlaySlots(pais);
-                        cc.tween(container)
-                            .to(0.07, { opacity: origOpacity })
-                            .call(function () {
-                                self._playAnimBusy = false;
-                                // 动画期间有新请求缓存了，继续处理
-                                if (self._pendingRenderPais != null) {
-                                    var pending = self._pendingRenderPais;
-                                    self._pendingRenderPais = null;
-                                    self._playAnimBusy = false;
-                                    self._lastPlay = { pais: pending };
-                                    self.renderLastPlay();
-                                }
-                            })
-                            .start();
-                    })
-                    .start();
-            } else {
-                self._fillPlaySlots(pais);
+            var animTargets = [];
+            for (var ai = 0; ai < targetSlots.length; ++ai) {
+                if (targetSlots[ai].active) animTargets.push(targetSlots[ai]);
+            }
+            var onFadedIn = function () {
                 self._playAnimBusy = false;
+                // 动画期间有新请求缓存了，继续处理
+                if (self._pendingRenderPais != null) {
+                    var pending = self._pendingRenderPais;
+                    var pendingSeat = self._pendingRenderSeat;
+                    self._pendingRenderPais = null;
+                    self._pendingRenderSeat = null;
+                    self._lastPlay = { pais: pending, seatIndex: pendingSeat };
+                    self.renderLastPlay();
+                }
+            };
+            for (var ti = 0; ti < animTargets.length; ++ti) {
+                var tw = cc.tween(animTargets[ti]).to(0.07, { opacity: 0 });
+                if (ti === 0) {
+                    tw.call(function () {
+                        self._fillPlaySlots(pais, targetSlots);
+                        for (var ri = 0; ri < targetSlots.length; ++ri) {
+                            var tw2 = cc.tween(targetSlots[ri]).to(0.07, { opacity: 255 });
+                            if (ri === 0) tw2.call(onFadedIn);
+                            tw2.start();
+                        }
+                    });
+                }
+                tw.start();
             }
         } else {
-            this._fillPlaySlots(pais);
+            this._fillPlaySlots(pais, targetSlots);
         }
     },
 
-    // 直接往 playSlots 填牌面（无动画版）
-    _fillPlaySlots: function (pais) {
+    // 直接往指定槽位填牌面（无动画版）; slots 缺省=自己的出牌区
+    _fillPlaySlots: function (pais, slots) {
+        var target = slots || this._playSlots;
         var self0 = this;
         var dbgFrames = [];
         for (var d = 0; d < (pais || []).length; ++d) {
             var f0 = self0.frameOf(pais[d]);
             dbgFrames.push(pais[d] + ':' + (f0 ? f0.name : 'NULL'));
         }
-        console.log('[GP] fillPlaySlots slots=' + this._playSlots.length + ' 牌=' + JSON.stringify(pais) + ' 帧=' + JSON.stringify(dbgFrames));
-        for (var i = 0; i < this._playSlots.length; ++i) {
-            var slot = this._playSlots[i];
-            if (i < pais.length) {
-                var sp = this.frameOf(pais[i]);
+        console.log('[GP] fillPlaySlots slots=' + target.length + ' 牌=' + JSON.stringify(pais) + ' 帧=' + JSON.stringify(dbgFrames));
+        // 左右居中: 与手牌一致, 按出牌张数只用中间一段槽位, 不改任何节点坐标
+        var N = (pais || []).length;
+        var total = target.length;
+        var start = Math.floor((total - N) / 2);
+        if (start < 0) start = 0;
+        for (var i = 0; i < total; ++i) {
+            var slot = target[i];
+            var idx = i - start;
+            if (idx >= 0 && idx < N) {
+                var sp = this.frameOf(pais[idx]);
                 slot.getComponent(cc.Sprite).spriteFrame = sp;
                 slot.active = true;
             } else {
@@ -2067,16 +2078,11 @@ cc.Class({
             if (!row) continue;
             var seatIdx = (di < map.length) ? map[di] : di;
             var count = (playing && seats && seats[seatIdx]) ? (seats[seatIdx].count || 0) : 0;
+            //整排居中: 与手牌/出牌区一致, 按剩余张数只显示中间一段槽位, 不改任何节点坐标
+            var start = Math.floor((row.length - count) / 2);
+            if (start < 0) start = 0;
             for (var ci = 0; ci < row.length; ++ci) {
-                row[ci].active = ci < count;
-            }
-            //剩余牌张数变少后整排重新居中(原来只按数量从右往左隐藏, 出牌后会一直偏左)
-            var lay = this._oppLayout && this._oppLayout[di - 1];
-            if (count > 0 && lay) {
-                var startX = lay.centerX - (count - 1) * lay.gap / 2;
-                for (var k = 0; k < count; ++k) {
-                    row[k].setPosition(startX + k * lay.gap, row[k].y);
-                }
+                row[ci].active = (ci >= start && ci < start + count);
             }
         }
     },
@@ -2107,6 +2113,11 @@ cc.Class({
             this._blankSprite(playSlots[i]);
             playSlots[i].active = false;
         }
+        var playSlots1 = this._playSlots1 || [];
+        for (i = 0; i < playSlots1.length; ++i) {
+            this._blankSprite(playSlots1[i]);
+            playSlots1[i].active = false;
+        }
         var oppSlots = this._oppSlots || [];
         for (i = 0; i < oppSlots.length; ++i) {
             var row = oppSlots[i];
@@ -2118,6 +2129,7 @@ cc.Class({
         if (this._n.handArea) this._n.handArea.active = false;
         if (this._n.playArea) this._n.playArea.active = false;
         if (this._n.cardsContainer) this._n.cardsContainer.active = false;
+        if (this._n.cardsContainer1) this._n.cardsContainer1.active = false;
         this.showSeatTimers(false, false, 0);
         if (this._n.playOwnerLabel) this.setStr(this._n.playOwnerLabel, "");
         if (this._n.tipLabel) this.setStr(this._n.tipLabel, "");
@@ -2840,6 +2852,7 @@ cc.Class({
 
     // 聊天面板：切换到表情
     onTabEmoji: function () {
+        if (this._emojiController) this._emojiController.preload();
         if (this._n.quickchatlist) this._n.quickchatlist.active = false;
         if (this._n.emojis) this._n.emojis.active = true;
     },

@@ -241,6 +241,20 @@ cc.Class({
             this._menuBtns.xitosz.active = isTopClub;
             if (!isTopClub && this._currentPage === "xitosz") { this._showPage("overview"); }
         }
+        // 所属一级俱乐部开了统一大厅(hall_mode=1)时, 下级俱乐部隐藏 玩法配置/操作日志/系统设置 三个入口
+        // 一级俱乐部不受影响; 总览数据未到时不做隐藏, 避免闪烁
+        if (d && d.club_id) {
+            var hideSubEntries = !isTopClub && Number(d.hall_mode) === 1;
+            var subKeys = ["gameConfig", "operationLog", "xitosz"];
+            for (var mi = 0; mi < subKeys.length; ++mi) {
+                var mk = subKeys[mi];
+                var mbtn = this._menuBtns && this._menuBtns[mk];
+                if (!mbtn) continue;
+                if (mk === "xitosz") { mbtn.active = isTopClub && !hideSubEntries; }
+                else { mbtn.active = !hideSubEntries; }
+                if (!mbtn.active && this._currentPage === mk) { this._showPage("overview"); }
+            }
+        }
         this._setOverviewLabel("今日累收", d.today_rake || 0);
         this._setOverviewLabel("昨日累收", d.yesterday_rake || 0);
         this._setOverviewLabel("前日累收", d.before_yesterday_rake || 0);
@@ -2830,7 +2844,12 @@ _bindRewardPage: function () {
 
         if (name === "partnerRatioWin") {
             var rn = this._ratioDialogNodes(content);
-            var ratio = parseFloat(this._getInputNode(rn.inputRake));
+            // 抽水框留空 = 不修改抽水, 用当前比例提交(服务端 ratio 必填);
+            // 否则只改房费/暗水时, 空抽水框会被误判成非法数字
+            var rakeRaw = this._getInputNode(rn.inputRake);
+            var ratio = (rakeRaw === "" || rakeRaw == null)
+                ? (Number(ctx.partner.profit_ratio) || 0)
+                : parseFloat(rakeRaw);
             if (isNaN(ratio) || ratio < 0 || ratio > 100) { self._tip("请输入0-100之间的数字"); return; }
             var feeRaw = this._getInputNode(rn.inputFee);
             var feeRatio = parseFloat(feeRaw);

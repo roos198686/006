@@ -144,7 +144,6 @@ cc.Class({
             cc.vv.fromClubId = cid;
         }
         console.log("[退出房间]回牌桌大厅 clubId=" + cid);
-        cc.vv._exitToHallAt = Date.now();
         if(cc.vv.sceneMgr){ cc.vv.sceneMgr.load("club"); }
         else{ cc.director.loadScene("club"); }
     },
@@ -399,21 +398,13 @@ cc.Class({
             console.log("login_finished");
             if(self._loginTimer){ clearTimeout(self._loginTimer); self._loginTimer = null; }
             var sceneName = self.getGameScene();
-            var sceneLoadAt = Date.now();
-            var enterAt = cc.vv._enterStartedAt || sceneLoadAt;
             console.log("[进入房间]加载场景 " + sceneName);
-            self._dbg("login_finished scene=" + sceneName + " type=" + (self.conf && self.conf.type) + " room=" + self.roomId
-                + " totalMs=" + (sceneLoadAt - enterAt));
+            self._dbg("login_finished scene=" + sceneName + " type=" + (self.conf && self.conf.type) + " room=" + self.roomId);
             //标记本次是"进入/重进房间",玩法场景据此跳过补发残局的色子/发牌动画(正常新一局仍会播)
             if(cc.vv){ cc.vv.justEnteredRoom = true; cc.vv.roomEnteredAt = Date.now(); }
             //场景就绪回调:重放错过的结算补发(结算停留期重进,game_over_push早于场景加载到达,
             //此时弹窗组件尚未注册监听直接dispatch会错过,导致重进后停在无按钮的空准备界面)
             var onSceneLaunched = function(){
-                var readyAt = Date.now();
-                self._dbg("scene ready " + sceneName + " sceneMs=" + (readyAt - sceneLoadAt)
-                    + " totalMs=" + (readyAt - enterAt));
-                //牌桌显示后再预热返回场景,不与进房场景争用首帧资源
-                try{ cc.director.preloadScene("club",function(){}); }catch(e){}
                 if(self.overData){
                     var od = self.overData;
                     self.overData = null;
@@ -1146,10 +1137,6 @@ cc.Class({
     //连接服务器 请求
     connectGameServer:function(data){
         this.dissoveData = null;
-        //俱乐部进房保留点击时刻;大厅/断线重连没有该时刻时从这里开始计时
-        if(!cc.vv._enterStartedAt || (Date.now() - cc.vv._enterStartedAt) > 30000){
-            cc.vv._enterStartedAt = Date.now();
-        }
         //进房/重连会新建 socket,服务端随即踢掉同账号的旧socket并给它发 kick_offline;
         //这里打一个宽限窗口,避免把自己顶掉的旧连接误判成"被其他设备顶号"而跳回大厅
         this._ignoreKickUntil = Date.now() + 6000;

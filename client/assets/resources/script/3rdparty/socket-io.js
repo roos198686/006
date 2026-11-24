@@ -1969,7 +1969,7 @@
 		opts.headers = this.extraHeaders;
 	  }
 
-	  this.ws = BrowserWebSocket ? new WebSocket(uri) : new WebSocket(uri, protocols, opts);
+		  this.ws = BrowserWebSocket ? new WebSocket(uri) : new WebSocket(uri, protocols, opts);
 
 	  if (this.ws.binaryType === undefined) {
 		this.supportsBinary = false;

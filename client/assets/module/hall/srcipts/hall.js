@@ -948,7 +948,8 @@ cc.Class({
         },cc.vv.http.master_url);
     },
 
-    //个人信息底部按钮: btnLogout 文案改成"退出登录", 右侧复制一个"注销账号"(场景里只有原来那一个按钮)
+    //个人信息底部按钮: btnLogout"退出登录"(左) + "切换账号"(中) + "注销账号"(右)
+    //后两个由 btnLogout 复制而来(场景里只有原来那一个按钮)
     _ensureLogoutBtns:function(win){
         var self = this;
         var btnLogout = this._winFind(win,"btnLogout");
@@ -958,15 +959,123 @@ cc.Class({
             if(lbl){ lbl.string = text; }
         };
         setText(btnLogout, "退出登录");
-        btnLogout.setPosition(-120, btnLogout.y); //两个按钮并排居中(每个200宽)
-        if(this._winFind(win,"btnDeleteAccount")){ return; }
-        var btn = cc.instantiate(btnLogout);
-        btn.name = "btnDeleteAccount";
-        btn.active = true;
-        btn.parent = btnLogout.parent;
-        btn.setPosition(120, btnLogout.y);
-        setText(btn, "注销账号");
-        btn.on(cc.Node.EventType.TOUCH_END, function(){ self._deleteAccount(); });
+        var by = btnLogout.y;
+        btnLogout.setPosition(-240, by); //三个按钮并排(每个200宽)
+        //切换账号(中间): 清当前登录态回登录页, 重新选择账号登录
+        var sw = this._winFind(win,"btnSwitchAccount");
+        if(!sw){
+            sw = cc.instantiate(btnLogout);
+            sw.name = "btnSwitchAccount";
+            sw.active = true;
+            sw.parent = btnLogout.parent;
+            sw.on(cc.Node.EventType.TOUCH_END, function(){ self._switchAccount(); });
+        }
+        sw.setPosition(0, by);
+        setText(sw, "切换账号");
+        //注销账号(右侧)
+        var del = this._winFind(win,"btnDeleteAccount");
+        if(!del){
+            del = cc.instantiate(btnLogout);
+            del.name = "btnDeleteAccount";
+            del.active = true;
+            del.parent = btnLogout.parent;
+            del.on(cc.Node.EventType.TOUCH_END, function(){ self._deleteAccount(); });
+        }
+        del.setPosition(240, by);
+        setText(del, "注销账号");
+    },
+
+    //切换账号: 登录过多个账号则弹窗选择(直接登录), 否则清登录态回登录页手动登录
+    _switchAccount:function(){
+        var list = [];
+        if(cc.vv.userMgr && cc.vv.userMgr.getAccountHistory){
+            list = cc.vv.userMgr.getAccountHistory();
+        }
+        var cur = cc.vv.userMgr ? cc.vv.userMgr.account : null;
+        var others = [];
+        for(var i=0;i<list.length;i++){
+            if(list[i] && list[i].account && list[i].account !== cur){ others.push(list[i]); }
+        }
+        if(others.length){
+            this._showAccountSwitch(others);
+            return;
+        }
+        var self = this;
+        if(cc.vv.alert && cc.vv.alert.show){
+            cc.vv.alert.show("切换账号","确定要切换账号吗？当前账号将退出登录。",function(){ self._clearAndGotoLogin(); },true);
+        }
+        else{
+            this._clearAndGotoLogin();
+        }
+    },
+
+    //清当前登录态回登录页(本机游客账号和历史账号记录保留, 账号数据不删)
+    _clearAndGotoLogin:function(){
+        if(this._accountSwitchWin){ this._accountSwitchWin.active = false; }
+        cc.sys.localStorage.removeItem("wx_account");
+        cc.sys.localStorage.removeItem("wx_sign");
+        cc.sys.localStorage.removeItem("login_account");
+        cc.sys.localStorage.removeItem("login_sign");
+        cc.sys.localStorage.removeItem("login_type");
+        cc.vv.wc.show("正在切换账号...");
+        setTimeout(function(){
+            cc.director.loadScene("login");
+        },200);
+    },
+
+    //选择历史账号: 写入其登录态后回登录页, 由登录页走既有自动登录流程(失效则显示登录按钮手动登录)
+    _loginAs:function(item){
+        if(this._accountSwitchWin){ this._accountSwitchWin.active = false; }
+        cc.sys.localStorage.setItem("login_account", item.account);
+        cc.sys.localStorage.setItem("login_sign", item.sign || "");
+        cc.sys.localStorage.setItem("login_type", item.type || "guest");
+        if(cc.vv.userMgr){ cc.vv.userMgr.userId = 0; } //清当前登录态
+        cc.vv.wc.show("正在切换账号...");
+        setTimeout(function(){
+            cc.director.loadScene("login");
+        },200);
+    },
+
+    //历史账号选择弹窗: 节点在场景里(accountSwitchWin), 这里只负责显隐和填账号
+    _showAccountSwitch:function(list){
+        var self = this;
+        var win = this._winFind(this.node, "accountSwitchWin");
+        if(!win){ return; }
+        this._accountSwitchWin = win;
+        var panel = this._winFind(win, "panel");
+        var mask = this._winFind(win, "mask");
+        if(mask){
+            mask.off(cc.Node.EventType.TOUCH_END);
+            mask.on(cc.Node.EventType.TOUCH_END, function(){ win.active = false; });
+        }
+        for(var i=0;i<5;i++){
+            (function(idx){
+                var btn = self._winFind(panel, "btnAcc"+idx);
+                if(!btn){ return; }
+                btn.off(cc.Node.EventType.TOUCH_END);
+                if(idx < list.length){
+                    var item = list[idx];
+                    btn.active = true;
+                    var lbl = btn.getComponentInChildren(cc.Label);
+                    if(lbl){ lbl.string = item.name || item.account; }
+                    btn.on(cc.Node.EventType.TOUCH_END, function(){ self._loginAs(item); });
+                }
+                else{
+                    btn.active = false;
+                }
+            })(i);
+        }
+        var btnNew = this._winFind(panel, "btnNew");
+        if(btnNew){
+            btnNew.off(cc.Node.EventType.TOUCH_END);
+            btnNew.on(cc.Node.EventType.TOUCH_END, function(){ self._clearAndGotoLogin(); });
+        }
+        var xSprite = this._winFind(panel, "xSprite");
+        if(xSprite){
+            xSprite.off(cc.Node.EventType.TOUCH_END);
+            xSprite.on(cc.Node.EventType.TOUCH_END, function(){ win.active = false; });
+        }
+        win.active = true;
     },
 
     //退出登录:只清本地登录态回登录页,账号数据保留

@@ -54,11 +54,12 @@ function EmojiController(options) {
     this._touchBinds = [];
     this._destroyed = false;
     this._resourcesReady = false;
+    this._spinesStarted = false;
     this._collectNormalStatic();
     this._buildNormalPanel();
     this._loadXgdFrames();
     this._loadStaticAtlas();
-    this._loadSpines();
+    // 骨骼资源改为打开聊天/收到表情时按需加载，避免每个牌桌首屏串行加载约60个资源。
     if (this.options.userinfo) this.bindUserInfo(this.options.userinfo);
 }
 
@@ -147,6 +148,12 @@ EmojiController.prototype._setupNormalScroll = function (grid) {
     grid.setPosition(grid.x + offsetX, grid.y + offsetY);
 
     var mask = panel.getComponent(cc.Mask) || panel.addComponent(cc.Mask);
+    // JSB 动态添加 Mask 不会走场景组件的 __preload，需先建立原生 Assembler/材质；
+    // 否则 _createGraphics 每帧报 setRenderSubHandle of null，导致场景闪烁并阻断触控。
+    if (cc.sys.isNative && !mask._assembler) {
+        mask._resetAssembler();
+        mask._activateMaterial();
+    }
     mask.type = cc.Mask.Type.RECT;
     mask.enabled = true;
     var scroll = panel.getComponent(cc.ScrollView) || panel.addComponent(cc.ScrollView);
@@ -209,6 +216,12 @@ EmojiController.prototype._refreshNormalPreviews = function () {
         xgdSprite.sizeMode = cc.Sprite.SizeMode.CUSTOM;
         xgdSprite.spriteFrame = this._xgdFrames[0];
     }
+};
+
+EmojiController.prototype.preload = function () {
+    if (this._destroyed || this._spinesStarted) return;
+    this._spinesStarted = true;
+    this._loadSpines();
 };
 
 EmojiController.prototype._loadSpines = function () {
@@ -592,6 +605,7 @@ EmojiController.prototype._track = function (target, node, duration) {
 };
 
 EmojiController.prototype.showNormal = function (userId, name) {
+    this.preload();
     var target = this._resolve(userId);
     if (!target) return;
     this.clear(userId);
@@ -607,6 +621,7 @@ EmojiController.prototype.showNormal = function (userId, name) {
 };
 
 EmojiController.prototype.playInteract = function (userId, name) {
+    this.preload();
     var target = this._resolve(userId);
     if (!target) return;
     this.clear(userId);

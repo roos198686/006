@@ -111,10 +111,33 @@ cc.Class({
             cc.sys.localStorage.setItem("login_account", self.account);
             cc.sys.localStorage.setItem("login_sign", self.sign == null ? "" : String(self.sign));
             cc.sys.localStorage.setItem("login_type", self._authType || "guest");
+            self.recordAccountHistory(); //记录历史账号(切换账号弹窗用)
             cc.vv.http.url = "http://" + (window.__rewriteHost ? window.__rewriteHost(self._hallAddr()) : self._hallAddr());  //设置URL为取得版本接口时 ret.hall
             self.login();  //获取成功后登陆
-        }   
+        }
     },
+
+    //历史登录账号(切换账号弹窗用): 最新在前, 按账号去重, 最多保留5个
+    recordAccountHistory:function(){
+        if(!this.account){ return; }
+        var acc = this.account;
+        var list = this.getAccountHistory();
+        var out = [];
+        for(var i=0;i<list.length;i++){
+            if(list[i] && list[i].account !== acc){ out.push(list[i]); }
+        }
+        out.unshift({account:acc, sign:this.sign == null ? "" : String(this.sign), type:this._authType || "guest", name:this.userName || ""});
+        if(out.length > 5){ out.length = 5; }
+        cc.sys.localStorage.setItem("account_history", JSON.stringify(out));
+    },
+
+    getAccountHistory:function(){
+        try{
+            var list = JSON.parse(cc.sys.localStorage.getItem("account_history") || "[]");
+            return Array.isArray(list) ? list : [];
+        }catch(e){ return []; }
+    },
+
     
     //WaitingConnection节点在场景里默认隐藏,组件onLoad不执行,cc.vv.wc可能未绑定;先激活一次让其onLoad完成绑定(内部会按_isShow立即隐藏)
     _ensureWc:function(){
@@ -159,6 +182,7 @@ cc.Class({
                     self.sex = ret.sex;
                     self.ip = ret.ip;
                     self._autoLoginFail = null;
+                    self.recordAccountHistory(); //自动登录成功的账号也记入历史(切换账号弹窗用)
         			// 用 SceneMgr 带过渡进大厅,解决白闪/冻结
         			if(cc.vv && cc.vv.sceneMgr){
         			    cc.vv.sceneMgr.load("hall");

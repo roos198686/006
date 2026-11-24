@@ -418,6 +418,7 @@ cc.Class({
     onSeatIconClick: function (sn) {
         var ui = this._userinfo;
         if (!ui || !sn || !(Number(sn._uid) > 0)) return;
+        this._ensureEmojiSpines();
         ui.active = true;
         ui.setSiblingIndex(9999);
         // 表情面板里的动态表情播放到"这位玩家"的头像上
@@ -690,7 +691,7 @@ cc.Class({
         var bg = this.findNode(panel, "chat_emojibg");
         if (bg) this.bindButton(bg, function () { panel.active = false; }, this);
         // 打开弹窗默认落在快捷语
-        this.bindButton(btnChat, function () { self._switchChatTab(true); panel.active = true; }, this);
+        this.bindButton(btnChat, function () { self._ensureEmojiSpines(); self._switchChatTab(true); panel.active = true; }, this);
         this._chatQuickList = this.findNode(panel, "quickchatlist");
         this._chatEmojiList = this.findNode(panel, "emojis");
         // userinfo 只放新互动表情(扣费); chat 放原 16 个动态表情(免费)
@@ -766,7 +767,7 @@ cc.Class({
         // 动态表情(逆向原包 SmileMJ/SmileGirl 骨骼): 静态帧只作骨骼未就绪时的回退
         this._emojiSpine = {};
         this._emojiPanelBuilt = false;
-        this._loadEmojiSpines();
+        this._emojiSpinesStarted = false;
         // userinfo 下的动态表情面板: 只做引用补齐与关闭按钮(含 x)绑定
         this._setupUserInfoEmoji();
         // preload 表情 atlas + 气泡底图(Cocos 2.4 没有 cc.SpriteFrameCache, 自己存引用)
@@ -809,10 +810,22 @@ cc.Class({
                                "fanqie", "hua", "huojian", "jubaopen", "pencaoqiang", "tiangou",
                                "xinxin", "youting", "zhadan", "zhichi", "zhuoji"];
         this._interactSpine = {};
+        // 有对应音效的动态表情(音效来自逆向包 GiftSound, 资源在 resources/sounds/emoji/): 播表情时同步播音效
+        this._emojiSoundMap = { bixin: 1, bobo: 1, caishen: 1, fanqie: 1, hua: 1, huojian: 1,
+                                jubaopen: 1, pencaoqiang: 1, tiangou: 1, xinxin: 1, youting: 1,
+                                zhadan: 1, zhichi: 1, zhuoji: 1 };
+    },
+
+    _ensureEmojiSpines: function () {
+        if (this._emojiSpinesStarted) return;
+        this._emojiSpinesStarted = true;
+        this._loadEmojiSpines();
     },
 
     _loadEmojiSpines: function () {
         var self = this;
+        this._emojiSpine = this._emojiSpine || {};
+        this._interactSpine = this._interactSpine || {};
         var normalNames = this._emojiSpineNames;
         var names = normalNames.concat(this._interactNames);
         var loadOne = function (i) {
@@ -826,8 +839,16 @@ cc.Class({
             var name = names[i];
             var isInteract = i >= normalNames.length;
             cc.resources.load("anims/smile/" + name, sp.SkeletonData, function (err, sd) {
-                if (sd) (isInteract ? self._interactSpine : self._emojiSpine)[name] = sd;
-                else console.log("[BB] 表情骨骼缺失: " + name, err);
+                if (!self.node || !cc.isValid(self.node)) return;
+                if (sd) {
+                    var store = isInteract ? self._interactSpine : self._emojiSpine;
+                    if (!store) {
+                        store = {};
+                        if (isInteract) self._interactSpine = store;
+                        else self._emojiSpine = store;
+                    }
+                    store[name] = sd;
+                } else console.log("[BB] 表情骨骼缺失: " + name, err);
                 loadOne(i + 1);
             });
         };
@@ -974,6 +995,11 @@ cc.Class({
             );
         }
         var listMask = panel.getComponent(cc.Mask) || panel.addComponent(cc.Mask);
+        // JSB 动态 Mask 必须手动初始化原生渲染句柄，否则每帧报错并导致牌桌闪屏/触控失效。
+        if (cc.sys.isNative && !listMask._assembler) {
+            listMask._resetAssembler();
+            listMask._activateMaterial();
+        }
         listMask.type = cc.Mask.Type.RECT;
         listMask.enabled = true;
         var listScroll = panel.getComponent(cc.ScrollView) || panel.addComponent(cc.ScrollView);
@@ -1103,6 +1129,10 @@ cc.Class({
         var sd = (this._emojiSpine && this._emojiSpine[name]) ||
                  (this._interactSpine && this._interactSpine[name]);
         if (!sd) return null;
+        // 有配套音效的表情同步播音效(普通/互动表情都走这里)
+        if (this._emojiSoundMap[name] && cc.vv && cc.vv.audioMgr) {
+            cc.vv.audioMgr.playSFX("emoji/" + name + ".mp3");
+        }
         var old = icon.getChildByName("emoteSpine");
         if (old) old.destroy();
         var sz = this._emojiSpineSize(sd);
@@ -1295,6 +1325,7 @@ cc.Class({
     // 在指定玩家座位边上显示气泡(节点与位置全在场景 bbSeatX/bbBubble), 2 秒后自动隐藏
     _showBubble: function (senderUserId, content, isEmoji) {
         if (!content) return;
+        if (isEmoji) this._ensureEmojiSpines();
         var slot = this._slotIdxOfUser(senderUserId);
         // 动态表情必须落在发送者自己的头像上: 找不到座位就不播, 免得播到别人头上
         if (isEmoji && slot < 0) return;

@@ -1758,13 +1758,23 @@ app.get('/club_admin/overview',function(req,res){
 			//上级给本俱乐部的抽点比例: 顶级俱乐部(parent_clubid=0)不返回
 			var pid = Number(club && club.parent_clubid) || 0;
 			data.parent_clubid = pid;
-			if(!(pid > 0)){ http.send(res,0,"ok",{data:data}); return; }
-			db.partner_get(pid,clubId,function(st){
-				//三个抽点数: 抽水/暗水/房费(洗牌/表情)
-				data.parent_profit_ratio = st ? (Number(st.profit_ratio) || 0) : 0;
-				data.parent_hidden_profit_ratio = st ? (Number(st.hidden_profit_ratio) || 0) : 0;
-				data.parent_fee_profit_ratio = st ? (Number(st.fee_profit_ratio) || 0) : 0;
+			//统一大厅: 一级俱乐部直接取自身 hall_mode; 下级取所属一级俱乐部的 hall_mode
+			//(客户端据此对下级俱乐部隐藏玩法配置/操作日志/系统设置入口)
+			if(!(pid > 0)){
+				data.hall_mode = Number(club && club.hall_mode) || 0;
 				http.send(res,0,"ok",{data:data});
+				return;
+			}
+			db.club_parent_chain(clubId,function(chain){
+				var root = chain && chain.length ? chain[chain.length - 1] : null;
+				data.hall_mode = Number(root && root.hall_mode) || 0;
+				db.partner_get(pid,clubId,function(st){
+					//三个抽点数: 抽水/暗水/房费(洗牌/表情)
+					data.parent_profit_ratio = st ? (Number(st.profit_ratio) || 0) : 0;
+					data.parent_hidden_profit_ratio = st ? (Number(st.hidden_profit_ratio) || 0) : 0;
+					data.parent_fee_profit_ratio = st ? (Number(st.fee_profit_ratio) || 0) : 0;
+					http.send(res,0,"ok",{data:data});
+				});
 			});
 		});
 	});

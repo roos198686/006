@@ -38,6 +38,7 @@ var Global = cc.Class({
             
             var opts = {
                 'reconnection':true,
+                'forceNew': true,
                 'force new connection': true,
                 'transports':['websocket', 'polling']
             }

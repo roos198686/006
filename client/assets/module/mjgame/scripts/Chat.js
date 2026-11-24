@@ -126,6 +126,7 @@ cc.Class({
 
     onBtnChatClicked:function(){
         if(!this._chatRoot) return;
+        if(this._emojiController) this._emojiController.preload();
         this._chatRoot.active = true;
     },
 
