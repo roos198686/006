@@ -2579,10 +2579,35 @@ exports.partner_list = function(clubId,callback){
     var tryFinalize = function(){
         if(queue.length > 0 || inFlight > 0){ return; }
         if(results.length === 0){ callback([]); return; }
+        //每个合伙人下面(自身+所有下级)的房间数, 一个房间号算一个牌局
+        var childMap = {};
+        results.forEach(function(r){
+            var pid = Number(r.parent_clubid) || 0;
+            if(!childMap[pid]){ childMap[pid] = []; }
+            childMap[pid].push(r.id);
+        });
+        var subtreeIds = function(rootId){
+            var ids = [], stack = [rootId], seen = {};
+            while(stack.length > 0){
+                var id = stack.pop();
+                if(seen[id]){ continue; }
+                seen[id] = true; ids.push(id);
+                var ks = childMap[id] || [];
+                for(var i = 0; i < ks.length; ++i){ stack.push(ks[i]); }
+            }
+            return ids;
+        };
         //最后一轮: 每个结果行查顶级俱乐部视角下的 stats(顶级 owner 对 2 级/3 级可能没直接行, 填零)
         var pending = results.length;
+        var finishOne = function(){
+            pending--;
+            if(pending <= 0){
+                results.sort(function(a,b){ return b.id - a.id; });
+                callback(results);
+            }
+        };
         results.forEach(function(r){
-
+            var ids = subtreeIds(r.id);
             exports.partner_stats_row(clubId, r.id, function(st){
                 if(st){
                     r.profit_ratio = st.profit_ratio != null ? st.profit_ratio : 0;
@@ -2610,11 +2635,11 @@ exports.partner_list = function(clubId,callback){
                     r.total_game_score = 0; r.total_rake = 0; r.total_hidden_rake = 0; r.total_partner_profit = 0;
                     r.direct_member_count = 0; r.chain_member_count = 0; r.chain_total_gems = 0; r.warning_value = 0;
                 }
-                pending--;
-                if(pending <= 0){
-                    results.sort(function(a,b){ return b.id - a.id; });
-                    callback(results);
-                }
+                //牌局数: 本合伙人及其所有下级产生的房间, 按 roomid 去重(累计)
+                queryP('SELECT COUNT(DISTINCT roomid) AS c FROM t_reward_logs WHERE roomid > 0 AND club_id IN (' + ids.join(',') + ')', [], function(err3, rows3){
+                    r.game_count = (!err3 && rows3 && rows3.length) ? (Number(rows3[0].c) || 0) : 0;
+                    finishOne();
+                });
             });
         });
     };

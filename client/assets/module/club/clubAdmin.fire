@@ -31121,6 +31121,9 @@
       },
       {
         "__id__": 647
+      },
+      {
+        "__id__": 1838
       }
     ],
     "_active": true,
@@ -31720,7 +31723,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        -86.57400000000007,
+        -73,
         0,
         0,
         0,
@@ -31789,7 +31792,7 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 8,
-    "_left": 648.4259999999999,
+    "_left": 662,
     "_right": 0,
     "_top": 0,
     "_bottom": 0,
@@ -31845,7 +31848,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        115.14599999999996,
+        95,
         0,
         0,
         0,
@@ -31914,7 +31917,7 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 8,
-    "_left": 850.146,
+    "_left": 830,
     "_right": 0,
     "_top": 0,
     "_bottom": 0,
@@ -31970,7 +31973,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        260.211,
+        235,
         0,
         0,
         0,
@@ -32039,7 +32042,7 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 8,
-    "_left": 995.211,
+    "_left": 970,
     "_right": 0,
     "_top": 0,
     "_bottom": 0,
@@ -32083,7 +32086,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 170,
+      "width": 160,
       "height": 40
     },
     "_anchorPoint": {
@@ -32095,7 +32098,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        420.759,
+        385,
         0,
         0,
         0,
@@ -32164,7 +32167,7 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 8,
-    "_left": 1145.759,
+    "_left": 1115,
     "_right": 0,
     "_top": 0,
     "_bottom": 0,
@@ -32208,7 +32211,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 130,
+      "width": 100,
       "height": 40
     },
     "_anchorPoint": {
@@ -32220,7 +32223,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        548.3499999999999,
+        700,
         0,
         0,
         0,
@@ -32289,8 +32292,8 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 8,
-    "_left": 1293.35,
-    "_right": 45,
+    "_left": 1460,
+    "_right": 0,
     "_top": 0,
     "_bottom": 0,
     "_verticalCenter": 0,
@@ -32548,6 +32551,9 @@
       },
       {
         "__id__": 691
+      },
+      {
+        "__id__": 1835
       }
     ],
     "_active": true,
@@ -33132,7 +33138,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 250,
+      "width": 180,
       "height": 70
     },
     "_anchorPoint": {
@@ -33144,7 +33150,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        -73.64999999999998,
+        -73,
         0,
         0,
         0,
@@ -33214,7 +33220,7 @@
     "_target": null,
     "_alignFlags": 32,
     "_left": 0,
-    "_right": 748.65,
+    "_right": 783,
     "_top": 0,
     "_bottom": 0,
     "_verticalCenter": 0,
@@ -33257,7 +33263,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 150,
+      "width": 140,
       "height": 70
     },
     "_anchorPoint": {
@@ -33269,7 +33275,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        120.44000000000005,
+        95,
         0,
         0,
         0,
@@ -33339,7 +33345,7 @@
     "_target": null,
     "_alignFlags": 32,
     "_left": 0,
-    "_right": 604.56,
+    "_right": 635,
     "_top": 0,
     "_bottom": 0,
     "_verticalCenter": 0,
@@ -33382,7 +33388,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 150,
+      "width": 140,
       "height": 70
     },
     "_anchorPoint": {
@@ -33394,7 +33400,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        267.607,
+        235,
         0,
         0,
         0,
@@ -33464,7 +33470,7 @@
     "_target": null,
     "_alignFlags": 32,
     "_left": 0,
-    "_right": 457.393,
+    "_right": 495,
     "_top": 0,
     "_bottom": 0,
     "_verticalCenter": 0,
@@ -33507,7 +33513,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 170,
+      "width": 150,
       "height": 70
     },
     "_anchorPoint": {
@@ -33519,7 +33525,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        426.054,
+        385,
         0,
         0,
         0,
@@ -33589,7 +33595,7 @@
     "_target": null,
     "_alignFlags": 32,
     "_left": 0,
-    "_right": 288.946,
+    "_right": 340,
     "_top": 0,
     "_bottom": 0,
     "_verticalCenter": 0,
@@ -33885,7 +33891,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 130,
+      "width": 120,
       "height": 70
     },
     "_anchorPoint": {
@@ -33897,7 +33903,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        579.853,
+        650,
         0,
         0,
         0,
@@ -33947,7 +33953,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 120,
+      "width": 110,
       "height": 48
     },
     "_anchorPoint": {
@@ -34133,7 +34139,7 @@
     "_target": null,
     "_alignFlags": 32,
     "_left": 0,
-    "_right": 155.14700000000005,
+    "_right": 90,
     "_top": 0,
     "_bottom": 0,
     "_verticalCenter": 0,
@@ -34177,7 +34183,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 135,
+      "width": 90,
       "height": 70
     },
     "_anchorPoint": {
@@ -34189,7 +34195,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        728.71,
+        755,
         0,
         0,
         0,
@@ -90868,5 +90874,255 @@
     "_originalWidth": 0,
     "_originalHeight": 0,
     "_id": "f2KSizfndOI7bLbfPuGkAE"
+  },
+  {
+    "__type__": "cc.Node",
+    "_name": "games",
+    "_objFlags": 0,
+    "_parent": {
+      "__id__": 654
+    },
+    "_children": [],
+    "_active": true,
+    "_components": [
+      {
+        "__id__": 1836
+      },
+      {
+        "__id__": 1837
+      }
+    ],
+    "_prefab": null,
+    "_opacity": 255,
+    "_color": {
+      "__type__": "cc.Color",
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 255
+    },
+    "_contentSize": {
+      "__type__": "cc.Size",
+      "width": 110,
+      "height": 70
+    },
+    "_anchorPoint": {
+      "__type__": "cc.Vec2",
+      "x": 0.5,
+      "y": 0.5
+    },
+    "_trs": {
+      "__type__": "TypedArray",
+      "ctor": "Float64Array",
+      "array": [
+        525,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "_eulerAngles": {
+      "__type__": "cc.Vec3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "_skewX": 0,
+    "_skewY": 0,
+    "_is3DNode": false,
+    "_groupIndex": 0,
+    "groupIndex": 0,
+    "_id": "statsGames1Node0000000"
+  },
+  {
+    "__type__": "cc.Label",
+    "_name": "",
+    "_objFlags": 0,
+    "node": {
+      "__id__": 1835
+    },
+    "_enabled": true,
+    "_materials": [
+      {
+        "__uuid__": "eca5d2f2-8ef6-41c2-bbe6-f9c79d09c432"
+      }
+    ],
+    "_srcBlendFactor": 770,
+    "_dstBlendFactor": 771,
+    "_string": "0",
+    "_N$string": "0",
+    "_fontSize": 30,
+    "_lineHeight": 32,
+    "_enableWrapText": false,
+    "_N$file": null,
+    "_isSystemFontUsed": true,
+    "_spacingX": 0,
+    "_batchAsBitmap": false,
+    "_styleFlags": 0,
+    "_underlineHeight": 0,
+    "_N$horizontalAlign": 1,
+    "_N$verticalAlign": 1,
+    "_N$fontFamily": "Arial",
+    "_N$overflow": 1,
+    "_N$cacheMode": 0,
+    "_id": "statsGames2Label000000"
+  },
+  {
+    "__type__": "cc.Widget",
+    "_name": "",
+    "_objFlags": 0,
+    "node": {
+      "__id__": 1835
+    },
+    "_enabled": true,
+    "alignMode": 1,
+    "_target": null,
+    "_alignFlags": 32,
+    "_left": 0,
+    "_right": 220,
+    "_top": 0,
+    "_bottom": 0,
+    "_verticalCenter": 0,
+    "_horizontalCenter": 0,
+    "_isAbsLeft": true,
+    "_isAbsRight": true,
+    "_isAbsTop": true,
+    "_isAbsBottom": true,
+    "_isAbsHorizontalCenter": true,
+    "_isAbsVerticalCenter": true,
+    "_originalWidth": 0,
+    "_originalHeight": 0,
+    "_id": "statsGames3Widget00000"
+  },
+  {
+    "__type__": "cc.Node",
+    "_name": "h_games",
+    "_objFlags": 0,
+    "_parent": {
+      "__id__": 622
+    },
+    "_children": [],
+    "_active": true,
+    "_components": [
+      {
+        "__id__": 1839
+      },
+      {
+        "__id__": 1840
+      }
+    ],
+    "_prefab": null,
+    "_opacity": 255,
+    "_color": {
+      "__type__": "cc.Color",
+      "r": 0,
+      "g": 0,
+      "b": 0,
+      "a": 255
+    },
+    "_contentSize": {
+      "__type__": "cc.Size",
+      "width": 110,
+      "height": 40
+    },
+    "_anchorPoint": {
+      "__type__": "cc.Vec2",
+      "x": 0.5,
+      "y": 0.5
+    },
+    "_trs": {
+      "__type__": "TypedArray",
+      "ctor": "Float64Array",
+      "array": [
+        525,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "_eulerAngles": {
+      "__type__": "cc.Vec3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "_skewX": 0,
+    "_skewY": 0,
+    "_is3DNode": false,
+    "_groupIndex": 0,
+    "groupIndex": 0,
+    "_id": "statsGames4Node0000000"
+  },
+  {
+    "__type__": "cc.Label",
+    "_name": "",
+    "_objFlags": 0,
+    "node": {
+      "__id__": 1838
+    },
+    "_enabled": true,
+    "_materials": [
+      {
+        "__uuid__": "eca5d2f2-8ef6-41c2-bbe6-f9c79d09c432"
+      }
+    ],
+    "_srcBlendFactor": 770,
+    "_dstBlendFactor": 771,
+    "_string": "牌局数",
+    "_N$string": "牌局数",
+    "_fontSize": 30,
+    "_lineHeight": 32,
+    "_enableWrapText": false,
+    "_N$file": null,
+    "_isSystemFontUsed": true,
+    "_spacingX": 0,
+    "_batchAsBitmap": false,
+    "_styleFlags": 0,
+    "_underlineHeight": 0,
+    "_N$horizontalAlign": 1,
+    "_N$verticalAlign": 1,
+    "_N$fontFamily": "Arial",
+    "_N$overflow": 1,
+    "_N$cacheMode": 0,
+    "_id": "statsGames5Label000000"
+  },
+  {
+    "__type__": "cc.Widget",
+    "_name": "",
+    "_objFlags": 0,
+    "node": {
+      "__id__": 1838
+    },
+    "_enabled": true,
+    "alignMode": 1,
+    "_target": null,
+    "_alignFlags": 8,
+    "_left": 1280,
+    "_right": 0,
+    "_top": 0,
+    "_bottom": 0,
+    "_verticalCenter": 0,
+    "_horizontalCenter": 0,
+    "_isAbsLeft": true,
+    "_isAbsRight": true,
+    "_isAbsTop": true,
+    "_isAbsBottom": true,
+    "_isAbsHorizontalCenter": true,
+    "_isAbsVerticalCenter": true,
+    "_originalWidth": 0,
+    "_originalHeight": 0,
+    "_id": "statsGames6Widget00000"
   }
 ]

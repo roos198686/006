@@ -3,7 +3,7 @@ name: Build Native Packages
 # 发布版本号: APK 内置热更清单版本和安装包 versionName 都用它
 # 必须 >= 线上热更版本; 上传后台"APP发布"时填的版本号也要与它一致
 env:
-  APP_VERSION: "1.0.38"
+  APP_VERSION: "1.0.39"
 
 on:
   push:
@@ -40,6 +40,10 @@ jobs:
       - name: Rebuild hot update manifest
         # APK 内置清单版本必须 >= 线上热更版本, 否则新装机一启动会被线上旧热更覆盖(手册 4.6 红线)。
         run: node tools/gen_manifest.js client/build/jsb-default ${{ env.APP_VERSION }} http://47.243.106.169:9100/hotupdate
+
+      - name: Patch hot update boot
+        # 必须在打包前给 main.js 打补丁: 2.4 原生冷启动不恢复热更搜索路径, 下载完重启也不会生效
+        run: node tools/patch_main_boot.js client/build/jsb-default
 
       - name: Stamp app version
         # 客户端启动时用安装包 versionName 和服务端发布版本比对, 决定是否提示覆盖安装
@@ -121,6 +125,10 @@ jobs:
       - name: Rebuild hot update manifest
         # 手动构建会把 project/version.manifest 改成带哈希的文件名, iOS 打包前必须重新生成固定入口文件。
         run: node tools/gen_manifest.js client/build/jsb-default ${{ env.APP_VERSION }} http://47.243.106.169:9100/hotupdate
+
+      - name: Patch hot update boot
+        # 与安卓一致: main.js 不恢复热更搜索路径的话, 下载完重启不会生效
+        run: node tools/patch_main_boot.js client/build/jsb-default
 
       - name: Stamp app version (iOS)
         # 上传平台要求: Bundle ID 不变, 版本号 >= 1.0.0。这里统一用 APP_VERSION, 保证与服务端发布版本可比对

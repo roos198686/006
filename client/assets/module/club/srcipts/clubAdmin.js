@@ -1057,6 +1057,8 @@ _renderPartnerStats: function () {
         this._setLabel(row, 'rake', String(Number(p.today_rake) || 0));
         this._setLabel(row, 'profit', String(Number(p.today_partner_profit) || 0));
         this._setLabel(row, 'total', String(Number(p.total_partner_profit) || 0));
+        //牌局数: 该合伙人及其所有下级产生的房间总数(一个房间号算一个牌局)
+        this._setLabel(row, 'games', String(Number(p.game_count) || 0));
         var btn = row.getChildByName('btn_detail');
         if (btn) {
             (function (partner) {
