@@ -149,6 +149,13 @@ exports.init = function(config){
         });
     }, 2700);
 
+    //昵称列扩宽: 微信昵称base64加密后可能超过32字符, 会导致新用户注册直接报错(ER_DATA_TOO_LONG)
+    setTimeout(function(){
+        query('ALTER TABLE `t_users` MODIFY COLUMN `name` VARCHAR(255) NULL', function(err){
+            if(err){ console.log("alter t_users.name failed:" + err.message); }
+        });
+    }, 3200);
+
     //玩法配置:纯财神吃碰杠开关(0=至少需1张真牌,1=允许纯财神凑吃碰杠)
     setTimeout(function(){
         query('ALTER TABLE `t_game_config` ADD COLUMN `cai_pure` TINYINT(1) NOT NULL DEFAULT 0 COMMENT "纯财神吃碰杠:0=需真牌 1=允许纯财神凑"', function(err){
@@ -838,7 +845,14 @@ exports.create_user = function(account,name,coins,gems,sex,headimg,callback){
     console.log(sql);
     query(sql, function(err, rows, fields) {
         if (err) {
-            throw err;
+            //并发登录时同一账号可能被两个请求同时创建, 唯一键冲突按"已存在"处理, 不能让异常冒泡
+            if (err.code == "ER_DUP_ENTRY") {
+                callback(true);
+                return;
+            }
+            console.log("[db] create_user failed: " + err.message);
+            callback(false);
+            return;
         }
         callback(true);
     });
