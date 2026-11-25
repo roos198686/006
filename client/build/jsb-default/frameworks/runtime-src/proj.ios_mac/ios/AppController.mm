@@ -142,6 +142,14 @@ Application* app = nullptr;
 #pragma mark -
 #pragma mark 微信登录
 
+#pragma mark 版本号
+
+//当前安装包版本号: JS 通过 jsb.reflection 读取, 与服务端发布的最新包版本比对, 决定是否提示覆盖安装
++ (NSString *)getVersionName {
+    NSString *v = [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"];
+    return v ? v : @"";
+}
+
 + (void)login {
     if (![WXApi isWXAppInstalled]) {
         [AppController showWxMessage:@"请先安装微信"];

@@ -134,4 +134,15 @@ public class AppActivity extends Cocos2dxActivity {
         SDKWrapper.getInstance().onStart();
         super.onStart();
     }
+
+    //当前安装包版本号: JS 通过 jsb.reflection 读取, 与服务端发布的最新包版本比对, 决定是否提示覆盖安装
+    public static String getVersionName() {
+        try {
+            android.content.Context ctx = Cocos2dxActivity.getContext();
+            android.content.pm.PackageInfo pi = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0);
+            return pi.versionName == null ? "" : pi.versionName;
+        } catch (Throwable e) {
+            return "";
+        }
+    }
 }

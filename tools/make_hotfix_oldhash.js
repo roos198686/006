@@ -1,6 +1,6 @@
 // 可按旧主包 hash 下发的热更包生成器
 // 用法: node tools/make_hotfix_oldhash.js <构建目录> <输出zip> <版本号> <公网地址> <主包旧hash>
-// 例:   node tools/make_hotfix_oldhash.js client/build/jsb-default hotfix.zip 1.0.12 http://47.239.100.68:9100/hotupdate e7d09
+// 例:   node tools/make_hotfix_oldhash.js client/build/jsb-default hotfix.zip 1.0.12 http://47.243.106.169:9100/hotupdate e7d09
 //
 // 背景: 装机包里的 src/settings.<hash>.jsc(编译进 main.js) 固定记录了主包文件名 index.<旧hash>.jsc / config.<旧hash>.json。
 // 热更包只含 assets/, 主包 hash 一变引擎就找不到新文件, 会回落到装机包里的旧代码。

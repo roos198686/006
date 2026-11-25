@@ -750,7 +750,6 @@ function checkCanChi(game, seatData, targetPai){
     if(isCaishenPai(game, targetPai)) return; //财神不参与吃
     var type = getMJType(targetPai);
     var cm = seatData.countMap;
-    var csCount = game.cai_chi ? getCaishenCount(seatData, game.caishen, game.caishen2) : 0;
 
     // 检查某张牌是否可用（真实存在）
     var hasPai = function(p){
@@ -761,6 +760,22 @@ function checkCanChi(game, seatData, targetPai){
         if(isCaishenPai(game, p)) return false;
         return (cm[p] || 0) > 0;
     };
+
+    // 可用来补位的财神牌(按手牌实际张数展开)。
+    // 吃牌请求发的是"手里真实牌值",缺的那张必须用财神本身补位;若仍按缺的面值下发,
+    // 客户端会提示"234筒"这种手里根本没有3筒的组合,点了也会被exports.chi判为非法。
+    var csPool = [];
+    if(game.cai_chi){
+        var pushCs = function(v){
+            if(v == null || v < 0) return;
+            var n = cm[v] || 0;
+            for(var k = 0; k < n; ++k) csPool.push(v);
+        };
+        pushCs(game.caishen);
+        if(game.caishen2 != null && game.caishen2 >= 0 && game.caishen2 != game.caishen){
+            pushCs(game.caishen2);
+        }
+    }
 
     var combos = [
         [targetPai - 2, targetPai - 1],
@@ -779,12 +794,26 @@ function checkCanChi(game, seatData, targetPai){
         if(!h1) needCs++;
         if(!h2) needCs++;
 
-        // 至少要有一张真实牌 + 财神补位不超过配置数量 + 补位总数不超过实际财神数
-        if(needCs <= csCount && (game.cai_pure || h1 || h2)){
+        if(needCs == 0){
+            // 两张真实牌成顺
             seatData.canChi = true;
             if(!seatData.chiPai) seatData.chiPai = [];
             seatData.chiPai.push([p1, p2, targetPai]);
+            continue;
         }
+        if(needCs > csPool.length) continue;       // 财神不够补位
+        if(needCs >= 2 && !game.cai_pure) continue; // 两张都缺必须开纯财吃
+
+        // 真实牌 + 财神牌本身 + 被吃的牌,客户端据此显示/发包
+        var combo = [];
+        if(h1) combo.push(p1);
+        if(h2) combo.push(p2);
+        for(var k = 0; k < needCs; ++k) combo.push(csPool[k]);
+        combo.push(targetPai);
+
+        seatData.canChi = true;
+        if(!seatData.chiPai) seatData.chiPai = [];
+        seatData.chiPai.push(combo);
     }
 }
 
@@ -1662,6 +1691,8 @@ exports.chi = function(userId, chiPais){
     checkTingPai(seatData, game.caishen, game.caishen2);
     // 摸/杠后判胡: 牌型合法 + 台数门槛
     seatData.canHu = checkCanHu(seatData, game.caishen, game.caishen2) && baoTaiGate(seatData, game, null, true, 0).ok;
+    // 吃牌后没有摸牌,必须显式启动倒计时(否则客户端一直停在00,超时也不会代打)
+    scheduleTurnTimeout(game, seatIndex, seatData.canHu ? true : false);
     sendOperations(game, seatData, -1);
 };
 
@@ -1962,6 +1993,8 @@ exports.guo = function(userId){
         seatData.canGang = false;
         seatData.gangPai = [];
         userMgr.sendMsg(seatData.userId, 'game_action_push');
+        // 过完杠/胡选项后仍要出牌:重新启动出牌倒计时(本函数开头已清掉摸牌时的定时器)
+        scheduleTurnTimeout(game, seatIndex, false);
         return;
     }
 

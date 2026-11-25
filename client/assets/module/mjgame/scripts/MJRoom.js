@@ -624,9 +624,10 @@ cc.Class({
             catch(e){ console.error("[MJRoom] 补建牌墙异常:", (e && e.stack) ? e.stack : e); }
         }
         if(!this._brickBuilt){ return; }
-        //清桌时牌墙被隐藏,新一局数据到达刷新时恢复显示
-        if(this._brickWall){ this._brickWall.active = true; }
         var nm = cc.vv ? cc.vv.gameNetMgr : null;
+        //所有麻将场景共用:后台未下发该字段时默认隐藏;仍更新墙牌数据和剩余张数,只隐藏整面墙
+        var hideWall = !nm || !nm.conf || nm.conf.hide_wall == null || Number(nm.conf.hide_wall) !== 0;
+        if(this._brickWall){ this._brickWall.active = !hideWall; }
         if(!nm){ return; }
         var n = (nm.numOfMJ != null) ? Number(nm.numOfMJ) : 0;
         if(isNaN(n) || n < 0){ n = 0; }

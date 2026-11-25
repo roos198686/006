@@ -241,10 +241,10 @@ cc.Class({
             this._menuBtns.xitosz.active = isTopClub;
             if (!isTopClub && this._currentPage === "xitosz") { this._showPage("overview"); }
         }
-        // 所属一级俱乐部开了统一大厅(hall_mode=1)时, 下级俱乐部隐藏 玩法配置/操作日志/系统设置 三个入口
-        // 一级俱乐部不受影响; 总览数据未到时不做隐藏, 避免闪烁
+        // 下级俱乐部一律隐藏 玩法管理/操作记录/系统设置 三个入口, 只有一级俱乐部可见
+        // 总览数据未到时不做隐藏, 避免闪烁
         if (d && d.club_id) {
-            var hideSubEntries = !isTopClub && Number(d.hall_mode) === 1;
+            var hideSubEntries = !isTopClub;
             var subKeys = ["gameConfig", "operationLog", "xitosz"];
             for (var mi = 0; mi < subKeys.length; ++mi) {
                 var mk = subKeys[mi];
@@ -739,12 +739,23 @@ cc.Class({
         if (lbl) lbl.string = text;
     },
 
-    // 比例列: 抽水/暗水/费用 三个比例, 如 10/10/10
-    _ratioText: function (p) {
-        function n(v) { return Number(v) || 0; }
-        return n(p.profit_ratio) + "/" + n(p.hidden_profit_ratio) + "/" + n(p.fee_profit_ratio);
+    // 是否顶级俱乐部(无上级): 有总览数据时以服务端 parent_clubid 为准, 数据未到时用进页面时的标记兜底
+    _isTopClub: function () {
+        var d = this._overview || {};
+        if (d.club_id) { return !((Number(d.parent_clubid) || 0) > 0); }
+        var topFlag = (cc.vv && typeof cc.vv.adminClubTop === "boolean") ? cc.vv.adminClubTop : null;
+        return topFlag !== false;
     },
-    // 比例列文字比单个数字长, 场景里节点宽度只有 100, 用 SHRINK 自动缩放避免被截成只剩一个数
+
+    // 比例列: 顶级俱乐部显示 抽水/暗水/费用 三个比例(用/分隔), 下级俱乐部只显示抽水比例
+    _ratioText: function (p, isTop) {
+        var rake = Number(p.profit_ratio) || 0;
+        if (!isTop) { return rake + "%"; }
+        var hidden = Number(p.hidden_profit_ratio) || 0;
+        var fee = Number(p.fee_profit_ratio) || 0;
+        return rake + "%/" + hidden + "%/" + fee + "%";
+    },
+    // 比例列文字可能比单个数字长, 统一用 SHRINK 自动缩放避免被截断
     _setRatioLabel: function (row, text) {
         var n = row.getChildByName("ratio");
         if (!n) return;
@@ -942,7 +953,7 @@ cc.Class({
         this._setLabel(row, "uid", ownerTxt || ("ID:" + partner.id));
         this._setLabel(row, "members", String(partner.member_count || 0));
         this._setLabel(row, "gems", String(Number(partner.total_gems) || 0));
-        this._setRatioLabel(row, this._ratioText(partner));
+        this._setRatioLabel(row, this._ratioText(partner, this._isTopClub()));
 
         var self = this;
         var btns = { btn_gems: "gems", btn_ratio: "ratio", btn_profit: "profit", btn_del: "delete" };
@@ -1042,7 +1053,7 @@ _renderPartnerStats: function () {
         this._setLabel(row, 'uid', ownerN + '(' + p.owner_userid + ')');
         this._setLabel(row, 'members', String(p.member_count || 0));
         this._setLabel(row, 'gems', String(Number(p.total_gems) || 0));
-        this._setRatioLabel(row, this._ratioText(p));
+        this._setRatioLabel(row, this._ratioText(p, this._isTopClub()));
         this._setLabel(row, 'rake', String(Number(p.today_rake) || 0));
         this._setLabel(row, 'profit', String(Number(p.today_partner_profit) || 0));
         this._setLabel(row, 'total', String(Number(p.total_partner_profit) || 0));
@@ -1970,8 +1981,7 @@ _bindRewardPage: function () {
                 var closeBtn = panel.getChildByName("closeBtn");
                 if (closeBtn) { closeBtn.on(cc.Node.EventType.TOUCH_END, function () { win.active = false; }); }
                 // 点遮罩也关闭, 避免关闭按钮被内容挡住时关不掉
-                var mask = win.getChildByName("mask");
-                if (mask) { mask.on(cc.Node.EventType.TOUCH_END, function () { win.active = false; }); }
+                // 遮罩不响应点击关闭, 只能点关闭/取消/确定按钮
                 var content = panel.getChildByName("content");
                 if (!content) { return; }
                 var okBtn = content.getChildByName("okBtn");
@@ -2511,9 +2521,15 @@ _bindRewardPage: function () {
         if (!win) { return; }
         var content = this._popupPanel(win).getChildByName("content");
         var rn = this._ratioDialogNodes(content);
+        var isTopClub = this._isTopClub();
         this._setNodeLabel(rn.tipRake, "当前抽水比例：" + (partner.profit_ratio || 0) + "%");
+        //第三个比例作用于进场费/洗牌/表情(fee_profit_ratio), 真正的整场房费走抽水比例, 所以文案按实际叫法显示
         this._setNodeLabel(rn.tipHidden, "当前暗水比例：" + (partner.hidden_profit_ratio || 0) + "%");
-        this._setNodeLabel(rn.tipFee, "当前房费/洗牌/表情比例：" + (partner.fee_profit_ratio || 0) + "%");
+        this._setNodeLabel(rn.tipFee, "当前进场费/洗牌/表情比例：" + (partner.fee_profit_ratio || 0) + "%");
+        //暗水/进场费两项只对顶级俱乐部显示, 下级俱乐部隐藏
+        [rn.tipHidden, rn.tipFee, rn.inputHidden, rn.inputFee].forEach(function (n) {
+            if (n) { n.active = !!isTopClub; }
+        });
         this._setInputNode(rn.inputRake, "");
         this._setInputNode(rn.inputHidden, "");
         this._setInputNode(rn.inputFee, "");

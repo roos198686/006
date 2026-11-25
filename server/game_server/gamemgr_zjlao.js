@@ -547,7 +547,6 @@ function checkCanChi(game, seatData, targetPai){
     if(isCaishenPai(game, targetPai)) return; //财神不参与吃
     var type = getMJType(targetPai);
     var cm = seatData.countMap;
-    var csCount = game.cai_chi ? getCaishenCount(seatData, game.caishen, game.caishen2) : 0;
 
     // 检查某张牌是否可用（真实存在）
     var hasPai = function(p){
@@ -558,6 +557,20 @@ function checkCanChi(game, seatData, targetPai){
         if(isCaishenPai(game, p)) return false;
         return (cm[p] || 0) > 0;
     };
+
+    // 可用来补位的财神牌(按手牌实际张数展开)
+    var csPool = [];
+    if(game.cai_chi){
+        var pushCs = function(v){
+            if(v == null || v < 0) return;
+            var n = cm[v] || 0;
+            for(var k = 0; k < n; ++k) csPool.push(v);
+        };
+        pushCs(game.caishen);
+        if(game.caishen2 != null && game.caishen2 >= 0 && game.caishen2 != game.caishen){
+            pushCs(game.caishen2);
+        }
+    }
 
     var combos = [
         [targetPai - 2, targetPai - 1],
@@ -577,10 +590,17 @@ function checkCanChi(game, seatData, targetPai){
         if(!h2) needCs++;
 
         // 至少要有一张真实牌 + 财神补位不超过配置数量 + 补位总数不超过实际财神数
-        if(needCs <= csCount && (game.cai_pure || h1 || h2)){
+        if(needCs <= csPool.length && (game.cai_pure || h1 || h2)){
+            // 缺的那张用财神本身补位;若仍按缺的面值下发,客户端会提示手里没有的牌
+            var combo = [];
+            if(h1) combo.push(p1);
+            if(h2) combo.push(p2);
+            for(var k = 0; k < needCs; ++k) combo.push(csPool[k]);
+            combo.push(targetPai);
+
             seatData.canChi = true;
             if(!seatData.chiPai) seatData.chiPai = [];
-            seatData.chiPai.push([p1, p2, targetPai]);
+            seatData.chiPai.push(combo);
         }
     }
 }
@@ -1353,6 +1373,8 @@ exports.chi = function(userId, chiPais){
     // 赖倒胡:无台数门槛,checkCanHu 通过即可胡
     seatData.canHu = checkCanHu(seatData, game.caishen, game.caishen2);
     sendOperations(game, seatData, -1);
+    //吃牌后进入出牌倒计时,超时系统代打
+    scheduleTurnTimeout(game, game.turn, false);
 };
 
 exports.hu = function(userId){
@@ -1596,6 +1618,8 @@ exports.guo = function(userId){
         seatData.canGang = false;
         seatData.gangPai = [];
         userMgr.sendMsg(seatData.userId, 'game_action_push');
+        // 操作窗口关闭后,立即起出牌倒计时(超时自动代打最后一张手牌)
+        scheduleTurnTimeout(game, seatIndex, false);
         return;
     }
 

@@ -810,10 +810,20 @@ cc.Class({
                                "fanqie", "hua", "huojian", "jubaopen", "pencaoqiang", "tiangou",
                                "xinxin", "youting", "zhadan", "zhichi", "zhuoji"];
         this._interactSpine = {};
-        // 有对应音效的动态表情(音效来自逆向包 GiftSound, 资源在 resources/sounds/emoji/): 播表情时同步播音效
+        // 有对应音效的动态表情: 播表情时同步播音效, 资源在 resources/sounds/emoji/
+        // 前 14 个来自逆向包 GiftSound, 其余 45 个来自 mixkit 免费音效
         this._emojiSoundMap = { bixin: 1, bobo: 1, caishen: 1, fanqie: 1, hua: 1, huojian: 1,
                                 jubaopen: 1, pencaoqiang: 1, tiangou: 1, xinxin: 1, youting: 1,
-                                zhadan: 1, zhichi: 1, zhuoji: 1 };
+                                zhadan: 1, zhichi: 1, zhuoji: 1,
+                                yihuo: 1, kuaidian: 1, zhenbang: 1, aini: 1, daxiao: 1, yunle: 1,
+                                yishoulanpai: 1, dengchang: 1, jingle: 1, huaixiao: 1, keshui: 1,
+                                "886": 1, wolaile: 1, dalaozaici: 1, biepao: 1,
+                                dianzan: 1, baoza1: 1, jidan1: 1, huaban1: 1, xin: 1, chuizi2: 1,
+                                dapao: 1, gongjian: 1, jiguanqiang: 1, e1004: 1, chuizi: 1,
+                                jidan: 1, huaban: 1, baoza: 1, zhuaji: 1, bingtong: 1,
+                                dong: 1, xi: 1, nan: 1, bei: 1, zhong: 1,
+                                ainio: 1, anzhongguancha: 1, dacuopaile: 1, emo: 1, haixiu: 1,
+                                kuaidianba: 1, shanyaodengchang: 1, tuoguan: 1, yiqifacai: 1 };
     },
 
     _ensureEmojiSpines: function () {

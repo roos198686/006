@@ -11,6 +11,7 @@
 #       所以必须按 /proc/<pid>/cwd 判断进程属于哪个服务目录, 不能按 pkill -f 名字杀。
 BASE=/www/wwwroot/baobao
 LOGDIR=$BASE/logs
+NODE=$(command -v node)   # 不写死 /usr/bin/node, 各服务器 node 路径可能不同
 mkdir -p "$LOGDIR"
 
 restart_one() {
@@ -24,7 +25,7 @@ restart_one() {
     done
     sleep 1
     cd "$BASE/$dir" || return 1
-    nohup /usr/bin/node app.js ../configs >> "$LOGDIR/${name}_stdout.log" 2>&1 &
+    nohup "$NODE" app.js ../configs >> "$LOGDIR/${name}_stdout.log" 2>&1 &
     pid=$!
     sleep 2
     if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then

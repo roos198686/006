@@ -112,6 +112,13 @@ cc.Class({
         this.bbWatching = false;
         this.bbReveal = null;
         this.bbOverDetails = null;
+        //清关牌状态: 防止进下一房间时把旧对家回合和倒计时恢复出来
+        this.gpMyCards = null;
+        this.gpSeats = null;
+        this.gpTurn = -1;
+        this.gpTurnDeadline = 0;
+        this.gpLastPlay = null;
+        this.waitGpStart = null;
         //清十三水状态
         this.sssStart = null;
         this.sssMyCards = null;
@@ -366,6 +373,13 @@ cc.Class({
                 self.bbPhase = null;
                 self.bbArranged = false;
                 self.bbMyMian = null;
+                //关牌真实残局由gp_resend_push补发, 进房前先清旧房间的回合/倒计时缓存
+                self.gpMyCards = null;
+                self.gpSeats = null;
+                self.gpTurn = -1;
+                self.gpTurnDeadline = 0;
+                self.gpLastPlay = null;
+                self.waitGpStart = null;
                 //记录本局玩法类型:退出/结算回俱乐部时用于直达该玩法的牌桌页,而不是默认玩法列表
                 if(data.conf && data.conf.type){ cc.vv.lastGameType = data.conf.type; }
                 //记录房间所属俱乐部:从大厅按房号进桌时没有来源俱乐部,靠它退出时也能回该俱乐部的牌桌页

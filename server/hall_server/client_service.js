@@ -185,7 +185,7 @@ app.get('/create_private_room',function(req,res){
 			room_service.createRoom(account,userId,conf,function(err,roomId){
 				if(err == 0 && roomId != null){
                     //进入房间
-					room_service.enterRoom(userId,name,roomId,function(errcode,enterInfo){
+					room_service.enterRoom(userId,name,roomId,function(errcode,enterInfo,errmsg){
 						if(enterInfo){
 							var ret = {
 								roomid:roomId,
@@ -198,7 +198,8 @@ app.get('/create_private_room',function(req,res){
 							http.send(res,0,"ok",ret);
 						}
 						else{
-							http.send(res,errcode,"room doesn't exist.");
+							//进场费不足(2222)透传, 客户端据 errcode 弹窗提示
+							http.send(res,errcode,errmsg || "room doesn't exist.");
 						}
 					});
 				}
@@ -674,7 +675,7 @@ app.get('/club_pull',function(req,res){
 				return;
 			}
 			//黑名单:被踢出过的玩家不能被社长再拉回来
-			db.get_user_data_by_userid(targetId,function(target){
+				db.get_user_data_by_userid(targetId,function(target){
 				if(target == null){
 					http.send(res,5,"该玩家ID不存在，请确认后重试");
 					return;
@@ -773,69 +774,65 @@ app.get('/club_member_gems',function(req,res){
 				http.send(res,4,"仅俱乐部管理员可操作");
 				return;
 			}
-			db.get_user_data_by_userid(targetId,function(target){
-				if(target == null){
-					http.send(res,5,"该玩家ID不存在，请确认后重试");
-					return;
-				}
-				var cur = Number(target.gems)||0;
-				//只有扣分才校验余额, 加分不能因为当前余额为负而被拦下
-				if(delta < 0 && cur + delta < 0){
-					http.send(res,8,"宝宝豆不足，最多可扣减" + cur);
-					return;
-				}
-				var ownerCur = Number(data.gems)||0;
-				// 一级俱乐部: 社长增减豆豆不受自身余额限制; 其余俱乐部(含其所有下级)仍按自身余额限制
-				var noLimit = Number(club.is_top_level) === 1;
-				// 给自己加豆: 一级俱乐部直接加(不走"先扣社长再加回自己"的净0流程); 下级俱乐部不允许
-				if(targetId == data.userid){
-					if(!noLimit){
-						http.send(res,10,"非一级俱乐部不能给自己加豆豆");
+				db.get_user_data_by_userid(targetId,function(target){
+					if(target == null){
+						http.send(res,5,"该玩家ID不存在，请确认后重试");
 						return;
 					}
-					db.add_user_gems(targetId, delta, function(ok){
-						if(!ok){
-							http.send(res,1,"修改宝宝豆失败");
+					//只能操作本俱乐部成员, 防止社长给任意账号加/扣豆
+					db.club_is_member(clubId,targetId,function(isMember){
+						if(!isMember){
+							http.send(res,6,"该玩家不是本俱乐部成员");
 							return;
 						}
-						http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
-					},{roomid:0,gameType:"",changeType:delta > 0 ? "俱乐部加豆" : "俱乐部调整",clubId:clubId});
-					return;
-				}
-				// 加分: 社长必须同步扣豆豆, 余额不足拒绝(一级俱乐部除外)
-				if(delta > 0){
-					if(!noLimit && ownerCur < delta){
-						http.send(res,9,"社长豆豆不足，自己只有" + ownerCur + "，无法给成员加" + delta);
-						return;
-					}
-					// 先扣社长再给目标加; 目标加失败时回滚社长
-					db.add_user_gems(data.userid, -delta, function(okOwner){
-						if(!okOwner){
-							http.send(res,1,"扣社长豆豆失败");
+						var cur = Number(target.gems)||0;
+						//只有扣分才校验余额, 加分不能因为当前余额为负而被拦下
+						if(delta < 0 && cur + delta < 0){
+							http.send(res,8,"宝宝豆不足，最多可扣减" + cur);
 							return;
 						}
-						db.add_user_gems(targetId, delta, function(okTarget){
-							if(!okTarget){
-								// 补回社长
-								db.add_user_gems(data.userid, delta, null,
-									{roomid:0,gameType:"",changeType:"上分失败退还",clubId:clubId});
-								http.send(res,1,"给成员加分失败,已退还社长豆豆");
+						//给自己加减等于自扣自加, 没有意义, 一律拒绝
+						if(targetId == data.userid){
+							http.send(res,10,"不能给自己加扣豆豆");
+							return;
+						}
+						//加分: 先从社长身上原子扣掉, 再给成员加; 成员加失败时把豆退回社长
+						if(delta > 0){
+							db.add_user_gems_checked(data.userid, -delta, function(okOwner){
+								if(!okOwner){
+									http.send(res,9,"社长豆豆不足，无法给成员加" + delta);
+									return;
+								}
+								db.add_user_gems(targetId, delta, function(okTarget){
+									if(!okTarget){
+										db.add_user_gems(data.userid, delta, null,
+											{roomid:0,gameType:"",changeType:"上分失败退还",clubId:clubId});
+										http.send(res,1,"给成员加分失败,已退还社长豆豆");
+										return;
+									}
+									http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
+								},{roomid:0,gameType:"",changeType:"社长给成员上分",clubId:clubId});
+							},{roomid:0,gameType:"",changeType:"社长上分扣款",clubId:clubId});
+							return;
+						}
+						//扣分: 先从成员身上原子扣掉, 再给社长收下; 社长收款失败时把豆退回成员
+						db.add_user_gems_checked(targetId, delta, function(ok){
+							if(!ok){
+								http.send(res,8,"宝宝豆不足，最多可扣减" + cur);
 								return;
 							}
-							http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
-						},{roomid:0,gameType:"",changeType:"社长给成员上分",clubId:clubId});
-					},{roomid:0,gameType:"",changeType:"社长上分扣款",clubId:clubId});
-					return;
-				}
-				// 扣分: 仅扣目标玩家, 社长不加不减
-				db.add_user_gems(targetId, delta, function(ok){
-					if(!ok){
-						http.send(res,1,"修改宝宝豆失败");
-						return;
-					}
-					http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
-				},{roomid:0,gameType:"",changeType:"社长调整",clubId:clubId});
-			});
+							db.add_user_gems(data.userid, -delta, function(okOwner){
+								if(!okOwner){
+									db.add_user_gems(targetId, -delta, null,
+										{roomid:0,gameType:"",changeType:"扣款失败退还",clubId:clubId});
+									http.send(res,1,"社长收款失败,已退还成员豆豆");
+									return;
+								}
+								http.send(res,0,"ok",{userid:targetId,gems:cur+delta});
+							},{roomid:0,gameType:"",changeType:"社长收下扣款",clubId:clubId});
+						},{roomid:0,gameType:"",changeType:"社长调整",clubId:clubId});
+					});
+				});
 		});
 	});
 });
@@ -1576,7 +1573,7 @@ app.get('/club_enter_table',function(req,res){
 						clubConf = JSON.stringify(confObj);
 					}catch(e){ clubConf = table.conf; }
 					var tryEnter = function(roomId){
-						room_service.enterRoom(userId,name,roomId,function(errcode,enterInfo){
+						room_service.enterRoom(userId,name,roomId,function(errcode,enterInfo,errmsg){
 							if(enterInfo){
 								var ret = {
 									roomid:roomId,
@@ -1931,20 +1928,55 @@ app.get('/club_admin/partners',function(req,res){
 app.get('/club_admin/partner_gems',function(req,res){
 	clubAdminAccess(req,res,function(clubId){
 		var pid = parseInt(req.query.partner_club_id);
-		var gems = parseInt(req.query.gems);
-		if(!(pid > 0) || !(gems > 0)){ http.send(res,-1,"parameters don't match api requirements."); return; }
+		//允许负数(减少豆豆), 0 不处理
+		var gems = Math.round((parseFloat(req.query.gems) || 0) * 100) / 100;
+		if(!(pid > 0) || gems === 0){ http.send(res,-1,"parameters don't match api requirements."); return; }
 		db.club_get(pid,function(pclub){
 			if(pclub == null){ http.send(res,3,"partner club not found."); return; }
 			//必须是本俱乐部的下级俱乐部(合伙人), 防止给任意俱乐部加豆
 			if(pclub.parent_clubid != clubId){ http.send(res,4,"partner club not found."); return; }
-			db.add_user_gems(pclub.owner_userid,gems,function(ok){
-				if(!ok){ http.send(res,-1,"system error"); return; }
-				db.partner_upsert(clubId,pid,{},function(){
-					db.partner_add_stats(clubId,pid,{partner_profit:gems},function(){
-						http.send(res,0,"ok");
-					});
+				// 所有俱乐部(含一级)都按转移处理: 给下级加豆扣自己, 扣下级豆加自己
+				db.club_get(clubId,function(myClub){
+					var myOwner = myClub ? myClub.owner_userid : 0;
+					var finish = function(){
+						//人工调豆不计入合伙人分成收益
+						db.partner_upsert(clubId,pid,{},function(){
+							http.send(res,0,"ok");
+						});
+					};
+					//社长账号异常或自己转自己时拒绝, 不能凭空加/扣豆
+					if(!myOwner || myOwner == pclub.owner_userid){
+						http.send(res,-1,"club data error");
+						return;
+					}
+					if(gems > 0){
+						// 加豆: 先从自己身上原子扣掉, 再给下级加; 失败退回
+						db.add_user_gems_checked(myOwner,-gems,function(okOwner){
+							if(!okOwner){ http.send(res,-2,"豆豆不足"); return; }
+							db.add_user_gems(pclub.owner_userid,gems,function(ok){
+								if(!ok){
+									db.add_user_gems(myOwner,gems,null,{roomid:0,gameType:"",changeType:"合伙人加豆失败退还",clubId:clubId});
+									http.send(res,-1,"system error");
+									return;
+								}
+								finish();
+							},{roomid:0,gameType:"",changeType:"俱乐部给合伙人加豆",clubId:clubId});
+						},{roomid:0,gameType:"",changeType:"给合伙人加豆扣款",clubId:clubId});
+						return;
+					}
+					// 减豆: 先从下级身上原子扣掉, 成功后加到自己
+					db.add_user_gems_checked(pclub.owner_userid,gems,function(ok){
+						if(!ok){ http.send(res,-2,"合伙人豆豆不足"); return; }
+						db.add_user_gems(myOwner,-gems,function(okOwner){
+							if(!okOwner){
+								db.add_user_gems(pclub.owner_userid,-gems,null,{roomid:0,gameType:"",changeType:"合伙人扣豆失败退还",clubId:clubId});
+								http.send(res,-1,"system error");
+								return;
+							}
+							finish();
+						},{roomid:0,gameType:"",changeType:"收下合伙人扣豆",clubId:clubId});
+					},{roomid:0,gameType:"",changeType:"俱乐部扣合伙人豆",clubId:clubId});
 				});
-			});
 		});
 	});
 });

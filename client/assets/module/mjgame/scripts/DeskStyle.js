@@ -356,6 +356,7 @@ cc.Class({
     _onPickBg: function (event, custom) {
         this._bgIndex = parseInt(custom, 10) || 0;
         saveJson(BG_KEY, this._bgIndex);
+        console.log('[DeskStyle] pickBg idx=' + this._bgIndex + ' defaultFrame=' + (this._defaultFrame ? 'OK' : 'NULL') + ' bgSpr=' + (this._bgSpr ? this._bgSpr.node.name : 'NULL'));
         this._applyBg();
         this._syncSettingLabels();
         if (this._panel) { this._panel.active = false; }

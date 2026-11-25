@@ -514,8 +514,8 @@ function nextRound(game){
         var rs = roomInfo.seats[i];
         if(rs.userId > 0 && rs.ready && uids.indexOf(rs.userId) < 0) uids.push(rs.userId);
     }
-    // 人数不足两人(结算期间有人被请出/退出): 直接散场, 避免卡在"等待下一局"
-    if(uids.length < 2){
+    // 人数不足(结算期间有人被请出/退出): 直接散场, 避免卡在"等待下一局"
+    if(uids.length < minPlayersOf(roomInfo)){
         console.log("[宝宝] 下一局人数不足(" + uids.length + "), 散场 room=" + roomId);
         userMgr.brocastInRoom(roomId, 'dispress_push', {});
         setTimeout(function(){ roomMgr.destroy(roomId); }, 300);
@@ -981,6 +981,10 @@ function doGameOver(game){
         });
     }
 
+    // 结算前读真实余额并封顶: 输家最多输光, 差额由赢家按比例少收; 不会扣成负数且总量守恒
+    loadSettleBalances(game, function(bal){
+    deltas = db.cap_deltas_by_balance(deltas, bal);
+
     // 宝宝豆结算: 每局按本局输赢分加减账户余额(gems), 余额刷新后用最新余额作为积分推送结算
     var roomInfo = roomMgr.getRoom(game.roomId);
     var kickBean = roomInfo ? (Number(roomInfo.conf.kick_bean) || 0) : 0;
@@ -999,8 +1003,8 @@ function doGameOver(game){
         userIdOfSeat: game.gameSeats.map(function(s){ return s.userId; })
     } : null;
 
-    //抽水归属: 赢家是社长 -> 归自己俱乐部; 是普通成员 -> 跳过他所属俱乐部, 直接归上级俱乐部;
-    //无俱乐部 -> 归牌桌所属俱乐部
+    //抽水归属: 一律归"玩家所属俱乐部"(社长和普通成员相同), 无俱乐部 -> 归牌桌所属俱乐部
+    //归属确定后沿多级链向上分账
     var fillRakeClubs = function(seatIdxs, cb){
         if(!chargeRoomInfo){ cb(); return; }
         var map = chargeRoomInfo.rakeClubOfSeat || (chargeRoomInfo.rakeClubOfSeat = {});
@@ -1014,15 +1018,8 @@ function doGameOver(game){
             if(!(uid > 0)){ map[si] = tableClub; tick(); return; }
             db.club_member_clubid(uid, function(cid){
                 cid = Number(cid) || 0;
-                if(!(cid > 0)){ map[si] = tableClub; tick(); return; }
-                db.club_get(cid, function(club){
-                    var target = cid;
-                    if(club && Number(club.owner_userid) !== uid && Number(club.parent_clubid) > 0){
-                        target = Number(club.parent_clubid);
-                    }
-                    map[si] = target;
-                    tick();
-                });
+                map[si] = cid > 0 ? cid : tableClub;
+                tick();
             });
         });
     };
@@ -1107,15 +1104,16 @@ function doGameOver(game){
         var rsw = (roomInfo && roomInfo.seats) ? roomInfo.seats[gsw.roomSeatIndex] : null;
         if(rsw) rsw.roomWin = gsw.roomWin;
     }
-    doCharge(function(){
-        console.log("[宝宝][时序] 抽水完成 +" + (Date.now() - t0) + "ms room=" + game.roomId);
-        // 统一收费关闭时: 宝宝玩法不再抽水/表情/洗牌, 改按房卡扣(首局结算一次性扣)
-        require("./charge").chargeRoomCard(roomInfo, function(){});
+    var settleNow = function(){
         // 宝宝豆结算: 每局按本局输赢分加减账户余额(gems), 余额刷新后用最新余额作为积分推送结算
         var pushed = false;
         var finish = function(){
         if(pushed) return;
         pushed = true;
+        // 入账完成(余额已刷新)后再抽水/扣房卡: 抽水从赢到的豆里扣, 不会因余额不足失败
+        doCharge(function(){});
+        // 统一收费关闭时: 宝宝玩法不再抽水/表情/洗牌, 改按房卡扣(首局结算一次性扣)
+        require("./charge").chargeRoomCard(roomInfo, function(){});
         // 组装结果(与房间座位对齐, 空位为 null, 兼容 GameNetMgr game_over_push 处理)
         var results = [];
         var roomSeatCount = roomInfo ? roomInfo.seats.length : n;
@@ -1231,7 +1229,7 @@ function doGameOver(game){
                 }
             }
         }
-        if(remainPlayers < 2 && !isFinalRound){
+        if(remainPlayers < minPlayersOf(roomInfo) && !isFinalRound){
             overData.roomEnd = true;
             console.log("[宝宝] 房间人数不足(" + remainPlayers + "), 本局结算显示退出房间 room=" + game.roomId);
         }
@@ -1301,9 +1299,30 @@ function doGameOver(game){
             else after();
         })(game.gameSeats[ci], deltas[ci]);
     }
-    // 扣豆/回读余额还在异步跑: 不阻塞结算弹窗, 立刻推送(等它们回来会多等几百毫秒到几秒)
-    setTimeout(finish, 0);
+    // 兜底: 数据库异常时也能推送结算; 正常由入账完成回调触发(此时余额已刷新, 抽水从赢到的豆里扣)
+    setTimeout(finish, 3000);
+    };
+    settleNow();
     });
+}
+
+//结算前读取每个座位的真实余额(读不到时用内存积分兜底, 负数按0算)
+function loadSettleBalances(game, cb){
+    var seats = game.gameSeats || [];
+    var out = [];
+    var left = seats.length;
+    if(left === 0){ cb(out); return; }
+    for(var i = 0; i < seats.length; ++i){
+        (function(idx){
+            var uid = Number(seats[idx].userId) || 0;
+            var fallback = Math.max(0, Number(seats[idx].score) || 0);
+            if(!(uid > 0)){ out[idx] = fallback; if(--left === 0){ cb(out); } return; }
+            db.get_user_data_by_userid(uid, function(ud){
+                out[idx] = (ud && ud.gems != null) ? Math.max(0, Number(ud.gems) || 0) : fallback;
+                if(--left === 0){ cb(out); }
+            });
+        })(i);
+    }
 }
 
 // 宝宝豆不足: 请出房间(提示→退出座位→不再等其确认→广播牌桌人数)
@@ -1322,11 +1341,20 @@ function kickForBeans(roomId, userId, beans, need){
     });
 }
 
+// 开局最少人数: 取牌桌配置 min_players 与玩法配置 minPlayers 的较大值(后台设置 3 人开玩就是 3), 缺省 2
+function minPlayersOf(roomInfo){
+    var c = (roomInfo && roomInfo.conf) || {};
+    var a = Number(c.min_players) || 0;
+    var b = (c.clubGameConfig && Number(c.clubGameConfig.minPlayers)) || 0;
+    var n = Math.max(a, b);
+    return n > 1 ? n : 2;
+}
+
 // ============ 对外接口 ============
 
 exports.start = function(roomInfo, readyUids){
     var seatedPlayers = collectSeats(roomInfo, readyUids);
-    if(seatedPlayers.length < 2){
+    if(seatedPlayers.length < minPlayersOf(roomInfo)){
         console.log("[宝宝] 人数不足，无法开局");
         return;
     }
@@ -1650,8 +1678,8 @@ exports.setReady = function(userId){
         if(roomInfo.seats[i].ready) count++;
     }
 
-    // 两人以上准备即自动开局(不再要求全员准备)
-    if(count >= 2){
+    // 达到牌桌设置的最少人数且都已准备才自动开局(3人桌必须3人都准备)
+    if(count >= minPlayersOf(roomInfo)){
         setTimeout(function(){
             if(games[roomId] != null && !games[roomId].gameOver) return;
             var room = roomMgr.getRoom(roomId);
@@ -1669,8 +1697,8 @@ exports.begin = function(roomInfo){
         var rrs = roomInfo.seats[ri];
         if(rrs.userId > 0 && rrs.ready) readyUids.push(rrs.userId);
     }
-    if(readyUids.length < 2){
-        console.log("[宝宝] 准备人数不足(" + readyUids.length + ")，不开局");
+    if(readyUids.length < minPlayersOf(roomInfo)){
+        console.log("[宝宝] 准备人数不足(" + readyUids.length + "/" + minPlayersOf(roomInfo) + ")，不开局");
         return;
     }
     roomInfo.numOfGames++;

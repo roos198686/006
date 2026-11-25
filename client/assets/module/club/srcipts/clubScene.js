@@ -2000,14 +2000,26 @@ cc.Class({
                 n.on(cc.Node.EventType.TOUCH_END, fn);
             };
             bindTouch(panel.getChildByName("depBtn"), function(){
-                var amt = self._safeAmountEb ? parseInt(self._safeAmountEb.string) : NaN;
+                var amt = self._safeParseAmount(self._safeAmountEb ? self._safeAmountEb.string : "");
                 if(!isFinite(amt) || amt <= 0){ cc.vv.wc.showError("请输入有效金额"); return; }
                 self._safeDoTransfer(amt);
             });
             bindTouch(panel.getChildByName("wdBtn"), function(){
-                var amt = self._safeAmountEb ? parseInt(self._safeAmountEb.string) : NaN;
+                var amt = self._safeParseAmount(self._safeAmountEb ? self._safeAmountEb.string : "");
                 if(!isFinite(amt) || amt <= 0){ cc.vv.wc.showError("请输入有效金额"); return; }
                 self._safeDoTransfer(-amt);
+            });
+            //全额存入: 宝宝豆全部转入保险柜(精确到0.01, 不留零头)
+            bindTouch(panel.getChildByName("btnAllDep"), function(){
+                var all = self._safeParseAmount(cc.vv.userMgr.gems);
+                if(!isFinite(all) || all <= 0){ cc.vv.wc.showError("宝宝豆不足"); return; }
+                self._safeDoTransfer(all);
+            });
+            //全额取出: 保险柜全部转回宝宝豆(精确到0.01, 不留零头)
+            bindTouch(panel.getChildByName("btnAllWd"), function(){
+                var all = self._safeParseAmount(cc.vv.userMgr.safe_beans);
+                if(!isFinite(all) || all <= 0){ cc.vv.wc.showError("保险柜没有余额"); return; }
+                self._safeDoTransfer(-all);
             });
             bindTouch(panel.getChildByName("closeBtn"), function(){
                 self._hideSafeWin();
@@ -2039,6 +2051,12 @@ cc.Class({
                 self._gemsCache = {gems:cc.vv.userMgr.gems,at:Date.now()};
             }
         },cc.vv.http.master_url);
+    },
+    //保险柜金额解析: 支持小数, 统一保留2位(与数据库 decimal(14,2) 对齐)
+    _safeParseAmount:function(v){
+        var n = parseFloat(v);
+        if(!isFinite(n)){ return NaN; }
+        return Math.round(n * 100) / 100;
     },
     //执行存取:amount>0存入,<0取出
     _safeDoTransfer:function(amount){

@@ -449,69 +449,51 @@ cc.Class({
     },
 
     //设置面板·语音性别选择: 男声/女声/跟随玩家, 存 localStorage bb_voice(宝宝玩法语音包, 默认按玩家性别)
+    //按钮节点已放在场景 settingsWin/voiceSwitch/opt0~2 下, 位置尺寸文字可在编辑器直接调整, 代码只负责选中态和点击
     _initVoiceSwitch:function(){
         var win = this.settingsWin;
         if(!win) return;
         var wrap = win.getChildByName("voiceSwitch");
-        if(!wrap){
-            wrap = new cc.Node("voiceSwitch");
-            wrap.parent = win;
-            wrap.setPosition(0, -200);
-            var title = new cc.Node("title");
-            title.parent = wrap;
-            title.setPosition(-190, 0);
-            var tl = title.addComponent(cc.Label);
-            tl.string = "语音";
-            tl.fontSize = 26;
-            tl.lineHeight = 30;
-            tl.horizontalAlign = cc.Label.HorizontalAlign.LEFT;
-            var defs = [["跟随玩家", ""], ["男声", "nan"], ["女声", "nv"]];
-            for(var i = 0; i < defs.length; ++i){
-                (function(idx){
-                    var b = new cc.Node("opt" + idx);
-                    b.parent = wrap;
-                    b.setPosition(-60 + idx * 120, 0);
-                    b.setContentSize(110, 44);
-                    var g = b.addComponent(cc.Graphics);
-                    var lb = new cc.Node("lb");
-                    lb.parent = b;
-                    var l = lb.addComponent(cc.Label);
-                    l.string = defs[idx][0];
-                    l.fontSize = 22;
-                    l.lineHeight = 26;
-                    l.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-                    b._val = defs[idx][1];
-                    b._g = g;
-                    b._lb = l;
-                    b.on(cc.Node.EventType.TOUCH_END, function(){
-                        try{ cc.sys.localStorage.setItem("bb_voice", b._val); }catch(e){}
-                        // 试听一声: 选男播男声begin, 选女播女声begin, 跟随玩家按自己性别
-                        var sex = (cc.vv && cc.vv.userMgr && cc.vv.userMgr.sex) || 1;
-                        var g2 = b._val || (sex == 2 ? "nv" : "nan");
-                        if(cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("bb/" + g2 + "/begin.mp3");
-                        wrap._refresh();
-                    });
-                })(i);
-            }
-            wrap._refresh = function(){
-                var cur = "";
-                try{ cur = cc.sys.localStorage.getItem("bb_voice") || ""; }catch(e){}
-                for(var j = 0; j < wrap.children.length; ++j){
-                    var c = wrap.children[j];
-                    if(c._val === undefined || !c._g) continue;
-                    var on = (c._val === cur);
-                    c._g.clear();
-                    c._g.fillColor = on ? new cc.Color(30, 140, 60, 255) : new cc.Color(70, 70, 70, 255);
-                    c._g.roundRect(-55, -22, 110, 44, 10);
-                    c._g.fill();
-                    c._g.strokeColor = on ? new cc.Color(255, 220, 90, 255) : new cc.Color(120, 120, 120, 255);
-                    c._g.lineWidth = 2;
-                    c._g.roundRect(-55, -22, 110, 44, 10);
-                    c._g.stroke();
-                    if(c._lb) c._lb.node.color = on ? cc.Color.WHITE : new cc.Color(180, 180, 180, 255);
-                }
-            };
+        if(!wrap) return;
+        var vals = { opt0: "", opt1: "nan", opt2: "nv" };
+        var opts = [];
+        for(var i = 0; i < wrap.children.length; ++i){
+            var c = wrap.children[i];
+            if(vals[c.name] === undefined) continue;
+            var lbNode = c.getChildByName("lb");
+            c._val = vals[c.name];
+            c._g = c.getComponent(cc.Graphics) || c.addComponent(cc.Graphics);
+            c._lb = lbNode ? lbNode.getComponent(cc.Label) : null;
+            opts.push(c);
+            (function(b){
+                b.on(cc.Node.EventType.TOUCH_END, function(){
+                    try{ cc.sys.localStorage.setItem("bb_voice", b._val); }catch(e){}
+                    // 试听一声: 选男播男声begin, 选女播女声begin, 跟随玩家按自己性别
+                    var sex = (cc.vv && cc.vv.userMgr && cc.vv.userMgr.sex) || 1;
+                    var g2 = b._val || (sex == 2 ? "nv" : "nan");
+                    if(cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("bb/" + g2 + "/begin.mp3");
+                    wrap._refresh();
+                });
+            })(c);
         }
+        wrap._refresh = function(){
+            var cur = "";
+            try{ cur = cc.sys.localStorage.getItem("bb_voice") || ""; }catch(e){}
+            for(var j = 0; j < opts.length; ++j){
+                var c = opts[j];
+                var on = (c._val === cur);
+                var w = c.width, h = c.height;
+                c._g.clear();
+                c._g.fillColor = on ? new cc.Color(30, 140, 60, 255) : new cc.Color(70, 70, 70, 255);
+                c._g.roundRect(-w / 2, -h / 2, w, h, 10);
+                c._g.fill();
+                c._g.strokeColor = on ? new cc.Color(255, 220, 90, 255) : new cc.Color(120, 120, 120, 255);
+                c._g.lineWidth = 2;
+                c._g.roundRect(-w / 2, -h / 2, w, h, 10);
+                c._g.stroke();
+                if(c._lb) c._lb.node.color = on ? cc.Color.WHITE : new cc.Color(180, 180, 180, 255);
+            }
+        };
         wrap._refresh();
     },
 

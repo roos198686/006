@@ -132,24 +132,27 @@ function clubConfigOf(clubId, type, cb){
 }
 
 //扣豆并写流水; 同时按比率给代理加豆
+//原子扣款: 余额不足时不扣, 回调 done(false), 调用方不得再给俱乐部/合伙人记收入(否则凭空生豆)
 function deduct(userId, amount, roomId, gameType, changeType, agentRate, done, extra){
     if(!(amount > 0)){
-        if(done) done();
+        if(done) done(true);
         return;
     }
     extra = extra || {};
-    db.add_user_gems(userId, -amount, function(ok){
+    db.add_user_gems_checked(userId, -amount, function(ok){
+        //扣款失败(余额不足/账号不存在)时不记收入, 也不能给代理分成, 否则会凭空产生豆豆
+        if(!ok){ if(done) done(false); return; }
         if(agentRate > 0){
             db.get_user_agent(userId, function(agentId){
                 var share = agentId ? round4(amount * agentRate / 100) : 0;
                 if(share > 0){
                     db.add_user_gems(agentId, share, null, {roomid: roomId, gameType: gameType, changeType: "代理分成", tableName: extra.tableName});
                 }
-                if(done) done();
+                if(done) done(true);
             });
         }
         else if(done){
-            done();
+            done(true);
         }
     }, {roomid: roomId, gameType: gameType, changeType: changeType, clubId: extra.clubId, partnerClubId: extra.partnerClubId, tableName: extra.tableName});
 }
@@ -293,6 +296,52 @@ function splitPartnerShare(clubId, amount, roomId, gameType, roomUuid, gameIndex
     });
 }
 
+//费用专用分账(进场费/表情费/洗牌费同一套规则): 只抽二级一层, 二级抽完剩下的全部归顶级俱乐部
+//费用(进场费/表情费/洗牌费)只在"玩家所属俱乐部"和"顶级俱乐部"两个账号之间分配, 中间上级不参与
+//顶级俱乐部玩家的费用: 全部自留
+//二级/三级及以下俱乐部玩家的费用: 玩家所属俱乐部按下级留成比例留成, 其余归顶级俱乐部
+//费用比例只有顶级俱乐部能设置: 优先取"顶级->玩家所属俱乐部"这条, 没配过就用"顶级->二级"那条
+//例: 顶级A > 二级B > 三级C, 费用比例(A对B)=50% => C的玩家交1元: C 0.5, A 0.5, B 0
+//    A对B=30% => C的玩家交1元: C 0.3, A 0.7
+function splitFeeToTop(clubId, amount, label, roomId, gameType, roomUuid, gameIndex, tableName, done){
+    done = done || function(){};
+    if(!(amount > 0) || !(clubId > 0)){ done(); return; }
+    var payClub = function(cid, amt, cb){
+        if(!(amt > 0)){ cb(); return; }
+        db.add_reward_log(cid, 0, label, round4(amt), gameType, roomId, roomUuid, gameIndex, tableName, function(){ cb(); });
+    };
+    loadClubChain(clubId, function(chain){
+        if(!chain || chain.length <= 1){
+            payClub(clubId, amount, done);
+            return;
+        }
+        var top = chain[0];
+        var second = chain[1]; //二级(顶级的直属下级), 它的费用比例对整条分支生效
+        var ids = (second.id !== clubId) ? (clubId + ',' + second.id) : String(clubId);
+        db.query('SELECT partner_club_id, fee_profit_ratio AS r FROM t_partner_stats WHERE club_id = ' + top.id + ' AND partner_club_id IN (' + ids + ')', function(err, rows){
+            var rDirect = null, rBranch = 0;
+            (rows || []).forEach(function(row){
+                var pid = Number(row.partner_club_id) || 0;
+                var r = Number(row.r) || 0;
+                if(pid === clubId){ rDirect = r; }
+                else if(pid === second.id){ rBranch = r; }
+            });
+            //比例为"下级留成比例": 玩家所属俱乐部留下 r%, 其余给顶级
+            var r = (rDirect != null && rDirect > 0) ? rDirect : rBranch;
+            if(r < 0){ r = 0; }
+            if(r > 100){ r = 100; }
+            var keep = round4(amount * r / 100);
+            var topCut = round4(amount - keep);
+            if(!(topCut > 0)){ payClub(clubId, amount, done); return; }
+            db.partner_add_stats(top.id, clubId, {partner_profit: topCut, partner_total: topCut}, function(){
+                db.add_reward_log(top.id, clubId, "合伙人分成", topCut, gameType, roomId, roomUuid, gameIndex, tableName, function(){
+                    payClub(clubId, keep, done);
+                });
+            });
+        });
+    });
+}
+
 //kind: "enter" 进房首局 / "emoji" 表情 / "shuffle" 洗牌
 exports.charge = function(type, userId, kind, roomId, done){
     unifiedCharge(type, function(on){
@@ -329,8 +378,9 @@ exports.chargeClub = function(type, clubConfig, userId, kind, roomId, done){
         var clubId = clubConfig ? (Number(clubConfig.club_id) || Number(clubConfig.clubId) || 0) : 0;
         //扣下来的费用全额进俱乐部分账链(上下级比例在合伙人设置里配)
         var rate = 100;
-        deduct(userId, amount, roomId, type, label, rules.agentRate, function(){
-            if(!(clubId > 0) || !(rate > 0)){
+        deduct(userId, amount, roomId, type, label, rules.agentRate, function(ok){
+            //余额不足不扣: 不写俱乐部分成/奖励, 避免凭空生豆
+            if(!ok || !(clubId > 0) || !(rate > 0)){
                 if(done) done();
                 return;
             }
@@ -340,11 +390,10 @@ exports.chargeClub = function(type, clubConfig, userId, kind, roomId, done){
                 if(done) done();
                 return;
             }
-            splitPartnerShare(clubId, share, roomId, type, "", 0, "", null, function(net){
-                //奖励明细改为手动领取(超过7天自动到账), 这里不再直接加到俱乐部账号
-                db.add_reward_log(clubId, 0, label, net, type, roomId, "", 0, "", function(){});
+            //进场费/表情/洗牌同一套抽法: 抽二级, 上级抽完剩下的全部给顶级俱乐部
+            splitFeeToTop(clubId, share, label, roomId, type, "", 0, "", function(){
                 if(done) done();
-            }, 'fee_profit_ratio');
+            });
         }, {
             clubId: clubId
         });
@@ -370,17 +419,16 @@ exports.chargeRoom = function(conf, userId, kind, roomId, done){
             return;
         }
         var label = kind === "emoji" ? "表情扣豆" : "洗牌扣豆";
-        deduct(userId, amount, roomId, conf.type, label, 0, function(){
-            if(!(clubId > 0)){
+        deduct(userId, amount, roomId, conf.type, label, 0, function(ok){
+            //余额不足不扣: 不写俱乐部分成/奖励
+            if(!ok || !(clubId > 0)){
                 if(done) done();
                 return;
             }
-            //抽取部分归俱乐部收入(下级俱乐部的收入要按比例分给上级), 并写入奖励明细
-            splitPartnerShare(clubId, round4(amount), roomId, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", null, function(net){
-                //奖励明细改为手动领取(超过7天自动到账)
-                db.add_reward_log(clubId, 0, label, net, conf.type, roomId, conf.room_uuid || "", 0, conf.club_table_name || "", function(){});
+            //表情/洗牌同一套抽法: 抽二级, 上级抽完剩下的全部给顶级俱乐部
+            splitFeeToTop(clubId, round4(amount), label, roomId, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", function(){
                 if(done) done();
-            }, 'fee_profit_ratio');
+            });
         }, { clubId: clubId, tableName: conf.club_table_name || "" });
     };
     if(!(tableClub > 0)){
@@ -418,49 +466,79 @@ function loadSysFees(cb){
     });
 }
 
-//进场费: 第一局开局时对每位在坐玩家各扣一次, 金额取系统设置(所有俱乐部牌桌统一固定)
-//由 roommgr.hookEnterFee 统一包在各玩法 begin() 前调用, 不需要逐个玩法改
-exports.chargeEnterFee = function(roomInfo){
+//进场费: 系统设置(club_enter_fee), 所有房间统一收取, 每个玩家每房扣一次
+//由 prepareEnterFee 在每局开局前按本局参与玩家调用
+//余额不足返回 false(本局不扣), 由调用方记录日志
+exports.tryChargeEnterFee = function(roomInfo, userId, done){
+    done = done || function(){};
     var conf = roomInfo && roomInfo.conf;
-    if(!conf || Number(roomInfo.numOfGames) !== 0){ return; } //只扣第一局
-    var tableClub = (conf.clubGameConfig && conf.clubGameConfig.clubId) || conf.clubid || 0;
-    if(!(tableClub > 0)){ return; }
-    unifiedCharge(conf.type, function(on){
-    if(!on){ return; }
+    var uid = Number(userId) || 0;
+    if(!conf || !(uid > 0)){ done(true); return; }
     loadSysFees(function(fees){
         var amount = Number(fees.enterFee) || 0;
-        if(!(amount > 0)){ return; }
+        if(!(amount > 0)){ done(true); return; }
         var charged = roomInfo._enterFeeCharged || (roomInfo._enterFeeCharged = {});
-        var seats = roomInfo.seats || [];
-        //桌名回填(奖励明细用)
-        var fillName = function(cb){
-            if(conf.club_table_name){ cb(); return; }
-            var tableId = Number(conf.club_table_id) || 0;
-            if(!(tableId > 0)){ cb(); return; }
-            db.club_get_table(tableId, function(t){
-                if(t && t.name){ conf.club_table_name = t.name; }
-                cb();
+        if(charged[uid]){ done(true); return; }
+        //先查余额: 不够则不允许入座, 不透支
+        db.get_user_data_by_userid(uid, function(ud){
+            var gems = (ud && ud.gems) || 0;
+            if(gems < amount){ done(false); return; }
+            charged[uid] = 1;
+            var tableClub = (conf.clubGameConfig && conf.clubGameConfig.clubId) || conf.clubid || 0;
+            //桌名回填(奖励明细用)
+            var fillName = function(cb){
+                if(conf.club_table_name){ cb(); return; }
+                var tableId = Number(conf.club_table_id) || 0;
+                if(!(tableId > 0)){ cb(); return; }
+                db.club_get_table(tableId, function(t){
+                    if(t && t.name){ conf.club_table_name = t.name; }
+                    cb();
+                });
+            };
+            fillName(function(){
+                var onFail = function(){ delete charged[uid]; done(false); };
+                if(!(tableClub > 0)){
+                    //普通房间: 同样收取进场费, 不进俱乐部分账
+                    deduct(uid, amount, roomInfo.id, conf.type, "进场扣豆", 0, function(ok){
+                        if(!ok){ onFail(); return; }
+                        done(true);
+                    }, { clubId: 0, tableName: conf.club_table_name || "" });
+                    return;
+                }
+                clubIdOfUser(uid, tableClub, function(clubId){
+                    deduct(uid, amount, roomInfo.id, conf.type, "进场扣豆", 0, function(ok){
+                        if(!ok){ onFail(); return; }
+                        if(!(clubId > 0)){ done(true); return; }
+                        //进场费: 抽二级, 上级抽完剩下的全部给顶级俱乐部
+                        splitFeeToTop(clubId, round4(amount), "进场费", roomInfo.id, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", function(){
+                            done(true);
+                        });
+                    }, { clubId: clubId, tableName: conf.club_table_name || "" });
+                });
             });
-        };
-        fillName(function(){
-            for(var i = 0; i < seats.length; i++){
-                var uid = seats[i] ? (Number(seats[i].userId) || 0) : 0;
-                if(!(uid > 0) || charged[uid]){ continue; }
-                charged[uid] = 1;
-                (function(userId){
-                    clubIdOfUser(userId, tableClub, function(clubId){
-                        if(!(clubId > 0)){ return; }
-                        deduct(userId, amount, roomInfo.id, conf.type, "进场扣豆", 0, function(){
-                            //费用全额进该玩家俱乐部的分账链, 上下级比例走 fee_profit_ratio
-                            splitPartnerShare(clubId, round4(amount), roomInfo.id, conf.type, conf.room_uuid || "", 0, conf.club_table_name || "", null, function(net){
-                                db.add_reward_log(clubId, 0, "进场费", net, conf.type, roomInfo.id, conf.room_uuid || "", 0, conf.club_table_name || "", function(){});
-                            }, 'fee_profit_ratio');
-                        }, { clubId: clubId, tableName: conf.club_table_name || "" });
-                    });
-                })(uid);
-            }
         });
     });
+};
+
+//进场费: 系统设置(club_enter_fee), 所有房间统一收取, 每个玩家每房只扣一次
+//开局前批量收: 返回还能入座的玩家 + 需要请出牌桌的玩家(宝宝豆不足)
+exports.prepareEnterFee = function(roomInfo, uids, done){
+    done = done || function(){};
+    var list = (uids || []).slice();
+    if(!list.length){ done([], []); return; }
+    loadSysFees(function(fees){
+        var amount = Number(fees.enterFee) || 0;
+        if(!(amount > 0)){ done(list, []); return; }
+        var okList = [], kicked = [], left = list.length;
+        for(var i = 0; i < list.length; i++){
+            (function(userId){
+                exports.tryChargeEnterFee(roomInfo, userId, function(ok){
+                    if(ok){ okList.push(userId); }
+                    else{ kicked.push({ userId: userId, need: amount }); }
+                    if(--left <= 0){ done(okList, kicked); }
+                });
+            })(list[i]);
+        }
     });
 };
 
@@ -570,10 +648,13 @@ exports.chargeRake = function(deltas, winners, roomInfo, rules, done){
                 return;
             }
             //扣赢家
-            deduct(roomInfo.userIdOfSeat[seatIdx], totalDeduct, roomInfo.roomId, roomInfo.gameType, "抽水", 0, function(){
-                console.log('[抽水]扣除 uid=' + roomInfo.userIdOfSeat[seatIdx] + ' 明水=' + rake + ' 暗水=' + hiddenRake + ' clubId=' + clubId);
-                rakeByClub[clubId] = round4((rakeByClub[clubId] || 0) + rake);
-                hiddenByClub[clubId] = round4((hiddenByClub[clubId] || 0) + hiddenRake);
+            deduct(roomInfo.userIdOfSeat[seatIdx], totalDeduct, roomInfo.roomId, roomInfo.gameType, "抽水", 0, function(ok){
+                //抽水来自赢家赢的豆, 正常不会不足; 万一扣失败则不计收入
+                if(ok){
+                    console.log('[抽水]扣除 uid=' + roomInfo.userIdOfSeat[seatIdx] + ' 明水=' + rake + ' 暗水=' + hiddenRake + ' clubId=' + clubId);
+                    rakeByClub[clubId] = round4((rakeByClub[clubId] || 0) + rake);
+                    hiddenByClub[clubId] = round4((hiddenByClub[clubId] || 0) + hiddenRake);
+                }
                 if(--pending === 0){ finish(); }
             }, {clubId: clubId, tableName: roomInfo.tableName || ""});
         });
@@ -616,9 +697,12 @@ exports.chargeRakeTotal = function(totalDeltas, winners, roomInfo, rules, done){
                 if(--pending === 0){ finish(); }
                 return;
             }
-            deduct(roomInfo.userIdOfSeat[seatIdx], totalDeduct, roomInfo.roomId, roomInfo.gameType, "抽水", 0, function(){
-                rakeByClub[clubId] = round4((rakeByClub[clubId] || 0) + rake);
-                hiddenByClub[clubId] = round4((hiddenByClub[clubId] || 0) + hiddenRake);
+            deduct(roomInfo.userIdOfSeat[seatIdx], totalDeduct, roomInfo.roomId, roomInfo.gameType, "抽水", 0, function(ok){
+                //抽水来自赢家赢的豆, 正常不会不足; 万一扣失败则不计收入
+                if(ok){
+                    rakeByClub[clubId] = round4((rakeByClub[clubId] || 0) + rake);
+                    hiddenByClub[clubId] = round4((hiddenByClub[clubId] || 0) + hiddenRake);
+                }
                 if(--pending === 0){ finish(); }
             }, {clubId: clubId, tableName: roomInfo.tableName || ""});
         });
@@ -657,7 +741,9 @@ exports.chargeRoomFee = function(roomInfo, rules, payerSeatIndex, bigWinnerSeat,
                 if(done) done();
                 return;
             }
-            deduct(userId, fee, roomInfo.roomId, roomInfo.gameType, "房费", 0, function(){
+            deduct(userId, fee, roomInfo.roomId, roomInfo.gameType, "房费", 0, function(ok){
+                //余额不足不扣: 不写俱乐部分成/奖励
+                if(!ok){ if(done) done(); return; }
                 //房费也属于俱乐部收入, 需要按比例逐级上缴给上级俱乐部
                 splitPartnerShare(clubId, fee, roomInfo.roomId, roomInfo.gameType, roomInfo.roomUuid, roomInfo.gameIndex, roomInfo.tableName || "", null, function(net){
                     //奖励明细: 房费按扣完上级后实得记; 改为手动领取(超过7天自动到账)

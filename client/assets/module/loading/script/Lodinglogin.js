@@ -553,16 +553,25 @@ cc.Class({
         var finish = function(ret){
             if(done){ return; }
             done = true;
+            var next = function(){ self.startPreloading(); };
             if(ret && ret.version != null){
                 cc.vv.SI = ret; //定义si接受ret
                 //HTTP.url不在此处切,留给UserMgr.onAuth在登录成功后切
                 if(String(ret.version) != String(cc.VERSION)){
                     console.error("[Boot] 服务器版本" + ret.version + " 与客户端" + cc.VERSION + " 不同, 继续启动");
                 }
+                //安装包版本低于线上最新包: 提示覆盖安装, 更新完成前不进入登录页
+                var up = self._appUpdateInfo(ret);
+                if(up){
+                    console.error("[Boot] 需要覆盖安装新包, 本地" + up.local + " 最新" + up.remote);
+                    self.showHotTip("发现新版本, 请下载安装");
+                    self._showAppUpdate(up, next);
+                    return;
+                }
             } else {
                 console.error("[Boot] 获取服务器信息失败, 继续启动");
             }
-            self.startPreloading();
+            next();
         };
         var request = function(){
             tries++;
@@ -587,6 +596,121 @@ cc.Class({
             }, 5000);
         };
         request();
+    },
+
+    //读取当前安装包版本号(原生读取; 老包没有该原生方法时返回空串)
+    _appVersion: function(){
+        if(!cc.sys.isNative || typeof jsb === "undefined" || !jsb.reflection){ return ""; }
+        try{
+            if(cc.sys.os === cc.sys.OS_ANDROID){
+                return String(jsb.reflection.callStaticMethod("org/cocos2dx/javascript/AppActivity", "getVersionName", "()Ljava/lang/String;") || "");
+            }
+            if(cc.sys.os === cc.sys.OS_IOS){
+                return String(jsb.reflection.callStaticMethod("AppController", "getVersionName") || "");
+            }
+        } catch(e){
+            console.error("[Boot] 读取安装包版本失败:" + e);
+        }
+        return "";
+    },
+
+    //低于线上最新包时返回更新信息, 不需要更新返回null
+    _appUpdateInfo: function(ret){
+        if(!cc.sys.isNative || !ret || !ret.app){ return null; }
+        var isIOS = cc.sys.os === cc.sys.OS_IOS;
+        var info = isIOS ? ret.app.ios : ret.app.android;
+        var remote = (info && info.version) ? String(info.version) : "";
+        var force = (Number(ret.app.force) || 0) === 1;
+        if(!remote){ return null; } //后台没发布包, 不提示
+        var local = this._appVersion();
+        if(!local){
+            //老包读不到自身版本: 只有后台打开强制更新时才提示, 否则可能误挡正常玩家
+            return force ? { local: "未知", remote: remote, url: info.url || "", force: true } : null;
+        }
+        if(compareVersion(local, remote) >= 0){ return null; }
+        return { local: local, remote: remote, url: info.url || "", force: force };
+    },
+
+    //覆盖安装提示弹窗: 强制更新时没有"稍后", 点"立即更新"用系统浏览器下载新包
+    _showAppUpdate: function(up, onLater){
+        var scene = cc.director.getScene();
+        var canvas = scene ? (scene.getChildByName("Canvas") || scene) : null;
+        if(!canvas){ onLater(); return; }
+        if(canvas.getChildByName("AppUpdateDialog")){ return; } //防重复
+        var size = cc.size(canvas.width, canvas.height); //弹窗挂在Canvas下, 用Canvas尺寸铺满
+        var root = new cc.Node("AppUpdateDialog");
+        root.zIndex = 9999;
+        root.setContentSize(size.width, size.height);
+        canvas.addChild(root);
+        root.addComponent(cc.BlockInputEvents); //挡住下面所有点击
+        var bg = root.addComponent(cc.Graphics);
+        bg.fillColor = cc.color(0, 0, 0, 190);
+        bg.rect(-size.width/2, -size.height/2, size.width, size.height);
+        bg.fill();
+
+        var panel = new cc.Node("panel");
+        root.addChild(panel);
+        var pg = panel.addComponent(cc.Graphics);
+        pg.fillColor = cc.color(40, 32, 24, 255);
+        pg.strokeColor = cc.color(214, 173, 96, 255);
+        pg.lineWidth = 3;
+        pg.roundRect(-280, -195, 560, 390, 18);
+        pg.fill();
+        pg.stroke();
+
+        this._mkLabel(panel, "发现新版本", 34, cc.color(255, 226, 160, 255), 135, 0);
+        this._mkLabel(panel, "最新版本：" + up.remote, 24, cc.color(236, 222, 200, 255), 68, 0);
+        this._mkLabel(panel, up.force ? "请下载安装新版本后继续游戏" : "建议下载安装最新版本", 22,
+            cc.color(200, 186, 166, 255), 22, 0, 30);
+
+        var self = this;
+        var open = function(){
+            if(!up.url){
+                self.showHotTip("下载地址未配置");
+                return;
+            }
+            cc.sys.openURL(up.url);
+        };
+        if(up.force){
+            this._mkButton(panel, "立即更新", -90, open);
+        } else {
+            this._mkButton(panel, "立即更新", -70, open);
+            this._mkButton(panel, "稍后", -150, function(){
+                var d = canvas.getChildByName("AppUpdateDialog");
+                if(d){ d.destroy(); }
+                onLater();
+            });
+        }
+    },
+
+    _mkLabel: function(parent, str, fontSize, color, y, width, lineHeight){
+        var n = new cc.Node("lbl");
+        n.setPosition(0, y);
+        parent.addChild(n);
+        var l = n.addComponent(cc.Label);
+        l.string = str;
+        l.fontSize = fontSize;
+        l.lineHeight = lineHeight || (fontSize + 8);
+        n.color = color;
+        if(width > 0){
+            n.width = width;
+            l.overflow = cc.Label.Overflow.RESIZE_HEIGHT;
+        }
+        return l;
+    },
+
+    _mkButton: function(parent, text, y, cb){
+        var b = new cc.Node("btn");
+        b.setContentSize(220, 64);
+        b.setPosition(0, y);
+        parent.addChild(b);
+        var g = b.addComponent(cc.Graphics);
+        g.fillColor = cc.color(214, 173, 96, 255);
+        g.roundRect(-110, -32, 220, 64, 14);
+        g.fill();
+        this._mkLabel(b, text, 26, cc.color(58, 38, 14, 255), 0, 0);
+        b.on(cc.Node.EventType.TOUCH_END, cb);
+        return b;
     },
      
     //开始预载资源(只允许一次)

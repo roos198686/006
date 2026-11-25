@@ -185,18 +185,64 @@ function getGameMgrByType(type){
 	return require("./gamemgr_baobao");
 }
 
-// 进场费: 所有玩法统一在 begin(第一局开局)之前对在坐玩家各扣一次,
-// 这里包一层 begin, 避免逐个玩法文件改
+// 进场费: 每次开局前先收, 宝宝豆不足的直接请出牌桌, 收完再真正开局
+// 包一层 begin, 避免逐个玩法文件改
+function kickNoBeans(roomInfo, userId, need, done){
+	done = done || function(){};
+	try{
+		var userMgr = require("./usermgr");
+		userMgr.sendMsg(userId, 'bb_kicked_push', { msg: "宝宝豆不足" + need + "，已被请出房间", beans: 0, need: need });
+		userMgr.sendMsg(userId, 'dispress_push', {});
+	}catch(e){ console.log("[enterFee] notify fail " + (e && e.message)); }
+	exports.exitRoom(userId, function(){
+		try{
+			var ss = require('./socket_service');
+			var left = exports.getRoom(roomInfo.id);
+			if(left != null){ ss.broadcastClubUpdatePublic(roomInfo.id, left); }
+		}catch(e){}
+		done();
+	});
+}
+
 function hookEnterFee(mgr){
 	if(!mgr || typeof mgr.begin !== "function" || mgr.__enterFeeHooked){ return mgr; }
 	var orig = mgr.begin;
 	mgr.begin = function(roomInfo){
-		try{
-			require("./charge").chargeEnterFee(roomInfo);
-		}catch(e){
-			console.log("[enterFee] " + (e && e.message));
+		var args = arguments;
+		if(!roomInfo || roomInfo._enterFeePending){ return; }
+		var seats = roomInfo.seats || [];
+		var uids = [];
+		var hasReady = false;
+		for(var i = 0; i < seats.length; ++i){
+			if(seats[i] && seats[i].userId > 0 && seats[i].ready){ hasReady = true; break; }
 		}
-		return orig.apply(mgr, arguments);
+		for(var j = 0; j < seats.length; ++j){
+			var s = seats[j];
+			if(!s || !(s.userId > 0)) continue;
+			if(hasReady && !s.ready) continue; //有准备机制时, 只算真正入局的
+			uids.push(s.userId);
+		}
+		if(!uids.length){ return; }
+		roomInfo._enterFeePending = true;
+		require("./charge").prepareEnterFee(roomInfo, uids, function(okUids, kicked){
+			var finish = function(){
+				roomInfo._enterFeePending = false;
+				if(exports.getRoom(roomInfo.id) == null){ return; } //人已全被请出, 房间解散
+				orig.apply(mgr, args);
+			};
+			if(!kicked.length){
+				finish();
+				return;
+			}
+			var left = kicked.length;
+			for(var k = 0; k < kicked.length; ++k){
+				(function(item){
+					kickNoBeans(roomInfo, item.userId, item.need, function(){
+						if(--left <= 0){ finish(); }
+					});
+				})(kicked[k]);
+			}
+		});
 	};
 	mgr.__enterFeeHooked = true;
 	return mgr;
@@ -390,6 +436,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 							// 后台全局开关:可胡点过是否弹二次确认(客户端据下发值决定,缺省开)
 							conf.hu_guo_confirm = cfg.hu_guo_confirm != null ? cfg.hu_guo_confirm : 1;
 							conf.dianpao_hu = cfg.dianpao_hu != null ? cfg.dianpao_hu : 1;
+							conf.hide_wall = cfg.hide_wall != null ? cfg.hide_wall : 1;
 							// 二人诸暨玩法:是否去掉条子(仅 zj/zj_lao/zj_bt 生效,zj4 忽略)
 							conf.remove_tiao = cfg.remove_tiao != null ? cfg.remove_tiao : 0;
 							conf.remove_wan = cfg.remove_wan != null ? cfg.remove_wan : 0;
@@ -425,6 +472,7 @@ exports.createRoom = function(creator,roomConf,gems,ip,port,callback){
 						// 漳浦无金特有配置：台数规则优先用俱乐部自配(牌桌conf下发),空则用后台全局 tai_rules
 						if(type == "wujin" || type == "wujin4"){
 							conf.taiRules = roomConf.tai_rules || cfg.tai_rules || null;
+							conf.hide_wall = cfg.hide_wall != null ? cfg.hide_wall : 1;
 						}
 
 						// 德州扑克特有配置：小盲、起始筹码
@@ -637,7 +685,7 @@ exports.enterRoom = function(roomId,userId,userName,callback){
 			if(seat.userId <= 0){
 				seat.userId = userId;
 				seat.name = userName;
-				seat.entryCharged = false; //新入座: 下一局开局时扣"进房首局"豆
+				seat.entryCharged = false; //新入座: 参与的第一局开局时扣进场费
 				//宝宝玩法: 座位积分直接显示账户宝宝豆余额
 				var rtype = room.conf && room.conf.type;
 				if(rtype == "baobao_mian" || rtype == "baobao_shou"){

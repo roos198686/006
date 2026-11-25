@@ -84,13 +84,26 @@ app.get('/get_version',function(req,res){
 
 app.get('/get_serverinfo',function(req,res){
 	get_wx_config(function(wx){
-		var ret = {
-			version:config.VERSION,
-			hall:hallAddr,
-			appweb:config.APP_WEB,
-			wxlogin:wx.enabled ? 1 : 0,
-		}
-		send(res,ret);
+		//APP发布信息(超级后台"APP发布"上传): 客户端用安装包版本与之比对, 低于最新版就提示覆盖安装
+		db.query('SELECT k,v FROM t_sys_config WHERE k IN ("app_version","app_size","ios_app_version","ios_app_size","force_update")', function(err, rows){
+			var cfg = {};
+			if(!err && rows){
+				for(var i = 0; i < rows.length; ++i){ cfg[rows[i].k] = rows[i].v; }
+			}
+			var base = req.protocol + "://" + (req.headers.host || "");
+			var ret = {
+				version:config.VERSION,
+				hall:hallAddr,
+				appweb:config.APP_WEB,
+				wxlogin:wx.enabled ? 1 : 0,
+				app:{
+					android:{ version:String(cfg.app_version || ""), size:parseInt(cfg.app_size, 10) || 0, url:base + "/uploads/baobao.apk" },
+					ios:{ version:String(cfg.ios_app_version || ""), size:parseInt(cfg.ios_app_size, 10) || 0, url:base + "/uploads/baobao.ipa" },
+					force:String(cfg.force_update || "0") === "1" ? 1 : 0
+				}
+			};
+			send(res,ret);
+		});
 	});
 });
 
@@ -343,8 +356,11 @@ app.get('/safe_transfer',function(req,res){
 	var account = req.query.account;
 	var amount = req.query.amount;
 	if(!account || amount == null){ send(res,{errcode:1,errmsg:"missing params"}); return; }
-	amount = parseInt(amount);
+	//保险柜支持小数(表字段 decimal(14,2)), 全额存取要能精确到0.01
+	amount = parseFloat(amount);
 	if(!isFinite(amount) || amount === 0){ send(res,{errcode:2,errmsg:"invalid amount"}); return; }
+	amount = Math.round(amount * 100) / 100;
+	if(amount === 0){ send(res,{errcode:2,errmsg:"invalid amount"}); return; }
 	db.get_user_data(account,function(data){
 		if(data == null){ send(res,{errcode:3,errmsg:"user not found"}); return; }
 		db.safe_transfer(data.userid,amount,function(bal,reason){

@@ -46,6 +46,8 @@ tbody tr:hover { background: #f0f6ff; }
 .tag-red { background: #ffebee; color: #c62828; }
 /* 弹窗:超高内部滚动,按钮永远可见 */
 .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
+/* 添加玩法弹窗: flex 打开时子元素默认 stretch 会被拉满全屏高, 这里让高度随内容 */
+#clubAddGameModal { align-items: flex-start; }
 .modal-content { background: #fff; margin: 40px auto; border-radius: 8px; max-width: 520px; max-height: calc(100vh - 80px); display: flex; flex-direction: column; overflow: hidden; }
 .modal-content h3 { margin: 0; padding: 16px 24px 12px; border-bottom: 1px solid #eee; color: #1a1a2e; font-size: 17px; flex-shrink: 0; background: #fff; position: sticky; top: 0; z-index: 2; }
 .modal-body { flex: 1; overflow-y: auto; padding: 16px 24px; scrollbar-width: none; -ms-overflow-style: none; }
@@ -344,8 +346,8 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
           <input type="text" id="appVersion" placeholder="例如 1.0.0">
         </div>
         <div class="form-group">
-          <label>APK安装包</label>
-          <input type="file" id="appFile" accept=".apk">
+          <label>安装包（Android APK / 企业签 iOS IPA）</label>
+          <input type="file" id="appFile" accept=".apk,.ipa">
         </div>
         <div id="appProgress" style="display:none;margin:10px 0">
           <div style="background:#eee;height:18px;border-radius:9px;overflow:hidden">
@@ -448,6 +450,33 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
     <div class="modal-footer">
       <button class="btn btn-default" onclick="closeClubModal()">取消</button>
       <button class="btn btn-primary" onclick="saveClub()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 俱乐部整链清空弹窗(危险操作) -->
+<div id="purgeModal" class="modal">
+  <div class="modal-content">
+    <h3 style="color:#c62828;">危险操作 - 清空俱乐部整链数据</h3>
+    <div class="modal-body">
+      <div style="background:#ffebee; border:1px solid #ef9a9a; border-radius:4px; padding:12px; margin-bottom:14px; color:#b71c1c; font-size:13px; line-height:1.7;">
+        即将清空俱乐部 <b id="purgeClubName">-</b> (ID: <b id="purgeClubIdText">-</b>) 及其<b>所有下级俱乐部</b>的以下数据，<b>不可恢复</b>：
+        <ul style="margin:6px 0 0 18px;">
+          <li>成员账号 (t_users)</li>
+          <li>豆豆流水 / 抽水记录 (t_bean_logs / t_reward_logs)</li>
+          <li>战绩回放 (t_replays)</li>
+          <li>合伙人配置 / 成员关系 / 牌桌 / 玩法 / 俱乐部本身</li>
+        </ul>
+        <div style="margin-top:8px; font-size:12px; color:#8e2424;">注: 同时在其他俱乐部担任成员/社长的账号会被保留。</div>
+      </div>
+      <div class="form-group">
+        <label>请输入俱乐部 ID <b id="purgeClubIdHint" style="color:#c62828;"></b> 以确认操作</label>
+        <input type="number" id="purge_confirm_id" placeholder="输入俱乐部ID" autocomplete="off">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="closePurgeModal()">取消</button>
+      <button class="btn btn-danger" onclick="doPurgeClub()">确认清空</button>
     </div>
   </div>
 </div>
@@ -571,6 +600,10 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
     <!-- 玩法开关(按玩法类型动态显示) -->
     <div class="cfg-section" id="cfgSwitchesSection">
       <div class="cfg-section-title">玩法开关</div>
+      <!-- 所有麻将玩法通用 -->
+      <div class="cfg-grid" data-switch-group="mahjong">
+        <label class="inline"><input type="checkbox" id="cfg_hide_wall" checked> 隐藏墙牌</label>
+      </div>
       <!-- 诸暨全系通用 -->
       <div class="cfg-grid" data-switch-group="zhujian">
         <label class="inline"><input type="checkbox" id="cfg_cai_chi" checked> 财神可参与吃</label>
@@ -681,16 +714,18 @@ label.inline { display: flex; align-items: center; font-size: 14px; color: #555;
 
 <!-- 俱乐部-添加玩法 -->
 <div id="clubAddGameModal" class="modal">
-  <div class="modal-content" style="max-width:420px">
+  <div class="modal-content" style="max-width:640px">
     <h3>添加玩法</h3>
     <div class="modal-body">
-      <div class="form-group">
-        <label>选择玩法</label>
-        <select id="club_add_game_type" onchange="clubOnAddGameTypeChange()"></select>
-      </div>
-      <div class="form-group">
-        <label>玩法名称</label>
-        <input type="text" id="club_add_game_name">
+      <div class="form-row">
+        <div class="form-group">
+          <label>选择玩法</label>
+          <select id="club_add_game_type" onchange="clubOnAddGameTypeChange()"></select>
+        </div>
+        <div class="form-group">
+          <label>玩法名称</label>
+          <input type="text" id="club_add_game_name">
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -863,15 +898,16 @@ function loadAppInfo(){
     var el = document.getElementById('appInfo');
     if(ret.code !== 0){ el.innerHTML = '<span style="color:red">'+ret.msg+'</span>'; return; }
     var d = ret.data || {};
-    var t = fmtTime(d.update_time) || '—';
-    if(!d.has_file){
-      el.innerHTML = '版本号：<b>暂无</b><br>文件大小：—<br>更新时间：—<br>状态：<span style="color:#e67e22">还未上传安装包</span>';
-    } else {
-      el.innerHTML = '版本号：<b style="color:#1976d2">'+d.version+'</b><br>'
-        + '文件大小：'+fmtSize(d.size)+'<br>'
+    var render = function(name, p){
+      p = p || {};
+      var t = fmtTime(p.update_time) || '—';
+      return '<h4>'+name+'</h4>'
+        + '版本号：<b style="color:#1976d2">'+(p.version || '暂无')+'</b><br>'
+        + '文件大小：'+(p.has_file ? fmtSize(p.size) : '—')+'<br>'
         + '更新时间：'+t+'<br>'
-        + '状态：<span style="color:#27ae60">已发布</span>';
-    }
+        + '状态：'+(p.has_file ? '<span style="color:#27ae60">已发布</span>' : '<span style="color:#e67e22">未上传</span>');
+    };
+    el.innerHTML = render('Android', d.android || d) + '<hr>' + render('iOS（企业签）', d.ios);
   });
 }
 var appUploadTimer = null;
@@ -879,8 +915,10 @@ function uploadApp(){
   var ver = document.getElementById('appVersion').value.trim();
   var file = document.getElementById('appFile').files[0];
   if(!ver){ alert('请填写版本号'); return; }
-  if(!file){ alert('请选择APK文件'); return; }
-  if(!/\.apk$/i.test(file.name)){ alert('请选择 .apk 格式的安装包'); return; }
+  if(!file){ alert('请选择APK或IPA文件'); return; }
+  var match = file.name.match(/\.(apk|ipa)$/i);
+  if(!match){ alert('请选择 .apk 或 .ipa 格式的安装包'); return; }
+  var platform = match[1].toLowerCase() === 'ipa' ? 'ios' : 'android';
   var btn = document.getElementById('appUploadBtn');
   var box = document.getElementById('appProgress');
   var bar = document.getElementById('appProgressBar');
@@ -896,15 +934,15 @@ function uploadApp(){
     pct = Math.min(90, pct + Math.max(1, (90-pct)*0.08));
     bar.style.width = pct.toFixed(1) + '%';
   }, 200);
-  api('/admin/app/upload?version=' + encodeURIComponent(ver), {
+  api('/admin/app/upload?version=' + encodeURIComponent(ver) + '&platform=' + platform, {
     method:'POST',
-    headers:{'Content-Type':'application/vnd.android.package-archive'},
+    headers:{'Content-Type':platform === 'ios' ? 'application/octet-stream' : 'application/vnd.android.package-archive'},
     body:file
   }).then(function(ret){
     clearInterval(appUploadTimer); appUploadTimer = null;
     if(ret.code === 0){
       bar.style.width = '100%';
-      txt.textContent = '上传成功，版本 ' + ret.data.version + '（' + fmtSize(ret.data.size) + '）';
+      txt.textContent = '上传成功，' + (platform === 'ios' ? 'iOS' : 'Android') + ' 版本 ' + ret.data.version + '（' + fmtSize(ret.data.size) + '）';
       document.getElementById('appFile').value = '';
       loadAppInfo();
     } else {
@@ -1372,7 +1410,9 @@ function renderClubs(){
         : '<button class="btn btn-success btn-sm" onclick="setTopLevel('+c.id+',1)">设为一级俱乐部</button>')+
       '<button class="btn btn-default btn-sm" onclick="editClub('+c.id+')">编辑</button>'+
       '<button class="btn btn-primary btn-sm" onclick="manageClubContent('+c.id+')">俱乐部管理</button>'+
-      '<button class="btn btn-danger btn-sm" onclick="delClub('+c.id+')">删除</button></div>';
+      '<button class="btn btn-danger btn-sm" onclick="delClub('+c.id+')">删除</button>'+
+      (isRoot ? '<button class="btn btn-danger btn-sm" onclick="showPurgeModal('+c.id+',\''+(c.name||'').replace(/'/g,"\\'")+'\')">清空数据</button>' : '')+
+      '</div>';
     grid.appendChild(card);
   });
 }
@@ -1437,6 +1477,44 @@ function delClub(id){
   if(!confirm('确认删除该俱乐部？其成员、玩法、牌桌将一并删除，且绑定该俱乐部的管理员会被解绑')) return;
   api('/admin/club/'+id, {method:'DELETE'}).then(function(ret){
     if(ret.code === 0) loadClubs(); else alert(ret.msg);
+  });
+}
+// ============ 一键清空顶级俱乐部整链数据 ============
+var purgingClubId = null;
+function showPurgeModal(id, name){
+  purgingClubId = id;
+  document.getElementById('purgeClubName').textContent = name || '-';
+  document.getElementById('purgeClubIdText').textContent = id;
+  document.getElementById('purgeClubIdHint').textContent = '(' + id + ')';
+  document.getElementById('purge_confirm_id').value = '';
+  document.getElementById('purgeModal').style.display = 'flex';
+  setTimeout(function(){ document.getElementById('purge_confirm_id').focus(); }, 50);
+}
+function closePurgeModal(){
+  purgingClubId = null;
+  document.getElementById('purgeModal').style.display = 'none';
+}
+function doPurgeClub(){
+  if(!purgingClubId){ return; }
+  var input = parseInt(document.getElementById('purge_confirm_id').value);
+  if(input !== purgingClubId){
+    alert('输入的俱乐部ID不匹配,请重新输入 ' + purgingClubId);
+    return;
+  }
+  if(!confirm('最后确认: 该操作不可恢复,确认清空俱乐部 ' + purgingClubId + ' 及其所有下级的全部数据?')) return;
+  api('/admin/club/'+purgingClubId+'/purge', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({confirm_id: input})
+  }).then(function(ret){
+    if(ret.code === 0){
+      var d = ret.data || {};
+      alert('清空完成:\n删除俱乐部 '+(d.clubs||0)+' 个\n删除用户账号 '+(d.users||0)+' 个\n删除豆豆流水 '+(d.bean_logs||0)+' 条\n删除奖励明细 '+(d.reward_logs||0)+' 条\n删除战绩回放 '+(d.replays||0)+' 条\n跨俱乐部保留账号 '+(d.skipped_users||0)+' 个');
+      closePurgeModal();
+      loadClubs();
+    } else {
+      alert(ret.msg || '清空失败');
+    }
   });
 }
 // 超级管理员进入某俱乐部的玩法/牌桌/成员管理(总后台内切到俱乐部详情 tab)
@@ -1844,6 +1922,7 @@ function showConfigModal(){
   document.getElementById('cfg_cai_pure').checked = false;
   document.getElementById('cfg_hu_guo_confirm').checked = true;
   document.getElementById('cfg_dianpao_hu').checked = true;
+  document.getElementById('cfg_hide_wall').checked = true;
   document.getElementById('cfg_gang_liuju').value = 0;
   document.getElementById('cfg_remove_wan').checked = false;
   document.getElementById('cfg_remove_tiao').checked = false;
@@ -1883,6 +1962,7 @@ function applyTypeGroups(type){
   }
   // 规则: 不同玩法启用哪些组
   var rules = {
+    'mahjong': ['zj', 'zj_lao', 'zj_bt', 'zj4', 'zj4_bt', 'zj_zx', 'zj4_zx', 'zp', 'zp4', 'wujin', 'wujin4'], // 所有麻将玩法
     'zhujian': ['zj', 'zj_lao', 'zj_bt', 'zj4', 'zj4_bt', 'zj_zx', 'zj4_zx'],   // 诸暨全系通用开关
     '2p':      ['zj', 'zj_lao', 'zj_bt', 'zj_zx'],                                  // 仅2人玩法:去条
     'fc':      ['zj', 'zj_lao', 'zj4'],                                              // 翻财神/赖倒胡:财神模式
@@ -1932,6 +2012,7 @@ function editConfig(id){
     document.getElementById('cfg_cai_pure').checked = c.cai_pure != null ? !!c.cai_pure : false;
     document.getElementById('cfg_hu_guo_confirm').checked = c.hu_guo_confirm != null ? !!c.hu_guo_confirm : true;
     document.getElementById('cfg_dianpao_hu').checked = c.dianpao_hu != null ? !!c.dianpao_hu : true;
+    document.getElementById('cfg_hide_wall').checked = c.hide_wall != null ? !!c.hide_wall : true;
     var trRules = c.tai_rules || {};
     document.getElementById('cfg_hu_score').checked = !!trRules.hu_score_enabled;
     document.getElementById('cfg_remove_wan').checked = !!trRules.remove_wan;
@@ -2017,6 +2098,7 @@ function saveConfig(){
     cai_pure: document.getElementById('cfg_cai_pure').checked ? 1 : 0,
     hu_guo_confirm: document.getElementById('cfg_hu_guo_confirm').checked ? 1 : 0,
     dianpao_hu: document.getElementById('cfg_dianpao_hu').checked ? 1 : 0,
+    hide_wall: document.getElementById('cfg_hide_wall').checked ? 1 : 0,
     remove_tiao: document.getElementById('cfg_remove_tiao').checked ? 1 : 0,
     cai7: document.getElementById('cfg_cai7').checked ? 1 : 0,
     laozhuang_multiplier: parseInt(document.getElementById('cfg_laozhuang_multiplier').value) || 2,
@@ -2420,11 +2502,20 @@ function clubCloseGameModal(){ document.getElementById('clubGameModal').style.di
 
 // 添加玩法
 var allGameTypes = [];
+// 下拉只保留客户端有对应场景的玩法; 麻将/无金场景均为2人(4人场景已删除),
+// zj4/zj4_zx/wujin4/guanpai3/niuniu/dzpk 不列出
+var CLUB_ADDABLE_TYPES = {
+  baobao_mian: 1, baobao_shou: 1,
+  sss2: 1, sss4: 1, sss6: 1,
+  zj: 1, zj_bt: 1, zj_lao: 1, zj_zx: 1,
+  wujin: 1, guanpai2: 1
+};
 function clubShowAddGameModal(){
   // 先拉取全部可用玩法
   api('/admin/game_configs').then(function(ret){
     if(ret.code !== 0){ alert(ret.msg); return; }
-    allGameTypes = ret.data || [];
+    allGameTypes = (ret.data || []).filter(function(g){ return CLUB_ADDABLE_TYPES[g.type]; });
+    if(allGameTypes.length === 0){ alert('暂无可添加的玩法'); return; }
     var sel = document.getElementById('club_add_game_type');
     sel.innerHTML = '';
     allGameTypes.forEach(function(g){

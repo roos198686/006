@@ -13,7 +13,7 @@ cc.Class({
         },
         //选中手牌时的上移像素(在编辑器组件面板里调, 手牌位置本身由场景 handSlot 决定)
         selectUpOffset: {
-            default: 28,
+            default: 48,
             type: cc.Float
         },
         //小局结算弹窗倒计时(秒), 到 0 自动准备下一局
@@ -37,7 +37,8 @@ cc.Class({
         this._deadline = 0;
         this._over = false;
         this._final = false;
-        this._selectUpOffset = (this.selectUpOffset != null) ? this.selectUpOffset : 28;
+        //旧场景可能仍序列化为28, 选牌上移最低48, 避免旧场景值把较大幅度覆盖掉
+        this._selectUpOffset = Math.max(48, this.selectUpOffset || 0);
         this._gpConf = {}; // 关牌玩法配置(来自服务端 gp_start)
         // 开局发牌动画状态
         this._dealAnimating = false;
@@ -1063,6 +1064,9 @@ cc.Class({
         if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
         this._n.handArea.active = true;
         this._n.playArea.active = true;
+        //先进入开局动画状态, 再渲染座位和手牌, 避免双方手牌先完整显示一帧
+        var playOpening = fromStart && this._isFreshDeal() && !this._startSeqPlaying;
+        if (playOpening) this._startSeqPlaying = true;
         this.renderSeats();
         this.renderHand();
         this.renderLastPlay();
@@ -1075,17 +1079,15 @@ cc.Class({
         this.checkAutoPass();
         // 开局首次发牌:先播"开始 GAME START"动画(resources/efx/daqiang),播完再逐张飞牌
         // (和宝宝一致:开局动画不能和发牌同时开始)
-        if (fromStart && this._isFreshDeal() && !this._startSeqPlaying) {
-            this._startSeqPlaying = true;
+        if (playOpening) {
             var selfStart = this;
-            // 动画期间先藏起手牌,动画播完再落牌
-            for (var hi = 0; hi < this._handSlots.length; ++hi) { this._handSlots[hi].active = false; }
             if (cc.vv.audioMgr) cc.vv.audioMgr.playSFX("start_game.mp3");
             this._playStartAnim(function () {
                 if (!cc.isValid(selfStart.node)) { return; }
                 selfStart._startSeqPlaying = false;
                 if (selfStart._over) { return; }
                 selfStart.renderHand();
+                selfStart.renderSeats(); // 恢复对家牌背显示(按剩余张数居中)
                 selfStart._playDealAnim();
             });
         }
@@ -1219,6 +1221,10 @@ cc.Class({
     onGpChupai: function (d) {
         if (!d) return;
         this.resetHintState();
+        //出牌后立即关闭上一方倒计时, 下一手由gp_turn推送重新启动
+        this._deadline = 0;
+        this.setArrowTime("");
+        this.showSeatTimers(false, false, 0);
         this._lastPlay = {
             seatIndex: d.seatIndex, type: d.type, key: d.key, len: d.len,
             bombLevel: d.bombLevel || 0, pais: (d.pais || []).slice()
@@ -1472,6 +1478,10 @@ cc.Class({
     onGpPass: function (d) {
         if (!d) return;
         this.resetHintState();
+        //过牌同样立即结束当前倒计时, 不等待下一手推送
+        this._deadline = 0;
+        this.setArrowTime("");
+        this.showSeatTimers(false, false, 0);
         this.renderSeats();
         // "要不起/不要"语音(随机四种, 男女按玩家性别)
         this._playPassVoice(d.seatIndex);
@@ -1498,6 +1508,10 @@ cc.Class({
         this._over = false;
         this._final = false;
         this._selected = {};
+        //新一局尚未下发当前回合前, 不允许上一局倒计时继续显示
+        this._deadline = 0;
+        this.setArrowTime("");
+        this.showSeatTimers(false, false, 0);
         //单局结算弹窗不自动关闭:只由玩家点击右上角关闭按钮收起
         if (this._n.finalSettlePanel) this._n.finalSettlePanel.active = false;
         this._stopResultCountdown();
@@ -1538,7 +1552,7 @@ cc.Class({
     },
 
     onPass: function () {
-        if (!this.isMyTurn()) return;
+        if (!this.isMyTurn() || this._freePlay) return;
         this.resetHintState();
         cc.vv.net.send("guo");
         this._selected = {};
@@ -1660,8 +1674,8 @@ cc.Class({
         var p = e.getLocation();
         var dx = p.x - this._gpGestureStart.x;
         var dy = p.y - this._gpGestureStart.y;
-        // 上滑出牌: 在手牌上向上滑动直接出牌(设置的阈值与麻将一致)
-        if (gs.swipeUp && dy < -30) {
+        // 上滑出牌: 触摸坐标系原点在左下, 向上滑 dy 为正值
+        if (gs.swipeUp && dy > 30) {
             this._playGestureCards(this._gpGestureStart.slot);
             this._gpGesturePlayed = true;
             e.stopPropagation();
@@ -1818,7 +1832,8 @@ cc.Class({
                 var id = ids[idx];
                 slot._cardId = id;
                 slot.getComponent(cc.Sprite).spriteFrame = this.frameOf(id);
-                slot.active = true;
+                //开局动画期间即使发生重绘也不能提前亮出手牌
+                slot.active = !this._startSeqPlaying;
                 // 选中态: 场景基准位置 + 上移量; 未选中回到场景基准位置
                 slot.y = (slot._baseY || 0) + (this._selected[id] ? this._selectUpOffset : 0);
             } else {
@@ -2077,7 +2092,7 @@ cc.Class({
             var row = this._oppSlots[di - 1];
             if (!row) continue;
             var seatIdx = (di < map.length) ? map[di] : di;
-            var count = (playing && seats && seats[seatIdx]) ? (seats[seatIdx].count || 0) : 0;
+            var count = (playing && !this._startSeqPlaying && seats && seats[seatIdx]) ? (seats[seatIdx].count || 0) : 0;
             //整排居中: 与手牌/出牌区一致, 按剩余张数只显示中间一段槽位, 不改任何节点坐标
             var start = Math.floor((row.length - count) / 2);
             if (start < 0) start = 0;
@@ -2101,6 +2116,8 @@ cc.Class({
         this._cards = [];
         this._lastPlay = null;
         this._selected = {};
+        this._deadline = 0;
+        this.setArrowTime("");
         var i;
         var handSlots = this._handSlots || [];
         for (i = 0; i < handSlots.length; ++i) {
@@ -2199,7 +2216,7 @@ cc.Class({
     // 设置按钮 enabled/disabled(灰色半透明)
     setBtnEnabled: function (btn, enabled) {
         if (!btn) return;
-        var sprite = btn.getComponent(cc.Sprite);
+        var button = btn.getComponent(cc.Button);
         var labelNode = btn.getChildByName("settleAgainBtnLabel") || btn.getChildByName("lblTip") || null;
         // 找第一个 Label
         if (!labelNode) {
@@ -2209,14 +2226,14 @@ cc.Class({
         }
         if (enabled) {
             btn.opacity = 255;
-            btn.interactable = true;
+            if (button) button.interactable = true;
             if (labelNode) {
                 var lb = labelNode.getComponent(cc.Label);
                 if (lb) lb.color = cc.color(255, 255, 255);
             }
         } else {
             btn.opacity = 130;
-            btn.interactable = false;
+            if (button) button.interactable = false;
             if (labelNode) {
                 var lb2 = labelNode.getComponent(cc.Label);
                 if (lb2) lb2.color = cc.color(200, 200, 200);

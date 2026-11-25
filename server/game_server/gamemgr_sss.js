@@ -26,10 +26,12 @@ function buildDeck(copies){
     }
     return deck;
 }
-// 各玩法最少开局人数
+// 各玩法最少开局人数: 取牌桌配置 min_players 与玩法配置 minPlayers 的较大值(后台设置几人开玩就是几人), 缺省 2
 function minPlayersOf(conf){
-    // 2/4/6人桌都允许2人开局(房内已就座玩家全部准备即开始)
-    return 2;
+    var a = Number(conf && conf.min_players) || 0;
+    var b = (conf && conf.clubGameConfig && Number(conf.clubGameConfig.minPlayers)) || 0;
+    var n = Math.max(a, b);
+    return n > 1 ? n : 2;
 }
 function shuffle(a){
     for(var i = a.length - 1; i > 0; --i){

@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>顺宝宝 - 下载安装</title>
+<title>耀龙 - 下载安装</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { height:100%; }
@@ -22,7 +22,7 @@
     background:#fff;
     overflow:hidden;
   }
-  .logo img { width:100%; height:100%; display:block; object-fit:contain; }
+  .logo img { width:100%; height:100%; display:block; object-fit:cover; object-position:center; }
   .app-name { font-size: 26px; font-weight:700; letter-spacing:2px; }
   .app-sub { font-size: 14px; opacity:.8; margin-top:6px; }
   .card {
@@ -46,6 +46,7 @@
     transition: transform .15s;
   }
   .dl-btn:active { transform: scale(.97); }
+  .dl-btn.secondary { margin-top:12px; color:#fff; background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.75); box-shadow:none; }
   .dl-btn.disabled { background:rgba(255,255,255,.5); color:#999; pointer-events:none; }
   .tips { margin-top: 22px; font-size:12px; opacity:.8; line-height:1.8; max-width:420px; text-align:center; }
   .loading { text-align:center; padding: 20px 0; color:#888; }
@@ -65,8 +66,8 @@
 </style>
 </head>
 <body>
-  <div class="logo"><img src="./app_icon.png" alt="顺宝宝"></div>
-  <div class="app-name">顺宝宝</div>
+  <div class="logo"><img src="./app_icon.png?v=20261122" alt="耀龙"></div>
+  <div class="app-name">耀龙</div>
   <div class="app-sub">轻松娱乐 · 随时开局</div>
 
   <div class="browser-warn" id="browserWarn">
@@ -80,16 +81,19 @@
   </div>
 
   <a id="dlBtn" class="dl-btn disabled" href="javascript:;">暂无安装包</a>
+  <a id="altBtn" class="dl-btn secondary disabled" href="javascript:;" style="display:none">暂无安装包</a>
 
-  <div class="tips">
-    点击下载后请在浏览器中允许安装<br>
-    若提示"未知来源"，请在手机设置中允许安装
+  <div class="tips" id="tips">
+    页面会自动识别手机系统，提供对应的安装包
   </div>
 
 <script>
 // ==== 浏览器识别: 应用内浏览器/第三方浏览器禁止下载, 引导到手机自带浏览器 ====
 var ua = navigator.userAgent || '';
 var isMobile = /Android|iPhone|iPad|iPod|HarmonyOS|Mobile/i.test(ua);
+var isIos = /iPhone|iPad|iPod/i.test(ua);
+var isAndroid = /Android|HarmonyOS/i.test(ua);
+var platform = isIos ? 'ios' : (isAndroid ? 'android' : '');
 var BLOCK_LIST = [
   [/MicroMessenger/i, '微信'],
   [/QQ\//i, 'QQ'],
@@ -117,7 +121,7 @@ if(isMobile){
 function showBrowserWarn(){
   document.getElementById('browserWarn').classList.add('show');
   var tip = blockedName === '微信'
-    ? '当前是微信内置浏览器，无法下载 APK。请点击右上角 ··· ，选择“在浏览器打开”，再重新下载。'
+    ? '当前是微信内置浏览器，无法直接下载安装包。请点击右上角 ··· ，选择“在浏览器打开”，再重新下载。'
     : '当前是' + blockedName + '，可能拦截安装包下载。请复制本页链接，粘贴到手机自带浏览器（Chrome / Safari / 华为 / 小米 / OPPO / vivo 浏览器）后打开下载。';
   document.getElementById('warnSteps').innerHTML = tip;
 }
@@ -147,40 +151,58 @@ function fmtSize(n){
   if(n < 1024*1024*1024) return (n/1024/1024).toFixed(2) + ' MB';
   return (n/1024/1024/1024).toFixed(2) + ' GB';
 }
+function packageRows(name, p){
+  var t = p.update_time ? new Date(p.update_time*1000).toLocaleString() : '—';
+  return '<div class="row"><span class="k">设备平台</span><span class="v">' + name + '</span></div>' +
+    '<div class="row"><span class="k">版本号</span><span class="v">' + (p.version || '—') + '</span></div>' +
+    '<div class="row"><span class="k">安装包大小</span><span class="v">' + (p.has_file ? fmtSize(p.size) : '—') + '</span></div>' +
+    '<div class="row"><span class="k">更新时间</span><span class="v">' + t + '</span></div>' +
+    '<div class="row"><span class="k">状态</span><span class="v ' + (p.has_file ? 'status-ok' : 'status-warn') + '">' + (p.has_file ? '可下载' : '暂无安装包') + '</span></div>';
+}
+function setDownloadButton(btn, p, key, secondary){
+  var baseClass = 'dl-btn' + (secondary ? ' secondary' : '');
+  var name = key === 'ios' ? '苹果版（企业签）' : '安卓版';
+  if(!p.has_file){
+    btn.textContent = '暂无' + name + '安装包';
+    btn.className = baseClass + ' disabled';
+    btn.href = 'javascript:;';
+  } else if(blockedName){
+    btn.textContent = '请在手机自带浏览器中下载';
+    btn.className = baseClass + ' disabled';
+    btn.href = 'javascript:;';
+  } else {
+    btn.textContent = '下载' + name;
+    btn.className = baseClass;
+    btn.href = p.url;
+  }
+}
 fetch('./app/info').then(function(r){ return r.json(); }).then(function(ret){
   var card = document.getElementById('card');
   var btn = document.getElementById('dlBtn');
+  var altBtn = document.getElementById('altBtn');
   if(!ret || ret.code !== 0 || !ret.data){
     card.innerHTML = '<div class="loading" style="color:#e74c3c">获取版本信息失败</div>';
     btn.textContent = '下载失败';
     return;
   }
   var d = ret.data;
-  var t = d.update_time ? new Date(d.update_time*1000).toLocaleString() : '—';
-  if(!d.has_file){
-    card.innerHTML =
-      '<div class="row"><span class="k">版本号</span><span class="v">—</span></div>' +
-      '<div class="row"><span class="k">大小</span><span class="v">—</span></div>' +
-      '<div class="row"><span class="k">更新时间</span><span class="v">—</span></div>' +
-      '<div class="row"><span class="k">状态</span><span class="v status-warn">暂无安装包</span></div>';
-    btn.textContent = '暂无安装包';
-    btn.className = 'dl-btn disabled';
-    btn.href = 'javascript:;';
+  var android = d.android || {version:d.version, size:d.size, update_time:d.update_time, has_file:d.has_file, url:d.url};
+  var ios = d.ios || {version:'', size:0, update_time:0, has_file:false, url:'/uploads/baobao.ipa'};
+  var tips = document.getElementById('tips');
+  if(platform){
+    var p = platform === 'ios' ? ios : android;
+    card.innerHTML = packageRows(platform === 'ios' ? 'iPhone / iPad' : 'Android', p);
+    setDownloadButton(btn, p, platform, false);
+    altBtn.style.display = 'none';
+    tips.innerHTML = platform === 'ios'
+      ? '苹果安装包必须已完成企业签名<br>下载后请按企业签方式安装，未签名 IPA 无法安装'
+      : '点击下载后请在浏览器中允许安装<br>若提示“未知来源”，请在手机设置中允许安装';
   } else {
-    card.innerHTML =
-      '<div class="row"><span class="k">版本号</span><span class="v">' + d.version + '</span></div>' +
-      '<div class="row"><span class="k">安装包大小</span><span class="v">' + fmtSize(d.size) + '</span></div>' +
-      '<div class="row"><span class="k">更新时间</span><span class="v">' + t + '</span></div>' +
-      '<div class="row"><span class="k">状态</span><span class="v status-ok">可下载</span></div>';
-    if(blockedName){
-      btn.textContent = '请在手机自带浏览器中下载';
-      btn.className = 'dl-btn disabled';
-      btn.href = 'javascript:;';
-    } else {
-      btn.textContent = '立即下载顺宝宝';
-      btn.className = 'dl-btn';
-      btn.href = d.url;
-    }
+    card.innerHTML = packageRows('Android', android) + packageRows('iPhone / iPad', ios);
+    setDownloadButton(btn, android, 'android', false);
+    setDownloadButton(altBtn, ios, 'ios', true);
+    altBtn.style.display = 'block';
+    tips.innerHTML = '当前不是手机系统，请手动选择安装包<br>手机打开本页会自动选择对应版本';
   }
 }).catch(function(){
   document.getElementById('card').innerHTML = '<div class="loading" style="color:#e74c3c">网络错误，请稍后重试</div>';

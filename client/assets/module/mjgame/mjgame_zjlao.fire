@@ -121,16 +121,13 @@
       },
       {
         "__id__": 1698
+      },
+      {
+        "__id__": 1702
       }
     ],
     "_active": true,
     "_components": [
-      {
-        "__id__": 1702
-      },
-      {
-        "__id__": 1703
-      },
       {
         "__id__": 1704
       },
@@ -178,6 +175,12 @@
       },
       {
         "__id__": 1719
+      },
+      {
+        "__id__": 1720
+      },
+      {
+        "__id__": 1721
       }
     ],
     "_prefab": null,
@@ -2738,7 +2741,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 108.68,
+      "width": 200,
       "height": 46.1
     },
     "_anchorPoint": {
@@ -2750,7 +2753,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        -678.5760000000001,
+        -634.175,
         390.768,
         0,
         0,
@@ -2804,7 +2807,7 @@
     "_N$horizontalAlign": 0,
     "_N$verticalAlign": 1,
     "_N$fontFamily": "Arial",
-    "_N$overflow": 0,
+    "_N$overflow": 3,
     "_N$cacheMode": 0,
     "_id": "a7xGy4pLJCEpeYZl1jMxOP"
   },
@@ -2837,7 +2840,7 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 9,
-    "_left": 227.08399999999983,
+    "_left": 225.82500000000002,
     "_right": 0,
     "_top": 126.18200000000002,
     "_bottom": 0,
@@ -2895,7 +2898,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 108.68,
+      "width": 200,
       "height": 46.1
     },
     "_anchorPoint": {
@@ -2907,7 +2910,7 @@
       "__type__": "TypedArray",
       "ctor": "Float64Array",
       "array": [
-        -679.035,
+        -633.807,
         442.674,
         0,
         0,
@@ -2961,7 +2964,7 @@
     "_N$horizontalAlign": 0,
     "_N$verticalAlign": 1,
     "_N$fontFamily": "Arial",
-    "_N$overflow": 0,
+    "_N$overflow": 3,
     "_N$cacheMode": 0,
     "_id": "4dzD0OAZNHiawZDCln5Map"
   },
@@ -2994,7 +2997,7 @@
     "alignMode": 1,
     "_target": null,
     "_alignFlags": 9,
-    "_left": 226.625,
+    "_left": 226.19299999999996,
     "_right": 0,
     "_top": 74.27600000000001,
     "_bottom": 0,
@@ -10219,7 +10222,7 @@
       "ctor": "Float64Array",
       "array": [
         0,
-        28.19,
+        49.19,
         0,
         0,
         0,
@@ -75393,6 +75396,101 @@
     "_originalWidth": 0,
     "_originalHeight": 0,
     "_id": "d0crWAExtMSYTjAEyabns8"
+  },
+  {
+    "__type__": "cc.Node",
+    "_name": "New Label",
+    "_objFlags": 0,
+    "_parent": {
+      "__id__": 2
+    },
+    "_children": [],
+    "_active": true,
+    "_components": [
+      {
+        "__id__": 1703
+      }
+    ],
+    "_prefab": null,
+    "_opacity": 58,
+    "_color": {
+      "__type__": "cc.Color",
+      "r": 255,
+      "g": 255,
+      "b": 255,
+      "a": 255
+    },
+    "_contentSize": {
+      "__type__": "cc.Size",
+      "width": 305.19287333488955,
+      "height": 100.8
+    },
+    "_anchorPoint": {
+      "__type__": "cc.Vec2",
+      "x": 0.5,
+      "y": 0.5
+    },
+    "_trs": {
+      "__type__": "TypedArray",
+      "ctor": "Float64Array",
+      "array": [
+        0,
+        -77.253,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "_eulerAngles": {
+      "__type__": "cc.Vec3",
+      "x": 0,
+      "y": 0,
+      "z": 0
+    },
+    "_skewX": 0,
+    "_skewY": 0,
+    "_is3DNode": false,
+    "_groupIndex": 0,
+    "groupIndex": 0,
+    "_id": "21sGcSiKNCrZfeRS4FfC7Q"
+  },
+  {
+    "__type__": "cc.Label",
+    "_name": "",
+    "_objFlags": 0,
+    "node": {
+      "__id__": 1702
+    },
+    "_enabled": true,
+    "_materials": [
+      {
+        "__uuid__": "eca5d2f2-8ef6-41c2-bbe6-f9c79d09c432"
+      }
+    ],
+    "_srcBlendFactor": 770,
+    "_dstBlendFactor": 771,
+    "_string": "赖倒胡",
+    "_N$string": "赖倒胡",
+    "_fontSize": 95,
+    "_lineHeight": 80,
+    "_enableWrapText": true,
+    "_N$file": null,
+    "_isSystemFontUsed": true,
+    "_spacingX": 0,
+    "_batchAsBitmap": false,
+    "_styleFlags": 3,
+    "_underlineHeight": 0,
+    "_N$horizontalAlign": 1,
+    "_N$verticalAlign": 1,
+    "_N$fontFamily": "Arial",
+    "_N$overflow": 0,
+    "_N$cacheMode": 0,
+    "_id": "1coDKikwpCyqx9FMWh5b0i"
   },
   {
     "__type__": "cc.Canvas",

@@ -19,6 +19,7 @@ var ROAD_CAP = { head: 3, mid: 5, tail: 5 };
 var ROAD_START = { head: 0, mid: 3, tail: 8 };
 var ROAD_NAMES = { head: "\u524d\u9053", mid: "\u4e2d\u9053", tail: "\u540e\u9053" };
 var ROADS = ["tail", "mid", "head"];
+// 三道牌型图统一规格(800x245), 位置/缩放全部由场景节点控制, JS 只换图
 var ROAD_BY_ROW = ["head", "mid", "tail"];
 var ROAD_ROW = { head: 0, mid: 1, tail: 2 };
 // 场景 bbSeat0~5 的逆时针落座顺序(自己=bbSeat0 最下方)
@@ -28,13 +29,13 @@ var TYPE_BTN_LV = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 // 牌型图片(png 文件夹)
 var IMG_TYPE = {
-    head: { 3: "\u51b2\u4e09", 1: "\u5bf9\u5b50" },
-    mid: { 9: "\u4e94\u540c", 8: "\u540c\u82b1\u987a", 7: "\u94c1\u652f", 6: "\u846b\u82a6", 5: "\u540c\u82b1", 4: "\u987a\u5b50", 3: "\u4e09\u6761", 2: "\u4e8c\u5bf9", 1: "\u5bf9\u5b50" },
-    tail: { 9: "\u4e94\u540c", 8: "\u540c\u82b1\u987a", 7: "\u94c1\u652f", 6: "\u846b\u82a6", 5: "\u540c\u82b1", 4: "\u987a\u5b50", 3: "\u4e09\u6761", 2: "\u4e8c\u5bf9", 1: "\u5bf9\u5b50" }
+    head: { 3: "\u51b2\u4e09", 1: "\u5bf9\u5b50", 0: "\u4e4c\u9f99" },
+    mid: { 9: "\u4e94\u540c", 8: "\u540c\u82b1\u987a", 7: "\u94c1\u652f", 6: "\u846b\u82a6", 5: "\u540c\u82b1", 4: "\u987a\u5b50", 3: "\u4e09\u6761", 2: "\u4e8c\u5bf9", 1: "\u5bf9\u5b50", 0: "\u4e4c\u9f99" },
+    tail: { 9: "\u4e94\u540c", 8: "\u540c\u82b1\u987a", 7: "\u94c1\u652f", 6: "\u846b\u82a6", 5: "\u540c\u82b1", 4: "\u987a\u5b50", 3: "\u4e09\u6761", 2: "\u4e8c\u5bf9", 1: "\u5bf9\u5b50", 0: "\u4e4c\u9f99" }
 };
 var IMG_NAMES = [
     "\u7406\u724c\u4e2d-1", "\u7406\u724c\u4e2d-2", "\u7406\u724c\u4e2d-3",
-    "\u5df2\u5b8c\u6210", "\u7279\u6b8a\u724c\u578b",
+    "\u5df2\u5b8c\u6210", "\u7279\u6b8a\u724c\u578b", "\u4e4c\u9f99",
     "\u5bf9\u5b50", "\u4e8c\u5bf9", "\u4e09\u6761", "\u51b2\u4e09", "\u987a\u5b50", "\u540c\u82b1", "\u846b\u82a6", "\u94c1\u652f", "\u540c\u82b1\u987a", "\u4e94\u540c"
 ];
 
@@ -491,6 +492,13 @@ cc.Class({
         this._bindNet();
         this._refreshSeats();
         this._szResetAll();            // 开局前不显示比牌分数
+        // 兜底: 递归关闭场景里所有 SZSprite(不进比牌绝不显示)
+        (function hideSZ(n) {
+            if (!n) return;
+            if (n.name === "SZSprite") { n.active = false; return; }
+            var cs = n.children;
+            for (var i = 0; i < cs.length; ++i) hideSZ(cs[i]);
+        })(this.node);
         this.renderAll();
         if (cc.vv.audioMgr) cc.vv.audioMgr.playBGM("bgFight.mp3");
         this.schedule(this._tick, 1);
@@ -617,6 +625,18 @@ cc.Class({
                 bx: srNode.scaleX, by: srNode.scaleY   // 场景里设置好的原始缩放
             };
         }
+        // 每道牌型使用场景里的 bbDao0/1/2, JS只换图和显隐, 不创建/移动/缩放节点
+        var badges = {};
+        for (var road in DAO_NAMES) {
+            var badge = box ? this._findIn(box, DAO_NAMES[road]) : null;
+            if (!badge) continue;
+            var oldLabel = badge.getComponent(cc.Label);
+            if (oldLabel) oldLabel.enabled = false;
+            var badgeSp = badge.getComponent(cc.Sprite) || badge.addComponent(cc.Sprite);
+            badgeSp.sizeMode = cc.Sprite.SizeMode.RAW;
+            badge.active = false;
+            badges[road] = badge;
+        }
         // 比牌分数显示: 自己(带 qd/zd/hd/zf)三道常显, 其他座位只有 jklSprite 临时显示本道盈亏
         var szRoot = this._findIn(root, "SZSprite");
         var szJkl = szRoot ? this._findIn(szRoot, "jklSprite") : null;
@@ -640,7 +660,7 @@ cc.Class({
             scoreLb: userNode ? this._labelOf(userNode.getChildByName("score")) : null,
             summary: this._labelOf(this._findIn(root, "bbSummary")),
             szRoot: szRoot, szJkl: szJkl, szQd: szQd, szZd: szZd, szHd: szHd, szZf: szZf, _sz: null,
-            badges: null, specialBadge: null,
+            badges: badges, specialBadge: null,
             roomSeat: -1, player: null, confirmed: false, special: null,
             results: null
         };
@@ -1242,7 +1262,8 @@ cc.Class({
         if (seat.szQd) {
             // 自己: 前/中/后道 + 总分, 从比牌开始一直显示
             put(seat.szQd, v.head); put(seat.szZd, v.mid); put(seat.szHd, v.tail); put(seat.szZf, v.total);
-            seat.szRoot.active = true;
+            // 没有任何比牌数据时整个 SZSprite 隐藏(进房/理牌阶段不显示)
+            seat.szRoot.active = (v.head != null || v.mid != null || v.tail != null || v.total != null);
         } else {
             put(seat.szJkl, v.jkl);
             seat.szRoot.active = (v.jkl != null);
@@ -1285,6 +1306,15 @@ cc.Class({
         if (!d || !d.known) return;
         var val = Number(d[road]) || 0;
         this._szUpdate(seat, seat.szQd ? road : "jkl", val);
+        // 玩家的分数随每一道比牌结果加减(以本局开始前的分数为基数)
+        var r = this._resultByRoom && this._resultByRoom[seat.roomSeat];
+        if (r && seat.scoreLb) {
+            var acc = this._roadAcc || (this._roadAcc = {});
+            acc[seat.roomSeat] = (acc[seat.roomSeat] || 0) + val;
+            var base = (r.totalscore != null ? Number(r.totalscore) : 0) - (Number(r.delta) || 0);
+            var shown = (road === "tail" && r.totalscore != null) ? Number(r.totalscore) : (base + acc[seat.roomSeat]);
+            seat.scoreLb.string = "\u5206\u6570:" + shown;
+        }
     },
     _szHideJklAll: function () {
         for (var k = 0; k < this._n.seats.length; ++k) {
@@ -1724,7 +1754,8 @@ cc.Class({
             if (seat.nameNode) seat.nameNode.active = true;
             if (seat.scoreNode) seat.scoreNode.active = true;
             if (seat.avatarNode) seat.avatarNode.active = true;
-            if (seat.zhuangNode) seat.zhuangNode.active = true;
+            // 庄/大赢家标记: 只给上小局分数最高的人显示
+            if (seat.zhuangNode) seat.zhuangNode.active = (this._lastWinRoomSeat != null && seat.roomSeat === this._lastWinRoomSeat);
             seat.confirmed = !!(confirmed[s.userid] || (this._confirmed && s.userid == this._myUserId));
             if (seat.nameLb) seat.nameLb.string = s.name || ("\u73a9\u5bb6" + (ridx + 1));
             if (seat.scoreLb) seat.scoreLb.string = "\u5206\u6570:" + (s.score || 0);
@@ -1774,6 +1805,13 @@ cc.Class({
         this._layoutSeats(null);
         this._updateMbs();
         this._refreshSitUI();
+        // 非比牌阶段(进房/理牌/结算后): 座位刷新后 SZSprite 一律隐藏
+        if (this._phase !== "reveal" && this._phase !== "settle") {
+            for (var i = 0; i < this._n.seats.length; ++i) {
+                var s = this._n.seats[i];
+                if (s && s.szRoot) s.szRoot.active = false;
+            }
+        }
     },
 
     // ================= bbMb: 理牌中/已完成/特殊牌型 =================
@@ -2387,6 +2425,7 @@ cc.Class({
 
         // 分数显示: 自己(带 qd/zd/hd/zf)从比牌开始常显, 其他座位等某道亮完再临时显示
         this._roadDeltas = this._calcRoadDeltas(data);
+        this._roadAcc = {};
         for (var sz = 0; sz < this._n.seats.length; ++sz) {
             var ssz = this._n.seats[sz];
             if (!ssz) continue;
@@ -2600,20 +2639,12 @@ cc.Class({
                 scaleX: o.sx * up, scaleY: o.sy * up
             }).start();
         }
-        // 牌型压在牌的上方
-        var ch = nodes[0].height * nodes[0].__sssOrig.sy * up;
-        this._showRoadBadge(seat, road, disp, cy + ch * 0.5 + (seat.k === 0 ? 34 : 24), cx);
-
-        // 第二步: 停留展示 -> 缩小/复位旋转/回原层级(动画) -> 牌型留在原位上方
+        // 牌型使用场景固定节点, 不随放大展示重复移动或显示
+        // 第二步: 停留展示 -> 缩小/复位旋转/回原层级(动画)
         // 复原不依赖亮牌 token: 到点必须把牌放回场景原样
-        var token = this._revealToken;
         setTimeout(function () {
             if (!cc.isValid(self.node) || !cc.isValid(seat.box)) return;
             self._restoreRoadNodes(seat, road);
-            setTimeout(function () {
-                if (!cc.isValid(self.node) || !cc.isValid(seat.box)) return;
-                if (token === self._revealToken) self._showRoadBadge(seat, road, disp);
-            }, 340);
         }, 1200);
     },
 
@@ -2688,47 +2719,22 @@ cc.Class({
         seat.specialBadge.setSiblingIndex(seat.box.children.length - 1);
     },
 
-    // 牌面牌型图片(亮到的这一道)
-    _showRoadBadge: function (seat, road, ids, aboveY, atX) {
-        if (!seat || !seat.box) return;
-        var nm = typeImgOf(road, ids);
-        if (!nm) return;
-        if (!seat.badges) seat.badges = {};
+    // 牌面牌型图片: 使用场景预置节点, 场景只负责位置
+    // 各牌型原图分辨率不同(两字1150x350, 三字1700x520, 理牌中393x120), 统一按可视高度缩放, 宽度随原图比例
+    _showRoadBadge: function (seat, road, ids) {
+        if (!seat || !seat.box || !seat.badges) return;
         var badge = seat.badges[road];
-        if (!badge) {
-            badge = new cc.Node("sssBadge_" + road);
-            badge.addComponent(cc.Sprite).sizeMode = cc.Sprite.SizeMode.CUSTOM;
-            badge.setContentSize(seat.k === 0 ? 150 : 116, seat.k === 0 ? 75 : 58);
-            badge.zIndex = 200;
-            seat.box.addChild(badge);
-            seat.badges[road] = badge;
-        }
-        var f = this._img(nm);
+        if (!badge) return;
+        var nm = typeImgOf(road, ids);
+        var f = nm ? this._img(nm) : null;
         var sp = badge.getComponent(cc.Sprite);
-        if (sp) sp.spriteFrame = f;
+        if (sp) {
+            sp.sizeMode = cc.Sprite.SizeMode.RAW;
+            sp.spriteFrame = f;
+        }
+        // 位置/缩放/层级全部由场景节点控制, JS 只换图和显隐
         badge.active = !!f;
         badge.opacity = 255;
-        if (aboveY !== undefined && aboveY !== null) {
-            // 放大展示时: 牌型在这道牌正上方
-            badge.setPosition(atX || 0, aboveY);
-        } else {
-            // 归位后: 牌型同样摆在整道牌的上方
-            var start = ROAD_START[road];
-            var x = 0, y = 0, cnt = 0, hw = 0;
-            for (var i = 0; i < ids.length; ++i) {
-                var c = seat.cards[start + i];
-                if (!c) continue;
-                x += c.x; y += c.y; cnt++;
-                hw = Math.max(hw, c.height * c.scaleY);
-            }
-            if (cnt) {
-                badge.setPosition(x / cnt, (y / cnt) + hw * 0.5 + (seat.k === 0 ? 20 : 14));
-            }
-        }
-        badge.setSiblingIndex(seat.box.children.length - 1);
-        badge.stopAllActions();
-        badge.setScale(0.6, 0.6);
-        badge.runAction(cc.scaleTo(0.12, 1, 1).easing(cc.easeBackOut()));
     },
 
     // 收起某一道的牌型提示(亮完一道后调用)
@@ -2782,6 +2788,7 @@ cc.Class({
             self._hideRoadBadges("head");
             self._hideRoadBadges("mid");
             self._hideRoadBadges("tail");
+            self._szResetAll();             // 比牌结束: SZSprite 等分数显示全部收起
             self._restoreAllRoadsNow();     // 最后一道亮完: 所有牌强制按原位置/角度/缩放/层级复原
             // 最后一局: 亮牌期间收到的总结算, 现在牌已归位, 可以弹了
             if (self._pendingGameEnd) {
@@ -2833,6 +2840,18 @@ cc.Class({
         if (contentLb) {
             content.active = true;
             contentLb.string = lines.join("\n");
+        }
+        // 记录本小局大赢家(bbZhuang 只给分数最高者显示), 无正分则全部隐藏
+        var winRoomSeat = null, bestDelta = 0;
+        for (var wk in this._resultByRoom) {
+            if (!this._resultByRoom.hasOwnProperty(wk)) continue;
+            var wr = this._resultByRoom[wk];
+            if (wr && (wr.delta || 0) > bestDelta) { bestDelta = wr.delta; winRoomSeat = parseInt(wk, 10); }
+        }
+        this._lastWinRoomSeat = winRoomSeat;
+        for (var zk = 0; zk < this._n.seats.length; ++zk) {
+            var zs = this._n.seats[zk];
+            if (zs && zs.zhuangNode) zs.zhuangNode.active = (winRoomSeat != null && zs.roomSeat === winRoomSeat && !!zs.player);
         }
         var roundLb = this._labelOf(this._findIn(panel, "settleRound"));
         if (roundLb) {

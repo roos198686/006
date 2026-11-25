@@ -175,6 +175,13 @@ exports.init = function(config){
         });
     }, 3050);
 
+    //麻将玩法:是否隐藏牌墙(默认开启,1=隐藏 0=显示)
+    setTimeout(function(){
+        query('ALTER TABLE `t_game_config` ADD COLUMN `hide_wall` TINYINT(1) NOT NULL DEFAULT 1 COMMENT "麻将隐藏墙牌:1=隐藏 0=显示"', function(err){
+            if(err && !/Duplicate column/i.test(err.message)){ console.log("alter t_game_config.hide_wall failed:" + err.message); }
+        });
+    }, 3150);
+
     //观战账号表:由超级后台录入账号密码,观战网页用它登录(与管理员账号完全独立)
     setTimeout(function(){
         var sqlSp = 'CREATE TABLE IF NOT EXISTS `t_spectate_users` (' +
@@ -559,7 +566,6 @@ exports.add_user_gems = function(userid,gems,callback,extra){
         return;
     }
     var sql = 'UPDATE t_users SET gems = gems +' + gems + ' WHERE userid = ' + userid;
-    console.log(sql);
     query(sql,function(err,rows,fields){
         if(err){
             console.log(err);
@@ -577,6 +583,25 @@ exports.add_user_gems = function(userid,gems,callback,extra){
     });
 };
 
+//原子加减房卡: 扣款时用条件更新, 余额不足返回 false, 避免"先查后扣"并发扣成负数
+exports.add_user_gems_checked = function(userid,gems,callback,extra){
+    callback = callback == null? nop:callback;
+    if(userid == null){ callback(false); return; }
+    gems = Math.round((Number(gems) || 0) * 100) / 100;
+    if(gems === 0){ callback(true); return; }
+    //加豆不需要条件
+    if(gems > 0){ exports.add_user_gems(userid,gems,callback,extra); return; }
+    var amount = -gems;
+    query('UPDATE t_users SET gems = gems -' + amount + ' WHERE userid = ' + userid + ' AND gems >= ' + amount,function(err,rows){
+        if(err){ console.log(err); callback(false); return; }
+        if(!rows || rows.affectedRows !== 1){ callback(false); return; }
+        if(extra){
+            exports.add_bean_log(userid,extra.roomid,extra.gameType,extra.changeType,gems,null,extra.roomUuid,extra.gameIndex,extra.clubId,extra.partnerClubId,extra.tableName);
+        }
+        callback(true);
+    });
+};
+
 //查询玩家宝宝豆与保险柜余额
 exports.get_user_safe = function(userid,callback){
     callback = callback == null? nop:callback;
@@ -587,35 +612,85 @@ exports.get_user_safe = function(userid,callback){
     });
 };
 
+//结算封顶: 按每个玩家余额限制本局输额(最多输光), 不足的部分由赢家按赢豆比例少收,
+//保证总量守恒且不会把余额扣成负数(以分为单位整数运算, 避免浮点误差)
+//deltas: 各座位本局输赢; balances: 各座位结算前余额; 返回新的输赢数组
+exports.cap_deltas_by_balance = function(deltas, balances){
+    var n = (deltas || []).length;
+    var cents = [], balC = [], i;
+    for(i = 0; i < n; i++){
+        cents[i] = Math.round((Number(deltas[i]) || 0) * 100);
+        balC[i] = Math.round((Number((balances || [])[i]) || 0) * 100);
+        if(balC[i] < 0){ balC[i] = 0; }
+    }
+    var shortfall = 0;
+    for(i = 0; i < n; i++){
+        if(cents[i] < 0){
+            var need = -cents[i];
+            var pay = Math.min(need, balC[i]);
+            if(pay < need){ shortfall += need - pay; }
+            cents[i] = -pay;
+        }
+    }
+    if(shortfall > 0){
+        var totalWin = 0;
+        for(i = 0; i < n; i++){ if(cents[i] > 0){ totalWin += cents[i]; } }
+        var cut = Math.min(shortfall, totalWin);
+        if(cut > 0){
+            var given = 0, lastWin = -1;
+            for(i = 0; i < n; i++){
+                if(cents[i] <= 0){ continue; }
+                lastWin = i;
+                var take = Math.round(cents[i] * cut / totalWin);
+                if(take > cents[i]){ take = cents[i]; }
+                if(given + take > cut){ take = cut - given; }
+                cents[i] -= take;
+                given += take;
+            }
+            //四舍五入零头从最后一个赢家扣, 保证总扣减正好等于缺口
+            if(given < cut && lastWin >= 0){
+                var rest = Math.min(cut - given, cents[lastWin]);
+                cents[lastWin] -= rest;
+            }
+        }
+    }
+    var out = [];
+    for(i = 0; i < n; i++){ out.push(cents[i] / 100); }
+    return out;
+};
+
 //保险柜存取:amount>0 存入(gems→safe_beans), amount<0 取出(safe_beans→gems)
 //余额不足时返回 false,成功返回 {gems, safe_beans}
 exports.safe_transfer = function(userid,amount,callback){
     callback = callback == null? nop:callback;
     if(userid == null || amount == null || amount === 0){ callback(false); return; }
-    amount = parseInt(amount);
+    //余额字段是 decimal(14,2), 用 parseFloat 支持小数, 统一保留2位避免浮点尾差
+    amount = parseFloat(amount);
     if(!isFinite(amount)){ callback(false); return; }
+    amount = Math.round(amount * 100) / 100;
+    if(amount === 0){ callback(false); return; }
     //先查当前余额
     exports.get_user_safe(userid, function(bal){
         if(bal == null){ callback(false); return; }
-        if(amount > 0){
-            //存入:gems 要足够
-            if(bal.gems < amount){ callback(false,'宝宝豆不足'); return; }
-            query('UPDATE t_users SET gems = gems - ' + amount + ', safe_beans = safe_beans + ' + amount + ' WHERE userid = ' + userid, function(err, rows){
-                if(err){ console.log(err); callback(false); return; }
-                exports.add_bean_log(userid,0,'','存入保险柜',-amount); //存保险柜:宝宝豆减少
-                callback({gems: bal.gems - amount, safe_beans: bal.safe_beans + amount});
-            });
-        }
-        else{
-            //取出:safe_beans 要足够
-            var wd = -amount;
-            if(bal.safe_beans < wd){ callback(false,'保险柜余额不足'); return; }
-            query('UPDATE t_users SET gems = gems + ' + wd + ', safe_beans = safe_beans - ' + wd + ' WHERE userid = ' + userid, function(err, rows){
-                if(err){ console.log(err); callback(false); return; }
-                exports.add_bean_log(userid,0,'','从保险柜取出',wd); //取保险柜:宝宝豆增加
-                callback({gems: bal.gems + wd, safe_beans: bal.safe_beans - wd});
-            });
-        }
+    if(amount > 0){
+        //存入:用条件更新原子判断余额, 避免并发扣成负数
+        query('UPDATE t_users SET gems = gems - ' + amount + ', safe_beans = safe_beans + ' + amount + ' WHERE userid = ' + userid + ' AND gems >= ' + amount, function(err, rows){
+            if(err){ console.log(err); callback(false); return; }
+            if(!rows || rows.affectedRows !== 1){ callback(false,'宝宝豆不足'); return; }
+            exports.add_bean_log(userid,0,'','存入保险柜',-amount); //存保险柜:宝宝豆减少
+            exports.get_user_safe(userid,function(bal2){ callback(bal2 || {gems:Number(bal.gems)-amount, safe_beans:Number(bal.safe_beans)+amount}); });
+        });
+    }
+    else{
+        //取出:用条件更新原子判断保险柜余额
+        var wd = -amount;
+        query('UPDATE t_users SET gems = gems + ' + wd + ', safe_beans = safe_beans - ' + wd + ' WHERE userid = ' + userid + ' AND safe_beans >= ' + wd, function(err, rows){
+            if(err){ console.log(err); callback(false); return; }
+            if(!rows || rows.affectedRows !== 1){ callback(false,'保险柜余额不足'); return; }
+            exports.add_bean_log(userid,0,'','从保险柜取出',wd); //取保险柜:宝宝豆增加
+            exports.get_user_safe(userid,function(bal2){ callback(bal2 || {gems:Number(bal.gems)+wd, safe_beans:Number(bal.safe_beans)-wd}); });
+        });
+    }
     });
 };
 
@@ -827,17 +902,19 @@ exports.is_room_exist = function(roomId,callback){
     });
 };
 
+//扣除房卡/局费: 条件更新, 余额不足时不扣(返回false), 避免扣成负数
 exports.cost_gems = function(userid,cost,callback){
     callback = callback == null? nop:callback;
-    var sql = 'UPDATE t_users SET gems = gems -' + cost + ' WHERE userid = ' + userid;
-    console.log(sql);
-    query(sql, function(err, rows, fields) {
+    cost = Math.round((Number(cost) || 0) * 100) / 100;
+    if(!(cost > 0)){ callback(true); return; }
+    var sql = 'UPDATE t_users SET gems = gems -' + cost + ' WHERE userid = ' + userid + ' AND gems >= ' + cost;
+    query(sql, function(err, rows) {
         if(err){
+            console.log(err);
             callback(false);
-            throw err;
         }
         else{
-            callback(rows.length > 0);
+            callback(!!rows && rows.affectedRows === 1);
         }
     });
 };
@@ -1794,9 +1871,10 @@ exports.clubs_by_owner = function(userid,callback){
 exports.club_members_detail = function(clubId,callback){
     callback = callback == null? nop:callback;
     if(!(clubId > 0)){ callback([]); return; }
+    var cid = parseInt(clubId);
     var sql = 'SELECT m.userid,m.join_time,u.name,u.gems,u.headimg,'
-        + '(SELECT COUNT(*) FROM t_clubs c WHERE c.owner_userid = m.userid AND c.parent_clubid = ' + parseInt(clubId) + ') AS partner_cnt '
-        + 'FROM t_club_members m JOIN t_users u ON u.userid = m.userid WHERE m.club_id = ' + parseInt(clubId) + ' ORDER BY m.join_time';
+        + '(SELECT COUNT(*) FROM t_clubs c WHERE c.owner_userid = m.userid AND c.parent_clubid = ' + cid + ') AS partner_cnt '
+        + 'FROM t_club_members m JOIN t_users u ON u.userid = m.userid WHERE m.club_id = ' + cid + ' ORDER BY m.join_time';
     query(sql, function(err, rows){
         if(err){ console.log(err); callback([]); return; }
         rows = rows || [];
@@ -1805,16 +1883,25 @@ exports.club_members_detail = function(clubId,callback){
             r.is_partner = Number(r.partner_cnt) > 0;
             delete r.partner_cnt;
         });
-        if(rows.length === 0){ callback(rows); return; }
-        //每个成员的历史总赢亏(对局结算净额)
-        var ids = rows.map(function(r){ return Number(r.userid) || 0; });
-        var ph = ids.map(function(){ return '?'; }).join(',');
-        queryP('SELECT userid, SUM(amount) AS win_lose FROM t_bean_logs WHERE change_type = "对局结算" AND userid IN (' + ph + ') GROUP BY userid', ids, function(err2, wl){
-            var map = {};
-            (wl || []).forEach(function(x){ map[Number(x.userid)] = round4(Number(x.win_lose) || 0); });
-            rows.forEach(function(r){ r.total_win_lose = map[Number(r.userid)] != null ? map[Number(r.userid)] : 0; });
-            callback(rows);
-        });
+        //成员列表只显示普通玩家: 已是合伙人的账号只出现在合伙人列表, 社长本人也不显示
+        queryP('SELECT owner_userid FROM t_clubs WHERE id = ?',[cid],function(e3,own){
+            var ownerUid = Number((own && own[0] && own[0].owner_userid) || 0);
+            rows = rows.filter(function(r){
+                if(r.is_partner){ return false; }
+                return ownerUid > 0 ? Number(r.userid) !== ownerUid : true;
+            });
+                rows.sort(function(a,b){ return (a.join_time || 0) - (b.join_time || 0); });
+                if(rows.length === 0){ callback(rows); return; }
+                //每个成员的历史总赢亏(对局结算净额)
+                var ids = rows.map(function(r){ return Number(r.userid) || 0; });
+                var ph = ids.map(function(){ return '?'; }).join(',');
+                queryP('SELECT userid, SUM(amount) AS win_lose FROM t_bean_logs WHERE change_type = "对局结算" AND userid IN (' + ph + ') GROUP BY userid', ids, function(err2, wl){
+                    var map = {};
+                    (wl || []).forEach(function(x){ map[Number(x.userid)] = round4(Number(x.win_lose) || 0); });
+                    rows.forEach(function(r){ r.total_win_lose = map[Number(r.userid)] != null ? map[Number(r.userid)] : 0; });
+                    callback(rows);
+                });
+            });
     });
 };
 
@@ -1839,7 +1926,7 @@ exports.club_sub_list = function(clubId,callback){
     if(!(clubId > 0)){ callback([]); return; }
     var sql = 'SELECT c.id,c.name,'
         + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count,'
-        + '(SELECT IFNULL(SUM(u.gems),0) FROM t_club_members m2 JOIN t_users u ON u.userid = m2.userid WHERE m2.club_id = c.id) AS total_gems'
+        + '(SELECT IFNULL(SUM(u.gems + u.safe_beans),0) FROM t_club_members m2 JOIN t_users u ON u.userid = m2.userid WHERE m2.club_id = c.id) AS total_gems'
         + ' FROM t_clubs c WHERE c.parent_clubid = ' + parseInt(clubId) + ' ORDER BY c.id DESC';
     query(sql, function(err, rows){
         if(err){ console.log(err); callback([]); return; }
@@ -2480,7 +2567,8 @@ exports.partner_list = function(clubId,callback){
         if(results.length === 0){ callback([]); return; }
         //最后一轮: 每个结果行查顶级俱乐部视角下的 stats(顶级 owner 对 2 级/3 级可能没直接行, 填零)
         var pending = results.length;
-        results.forEach(function(r){
+        results.forEach(function(r){
+
             exports.partner_stats_row(clubId, r.id, function(st){
                 if(st){
                     r.profit_ratio = st.profit_ratio != null ? st.profit_ratio : 0;
@@ -2541,7 +2629,7 @@ exports.partner_list = function(clubId,callback){
                 (function(kid){
                     queryP('SELECT c.id,c.name,c.owner_userid,c.create_time,'
                         + '(SELECT COUNT(*) FROM t_club_members m WHERE m.club_id = c.id) AS member_count,'
-                        + '(SELECT IFNULL(SUM(u2.gems),0) FROM t_club_members m2 JOIN t_users u2 ON u2.userid = m2.userid WHERE m2.club_id = c.id) AS total_gems,'
+                        + '(SELECT IFNULL(SUM(u2.gems + u2.safe_beans),0) FROM t_club_members m2 JOIN t_users u2 ON u2.userid = m2.userid WHERE m2.club_id = c.id) AS total_gems,'
                         + 'u.headimg, u.name AS owner_name, pc.name AS parent_club_name '
                         + 'FROM t_clubs c LEFT JOIN t_clubs pc ON pc.id = c.parent_clubid '
                         + 'LEFT JOIN t_users u ON u.userid = c.owner_userid '
@@ -2719,28 +2807,36 @@ exports.add_reward_log = function(clubId,partnerClubId,rewardType,amount,gameTyp
         });
 };
 
-//手动领取一条奖励: 先抢占(claim_status 0->1), 抢到才给俱乐部社长到账, 重复点只到账一次
+//手动领取一条奖励: 先校验记录和社长账号, 再抢占(claim_status 0->1); 到账失败回滚领取状态
 exports.reward_claim = function(clubId,id,callback){
     callback = callback == null? nop:callback;
     var cid = parseInt(clubId) || 0;
     var rid = parseInt(id) || 0;
     if(!(cid > 0) || !(rid > 0)){ callback(false,0); return; }
-    var t = Math.ceil(Date.now()/1000);
-    queryP('UPDATE t_reward_logs SET claim_status=1, claim_time=? WHERE id=? AND club_id=? AND claim_status=0',[t,rid,cid],function(err,ret){
-        if(err){ console.log('reward_claim update failed:' + err.message); callback(false,0); return; }
-        if(!ret || ret.affectedRows !== 1){ callback(false,0); return; }
-        queryP('SELECT * FROM t_reward_logs WHERE id=? LIMIT 1',[rid],function(e2,rows){
-            if(e2 || !rows || rows.length === 0){ callback(true,0); return; }
-            var r = rows[0];
-            var amount = Number(r.amount) || 0;
-            exports.club_get(cid,function(club){
-                if(club == null || !(amount > 0)){ callback(true,0); return; }
+    queryP('SELECT * FROM t_reward_logs WHERE id=? AND club_id=? AND claim_status=0 LIMIT 1',[rid,cid],function(err,rows){
+        if(err || !rows || rows.length === 0){ callback(false,0); return; }
+        var r = rows[0];
+        var amount = Number(r.amount) || 0;
+        exports.club_get(cid,function(club){
+            if(club == null || !(amount > 0)){ callback(false,0); return; }
+            var t = Math.ceil(Date.now()/1000);
+            queryP('UPDATE t_reward_logs SET claim_status=1, claim_time=? WHERE id=? AND club_id=? AND claim_status=0',[t,rid,cid],function(e2,ret){
+                if(e2){ console.log('reward_claim update failed:' + e2.message); callback(false,0); return; }
+                if(!ret || ret.affectedRows !== 1){ callback(false,0); return; }
                 //到账写流水时沿用原奖励类型, 总览/收入统计按到账时间口径统计
-                exports.add_user_gems(club.owner_userid, amount, null, {
+                exports.add_user_gems(club.owner_userid, amount, function(ok){
+                    if(!ok){
+                        //到账失败: 回滚领取状态, 允许重新领取, 不让奖励凭空消失(回滚完成后再回调)
+                        queryP('UPDATE t_reward_logs SET claim_status=0, claim_time=0 WHERE id=?',[rid],function(){
+                            callback(false,0);
+                        });
+                        return;
+                    }
+                    callback(true,amount);
+                }, {
                     roomid: r.roomid, gameType: r.game_type, changeType: r.reward_type, clubId: cid,
                     partnerClubId: r.partner_club_id || 0, tableName: r.table_name || ""
                 });
-                callback(true,amount);
             });
         });
     });
@@ -2788,9 +2884,11 @@ exports.club_overview = function(clubId,callback){
     var todayTs = Math.ceil(today.getTime()/1000);
     var yesterdayTs = todayTs - 86400;
     var beforeYesterdayTs = todayTs - 172800;
-    // 社长实收包含全部收入类流水(进房费也是俱乐部收入, 不能漏)
-    var REW2 = '("抽水","暗水","房费","洗牌扣豆","表情扣豆","进房首局扣豆","合伙人分成")';
+    // 社长实收包含全部收入类流水(进场费/房费等也是俱乐部收入, 不能漏)
+    var REW2 = '("抽水","暗水","房费","洗牌扣豆","表情扣豆","进场费","进房首局扣豆","合伙人分成")';
     // 收集本级及所有下级俱乐部 id
+    queryP('SELECT parent_clubid FROM t_clubs WHERE id = ?', [cid], function(eP, rP){
+    var parentClubId = Number((rP && rP[0] && rP[0].parent_clubid) || 0);
     var ids = [cid];
     (function next(){
         var ph = ids.map(function(){ return '?'; }).join(',');
@@ -2806,7 +2904,15 @@ exports.club_overview = function(clubId,callback){
     })();
     function finish(){
         var inPh = ids.map(function(){ return '?'; }).join(',');
-        // 实收: 本级社长本人实际到账(抽水类 + 上级分成), 已扣掉被上级抽走的部分
+        // 累收: 本俱乐部当日产生的全部收入(t_reward_logs, 含未领取、含被上级抽走前的净额)
+        var sqlGross = 'SELECT '
+            + 'SUM(CASE WHEN create_time >= ' + todayTs + ' THEN amount ELSE 0 END) AS today_gross,'
+            + 'SUM(CASE WHEN create_time >= ' + yesterdayTs + ' AND create_time < ' + todayTs + ' THEN amount ELSE 0 END) AS yesterday_gross,'
+            + 'SUM(CASE WHEN create_time >= ' + beforeYesterdayTs + ' AND create_time < ' + yesterdayTs + ' THEN amount ELSE 0 END) AS before_gross '
+            + 'FROM t_reward_logs WHERE club_id = ?';
+        queryP(sqlGross, [cid], function(errG, rowsG){
+        var rg = (rowsG && rowsG[0]) || {};
+        // 实收: 本级社长本人实际到账(领取或自动到账后写入的正向流水)
         queryP('SELECT owner_userid FROM t_clubs WHERE id = ?', [cid], function(e0, owners){
             var oids = (owners || []).map(function(o){ return Number(o.owner_userid); }).filter(function(v){ return v > 0; });
             var oPh = oids.length ? oids.map(function(){ return '?'; }).join(',') : '0';
@@ -2825,29 +2931,34 @@ exports.club_overview = function(clubId,callback){
                     + 'FROM t_bean_logs WHERE club_id IN (' + inPh + ')';
                 queryP(sqlRounds, ids, function(errR, rowsR){
                     var rr = (rowsR && rowsR[0]) || {};
-                    // 人数 / 乐豆: 本级 + 所有下级的成员汇总
-                    queryP('SELECT COUNT(*) AS member_count, IFNULL(SUM(u.gems),0) AS total_gems FROM t_club_members m JOIN t_users u ON u.userid = m.userid WHERE m.club_id IN (' + inPh + ')', ids, function(err2, rows2){
+                    // 人数 / 乐豆: 本级 + 所有下级的成员汇总; 未领取的奖励也算玩家资产
+                    queryP('SELECT COUNT(*) AS member_count, IFNULL(SUM(u.gems + u.safe_beans),0) AS total_gems FROM t_users u WHERE u.userid IN (SELECT m.userid FROM t_club_members m WHERE m.club_id IN (' + inPh + '))', ids, function(err2, rows2){
                         var r2 = (rows2 && rows2[0]) || {};
-                        var todayNet = round4(Number(rn.today_net || 0));
-                        callback({
-                            // 累收与实收一致: 显示社长实际到账(已扣被上级抽走的部分)
-                            today_rake: todayNet,
-                            yesterday_rake: round4(Number(rn.yesterday_net || 0)),
-                            before_yesterday_rake: round4(Number(rn.before_net || 0)),
-                            today_net: todayNet,
-                            yesterday_net: round4(Number(rn.yesterday_net || 0)),
-                            before_yesterday_net: round4(Number(rn.before_net || 0)),
-                            today_rounds: Number(rr.today_rounds || 0),
-                            yesterday_rounds: Number(rr.yesterday_rounds || 0),
-                            before_yesterday_rounds: Number(rr.before_rounds || 0),
-                            member_count: Number(r2.member_count || 0),
-                            total_gems: round4(Number(r2.total_gems || 0))
+                        queryP('SELECT IFNULL(SUM(amount),0) AS pending_gems FROM t_reward_logs WHERE club_id IN (' + inPh + ') AND claim_status = 0', ids, function(err3, rows3){
+                            var pending = Number((rows3 && rows3[0] && rows3[0].pending_gems) || 0);
+                            callback({
+                                club_id: cid,
+                                parent_clubid: parentClubId,
+                                today_rake: round4(Number(rg.today_gross || 0)),
+                                yesterday_rake: round4(Number(rg.yesterday_gross || 0)),
+                                before_yesterday_rake: round4(Number(rg.before_gross || 0)),
+                                today_net: round4(Number(rn.today_net || 0)),
+                                yesterday_net: round4(Number(rn.yesterday_net || 0)),
+                                before_yesterday_net: round4(Number(rn.before_net || 0)),
+                                today_rounds: Number(rr.today_rounds || 0),
+                                yesterday_rounds: Number(rr.yesterday_rounds || 0),
+                                before_yesterday_rounds: Number(rr.before_rounds || 0),
+                                member_count: Number(r2.member_count || 0),
+                                total_gems: round4(Number(r2.total_gems || 0) + pending)
+                            });
                         });
                     });
                 });
             });
         });
+        });
     }
+    });
 };
 function round4(v){ return Math.round(v * 10000) / 10000; }
 
@@ -2857,7 +2968,7 @@ function round4(v){ return Math.round(v * 10000) / 10000; }
 exports.club_income_stats = function(clubId, from, to, partnerClubId, callback){
     callback = callback == null? nop:callback;
     var cid = Number(clubId) || 0;
-    var REW2 = '("抽水","暗水","房费","洗牌扣豆","表情扣豆","进房首局扣豆","合伙人分成")';
+    var REW2 = '("抽水","暗水","房费","洗牌扣豆","表情扣豆","进场费","进房首局扣豆","合伙人分成")';
     queryP('SELECT owner_userid FROM t_clubs WHERE id = ?', [cid], function(err, owners){
         var oids = (owners || []).map(function(o){ return Number(o.owner_userid) || 0; }).filter(function(v){ return v > 0; });
         if(!oids.length){ callback({total: 0, list: []}); return; }
@@ -3044,8 +3155,47 @@ exports.club_members = function(clubId,callback){
     });
 };
 
+//俱乐部(社长)与指定账号之间转移豆豆: amount>0 从社长扣给对方, amount<0 从对方扣给社长
+//用于后台给合伙人和成员调豆, 保证社长豆豆同步增减
+exports.club_to_user_gems = function(clubId,targetUserId,amount,callback){
+    callback = callback == null? nop:callback;
+    amount = Math.round((Number(amount)||0) * 100) / 100;
+    if(!(clubId > 0) || !(targetUserId > 0) || amount === 0){ callback(false,'failed'); return; }
+    exports.club_get(clubId,function(club){
+        var ownerId = club ? (Number(club.owner_userid) || 0) : 0;
+        //社长账号异常或自己转自己时拒绝
+        if(!(ownerId > 0) || ownerId === targetUserId){ callback(false,'failed'); return; }
+        if(amount > 0){
+            //加豆: 先原子扣社长, 再给对方加; 对方加失败退回社长
+            exports.add_user_gems_checked(ownerId,-amount,function(okOwner){
+                if(!okOwner){ callback(false,'insufficient'); return; }
+                exports.add_user_gems(targetUserId,amount,function(ok){
+                    if(!ok){
+                        exports.add_user_gems(ownerId,amount,null,{roomid:0,gameType:"",changeType:"上分失败退还",clubId:clubId});
+                        callback(false,'failed'); return;
+                    }
+                    callback(true);
+                },{roomid:0,gameType:"",changeType:"社长给成员上分",clubId:clubId});
+            },{roomid:0,gameType:"",changeType:"社长上分扣款",clubId:clubId});
+        } else {
+            //扣豆: 先原子扣对方, 再给社长加; 社长加失败退回对方
+            exports.add_user_gems_checked(targetUserId,amount,function(ok){
+                if(!ok){ callback(false,'insufficient'); return; }
+                exports.add_user_gems(ownerId,-amount,function(okOwner){
+                    if(!okOwner){
+                        exports.add_user_gems(targetUserId,-amount,null,{roomid:0,gameType:"",changeType:"扣款失败退还",clubId:clubId});
+                        callback(false,'failed'); return;
+                    }
+                    callback(true);
+                },{roomid:0,gameType:"",changeType:"社长收下扣款",clubId:clubId});
+            },{roomid:0,gameType:"",changeType:"社长调整",clubId:clubId});
+        }
+    });
+};
+
 //俱乐部管理员给成员增减房卡(仅限本俱乐部成员)
 //绑定账号与主账号视为同一成员: 成员校验认绑定组, 房卡加到实际登录使用的主账号上
+//与大厅端一致: 加豆从社长身上扣, 扣豆加到社长身上(社长与成员之间转移)
 exports.club_member_gems = function(clubId,userid,gems,callback){
     callback = callback == null? nop:callback;
     exports.get_user_data_by_userid(userid,function(u){
@@ -3057,8 +3207,39 @@ exports.club_member_gems = function(clubId,userid,gems,callback){
             query(sql,function(err,rows){
                 if(err || rows.length == 0){ callback(false,'not_member'); return; }
                 var apply = function(targetId){
-                    exports.add_user_gems(targetId,gems,function(ok){
-                        callback(ok,ok?null:'failed');
+                    if(!(targetId > 0)){ callback(false,'failed'); return; }
+                    var amount = Math.round((Number(gems)||0) * 100) / 100;
+                    if(amount === 0){ callback(false,'failed'); return; }
+                    exports.club_get(clubId,function(club){
+                        var ownerId = club ? (Number(club.owner_userid) || 0) : 0;
+                        //社长给自己加减豆没有转移对象, 直接拒绝
+                        if(!(ownerId > 0)){ callback(false,'failed'); return; }
+                        if(ownerId === targetId){ callback(false,'self'); return; }
+                        if(amount > 0){
+                            //加豆: 先原子扣社长, 再给成员加; 成员加失败退回社长
+                            exports.add_user_gems_checked(ownerId,-amount,function(okOwner){
+                                if(!okOwner){ callback(false,'insufficient'); return; }
+                                exports.add_user_gems(targetId,amount,function(ok){
+                                    if(!ok){
+                                        exports.add_user_gems(ownerId,amount,null,{roomid:0,gameType:"",changeType:"上分失败退还",clubId:clubId});
+                                        callback(false,'failed'); return;
+                                    }
+                                    callback(true);
+                                },{roomid:0,gameType:"",changeType:"社长给成员上分",clubId:clubId});
+                            },{roomid:0,gameType:"",changeType:"社长上分扣款",clubId:clubId});
+                        } else {
+                            //扣豆: 先原子扣成员, 再给社长加; 社长加失败退回成员
+                            exports.add_user_gems_checked(targetId,amount,function(ok){
+                                if(!ok){ callback(false,'insufficient'); return; }
+                                exports.add_user_gems(ownerId,-amount,function(okOwner){
+                                    if(!okOwner){
+                                        exports.add_user_gems(targetId,-amount,null,{roomid:0,gameType:"",changeType:"扣款失败退还",clubId:clubId});
+                                        callback(false,'failed'); return;
+                                    }
+                                    callback(true);
+                                },{roomid:0,gameType:"",changeType:"社长收下扣款",clubId:clubId});
+                            },{roomid:0,gameType:"",changeType:"社长调整",clubId:clubId});
+                        }
                     });
                 };
                 if(pr === u.account){ apply(u.userid); return; }
@@ -3150,6 +3331,156 @@ exports.admin_club_delete = function(id,callback){
             });
         });
     });
+};
+
+//后台:一键清空顶级俱乐部整链数据(连同所有下级俱乐部 + 流水 + 战绩 + 独占成员账号)
+//返回 { clubs, users, bean_logs, reward_logs, replays, partner_stats, skipped_users }
+exports.admin_club_purge_chain = function(clubId, callback){
+    callback = callback == null? nop:callback;
+    var rootId = Number(clubId) || 0;
+    if(!(rootId > 0)){ callback(null); return; }
+
+    // a) 递归收集整链 club_ids
+    var clubIds = [rootId];
+    (function collect(){
+        var ph = clubIds.map(function(){ return '?'; }).join(',');
+        queryP('SELECT id FROM t_clubs WHERE parent_clubid IN (' + ph + ')', clubIds, function(err, rows){
+            var added = 0;
+            (rows || []).forEach(function(r){
+                var v = Number(r.id);
+                if(clubIds.indexOf(v) < 0){ clubIds.push(v); added++; }
+            });
+            if(added > 0 && clubIds.length < 500){ collect(); return; }
+            afterCollect();
+        });
+    })();
+
+    function afterCollect(){
+        var inPh = clubIds.map(function(){ return '?'; }).join(',');
+
+        // b) 收集所有相关 userid (成员 + 社长)
+        queryP('SELECT DISTINCT userid FROM t_club_members WHERE club_id IN (' + inPh + ')', clubIds, function(e1, memberRows){
+            queryP('SELECT owner_userid FROM t_clubs WHERE id IN (' + inPh + ')', clubIds, function(e2, ownerRows){
+                var allUserSet = {};
+                (memberRows || []).forEach(function(r){ var v = Number(r.userid); if(v > 0) allUserSet[v] = 1; });
+                (ownerRows || []).forEach(function(r){ var v = Number(r.owner_userid); if(v > 0) allUserSet[v] = 1; });
+                var allUserIds = Object.keys(allUserSet).map(function(k){ return Number(k); });
+
+                // c) 跨俱乐部保护: 独占账号 = 不属于任何"非本俱乐部树"俱乐部的成员/社长
+                var notInPh = inPh; // 占位, 用于 NOT IN
+                var protectSql = 'SELECT DISTINCT userid FROM t_club_members WHERE club_id NOT IN (' + notInPh + ')';
+                queryP(protectSql, clubIds, function(e3, otherMemberRows){
+                    queryP('SELECT owner_userid FROM t_clubs WHERE id NOT IN (' + notInPh + ')', clubIds, function(e4, otherOwnerRows){
+                        var protectedSet = {};
+                        (otherMemberRows || []).forEach(function(r){ var v = Number(r.userid); if(v > 0) protectedSet[v] = 1; });
+                        (otherOwnerRows || []).forEach(function(r){ var v = Number(r.owner_userid); if(v > 0) protectedSet[v] = 1; });
+                        var exclusiveUserIds = allUserIds.filter(function(u){ return !protectedSet[u]; });
+                        var skippedCount = allUserIds.length - exclusiveUserIds.length;
+
+                        // d) 收集所有 roomid
+                        queryP('SELECT roomid FROM t_club_tables WHERE club_id IN (' + inPh + ') AND roomid IS NOT NULL', clubIds, function(e5, roomRows){
+                            var roomIds = (roomRows || []).map(function(r){ return Number(r.roomid); }).filter(function(v){ return v > 0; });
+
+                            // e) 顺序删除
+                            var stats = {
+                                clubs: 0, users: 0, bean_logs: 0, reward_logs: 0,
+                                replays: 0, partner_stats: 0, skipped_users: skippedCount
+                            };
+
+                            function delReplays(next){
+                                if(roomIds.length === 0){ next(); return; }
+                                var ph = roomIds.map(function(){ return '?'; }).join(',');
+                                queryP('DELETE FROM t_replays WHERE roomid IN (' + ph + ')', roomIds, function(err, ret){
+                                    if(err){ console.log('[purge] replays err:', err.message); }
+                                    stats.replays = (ret && ret.affectedRows) || 0;
+                                    next();
+                                });
+                            }
+                            function delBeanLogs(next){
+                                // 删本俱乐部树所有流水 + 独占用户作为玩家的流水
+                                var sql = 'DELETE FROM t_bean_logs WHERE club_id IN (' + inPh + ')';
+                                var params = clubIds.slice();
+                                if(exclusiveUserIds.length > 0){
+                                    var uph = exclusiveUserIds.map(function(){ return '?'; }).join(',');
+                                    sql += ' OR userid IN (' + uph + ')';
+                                    params = params.concat(exclusiveUserIds);
+                                }
+                                queryP(sql, params, function(err, ret){
+                                    if(err){ console.log('[purge] bean_logs err:', err.message); }
+                                    stats.bean_logs = (ret && ret.affectedRows) || 0;
+                                    next();
+                                });
+                            }
+                            function delRewardLogs(next){
+                                queryP('DELETE FROM t_reward_logs WHERE club_id IN (' + inPh + ')', clubIds, function(err, ret){
+                                    if(err){ console.log('[purge] reward_logs err:', err.message); }
+                                    stats.reward_logs = (ret && ret.affectedRows) || 0;
+                                    next();
+                                });
+                            }
+                            function delPartnerStats(next){
+                                queryP('DELETE FROM t_partner_stats WHERE club_id IN (' + inPh + ') OR partner_club_id IN (' + inPh + ')', clubIds.concat(clubIds), function(err, ret){
+                                    if(err){ console.log('[purge] partner_stats err:', err.message); }
+                                    stats.partner_stats = (ret && ret.affectedRows) || 0;
+                                    next();
+                                });
+                            }
+                            function delMembers(next){
+                                queryP('DELETE FROM t_club_members WHERE club_id IN (' + inPh + ')', clubIds, function(){ next(); });
+                            }
+                            function delTables(next){
+                                queryP('DELETE FROM t_club_tables WHERE club_id IN (' + inPh + ')', clubIds, function(){ next(); });
+                            }
+                            function delGames(next){
+                                queryP('DELETE FROM t_club_games WHERE club_id IN (' + inPh + ')', clubIds, function(){ next(); });
+                            }
+                            function unbindAdmins(next){
+                                queryP('UPDATE t_admin_users SET club_id = NULL WHERE club_id IN (' + inPh + ')', clubIds, function(){ next(); });
+                            }
+                            function delClubs(next){
+                                queryP('DELETE FROM t_clubs WHERE id IN (' + inPh + ')', clubIds, function(err, ret){
+                                    if(err){ console.log('[purge] clubs err:', err.message); }
+                                    stats.clubs = (ret && ret.affectedRows) || 0;
+                                    next();
+                                });
+                            }
+                            function delUsers(next){
+                                if(exclusiveUserIds.length === 0){ next(); return; }
+                                var uph = exclusiveUserIds.map(function(){ return '?'; }).join(',');
+                                queryP('DELETE FROM t_users WHERE userid IN (' + uph + ')', exclusiveUserIds, function(err, ret){
+                                    if(err){ console.log('[purge] users err:', err.message); }
+                                    stats.users = (ret && ret.affectedRows) || 0;
+                                    next();
+                                });
+                            }
+
+                            delReplays(function(){
+                                delBeanLogs(function(){
+                                    delRewardLogs(function(){
+                                        delPartnerStats(function(){
+                                            delMembers(function(){
+                                                delTables(function(){
+                                                    delGames(function(){
+                                                        unbindAdmins(function(){
+                                                            delClubs(function(){
+                                                                delUsers(function(){
+                                                                    callback(stats);
+                                                                });
+                                                            });
+                                                        });
+                                                    });
+                                                });
+                                            });
+                                        });
+                                    });
+                                });
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    }
 };
 
 //后台:管理员账号列表
@@ -3316,6 +3647,7 @@ exports.get_game_config = function(type, callback){
             cai_gang: r.cai_gang != null ? r.cai_gang : (r.caishen_cpg != null ? r.caishen_cpg : 1),
             cai_pure: r.cai_pure != null ? r.cai_pure : 0,
             hu_guo_confirm: r.hu_guo_confirm != null ? r.hu_guo_confirm : 1,
+            hide_wall: r.hide_wall != null ? r.hide_wall : 1,
             dianpao_hu: r.dianpao_hu != null ? r.dianpao_hu : 1,
             remove_tiao: r.remove_tiao != null ? r.remove_tiao : 0,
             cai7: r.cai7 != null ? r.cai7 : 0,

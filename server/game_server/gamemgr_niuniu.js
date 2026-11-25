@@ -186,6 +186,10 @@ function settle(game){
         else{ deltas[i] += amount; deltas[game.bankerSeat] -= amount; }
     }
 
+    // 结算前读真实余额并封顶: 输家最多输光, 差额由赢家按比例少收, 避免扣成负数
+    loadSettleBalances(game, function(bal){
+    deltas = db.cap_deltas_by_balance(deltas, bal);
+
     var results = [];
     for(var j = 0; j < game.gameSeats.length; ++j){
         var sj = game.gameSeats[j];
@@ -240,6 +244,26 @@ function settle(game){
             if(delta != 0) db.add_user_gems(gs.userId, delta, done);
             else done();
         })(game.gameSeats[p], deltas[p]);
+    }
+    });
+}
+
+//结算前读取每个座位真实余额(读不到时用内存积分兜底, 负数按0算)
+function loadSettleBalances(game, cb){
+    var seats = game.gameSeats || [];
+    var out = [];
+    var left = seats.length;
+    if(left === 0){ cb(out); return; }
+    for(var i = 0; i < seats.length; ++i){
+        (function(idx){
+            var uid = Number(seats[idx].userId) || 0;
+            var fallback = Math.max(0, Number(seats[idx].score) || 0);
+            if(!(uid > 0)){ out[idx] = fallback; if(--left === 0){ cb(out); } return; }
+            db.get_user_data_by_userid(uid, function(ud){
+                out[idx] = (ud && ud.gems != null) ? Math.max(0, Number(ud.gems) || 0) : fallback;
+                if(--left === 0){ cb(out); }
+            });
+        })(i);
     }
 }
 

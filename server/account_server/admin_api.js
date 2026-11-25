@@ -16,8 +16,9 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // APK文件下载目录
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads'), {
     setHeaders: function(res, filePath){
-        res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-        res.setHeader('Content-Disposition', 'attachment; filename="baobao.apk"');
+        var isIpa = path.extname(filePath).toLowerCase() === '.ipa';
+        res.setHeader('Content-Type', isIpa ? 'application/octet-stream' : 'application/vnd.android.package-archive');
+        res.setHeader('Content-Disposition', 'attachment; filename="' + (isIpa ? 'baobao.ipa' : 'baobao.apk') + '"');
     }
 }));
 app.get('/', function(req, res){ res.redirect('/admin/index.html'); });
@@ -184,6 +185,7 @@ app.get('/admin/game_configs', auth, function(req, res){
                 cai_gang: r.cai_gang,
                 cai_pure: r.cai_pure != null ? r.cai_pure : 0,
                 hu_guo_confirm: r.hu_guo_confirm != null ? r.hu_guo_confirm : 1,
+                hide_wall: r.hide_wall != null ? r.hide_wall : 1,
                 dianpao_hu: r.dianpao_hu,
                 remove_tiao: r.remove_tiao != null ? r.remove_tiao : 0,
                 cai7: r.cai7 != null ? r.cai7 : 0,
@@ -227,6 +229,7 @@ app.post('/admin/game_config', auth, requireSuper, function(req, res){
     var caiGang = c.cai_gang != null ? c.cai_gang : (c.caishen_cpg != null ? c.caishen_cpg : 1);
     var caiPure = c.cai_pure != null ? c.cai_pure : 0;
     var huGuoConfirm = c.hu_guo_confirm != null ? (c.hu_guo_confirm ? 1 : 0) : 1;
+    var hideWall = c.hide_wall != null ? (c.hide_wall ? 1 : 0) : 1;
     var dianpaoHu = c.dianpao_hu != null ? c.dianpao_hu : 1;
     var removeTiao = c.remove_tiao != null ? c.remove_tiao : 0;
     var cai7 = c.cai7 != null ? c.cai7 : 0;
@@ -248,10 +251,10 @@ app.post('/admin/game_config', auth, requireSuper, function(req, res){
     var gpLastFourTwoThree = gpVal('gp_last_four_two_three', 0);
     var gpStraightA2 = gpVal('gp_straight_a2', 1);
     var gpCardHistory = gpVal('gp_card_history', 0);
-    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,caishen_seconds,bao_seconds,auto_dissolve_seconds,unified_charge,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
+    var sql = 'INSERT INTO t_game_config(type,name,difen_options,jushu_options,cost_options,chips_options,max_players,max_tai,caishen_cpg,cai_chi,cai_peng,cai_gang,cai_pure,hu_guo_confirm,hide_wall,dianpao_hu,remove_tiao,cai7,laozhuang_multiplier,tianhu_di,cai_diao,bao_tai_score,caishen_seconds,bao_seconds,auto_dissolve_seconds,unified_charge,tai_rules,gp_bomb,gp_bomb_four,gp_four_two,gp_four_three,gp_three_one,gp_last_three_one,gp_last_four_two_three,gp_straight_a2,gp_card_history,enabled,sort) VALUES("'
         + c.type + '","' + c.name + '","' + difen + '","' + jushu + '","' + cost + '","' + chips + '",'
         + (c.max_players || 2) + ',' + (c.max_tai || 10) + ',' + (c.caishen_cpg != null ? c.caishen_cpg : 1) + ','
-        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + caiPure + ',' + huGuoConfirm + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + ((parseInt(c.caishen_seconds) > 0) ? parseInt(c.caishen_seconds) : 60) + ',' + ((parseInt(c.bao_seconds) > 0) ? parseInt(c.bao_seconds) : 15) + ',' + autoDissolve + ',' + unifiedCharge + ','
+        + caiChi + ',' + caiPeng + ',' + caiGang + ',' + caiPure + ',' + huGuoConfirm + ',' + hideWall + ',' + dianpaoHu + ',' + removeTiao + ',' + cai7 + ',' + laozhuangMul + ',' + tianhuDi + ',' + caiDiao + ',' + baoTaiScore + ',' + ((parseInt(c.caishen_seconds) > 0) ? parseInt(c.caishen_seconds) : 60) + ',' + ((parseInt(c.bao_seconds) > 0) ? parseInt(c.bao_seconds) : 15) + ',' + autoDissolve + ',' + unifiedCharge + ','
         + (taiRules ? "'" + taiRules + "'" : 'NULL') + ','
         + gpBomb + ',' + gpBombFour + ',' + gpFourTwo + ',' + gpFourThree + ',' + gpThreeOne + ',' + gpLastThreeOne + ',' + gpLastFourTwoThree + ',' + gpStraightA2 + ',' + gpCardHistory + ','
         + (c.enabled ? 1 : 0) + ',' + (c.sort || 0) + ')';
@@ -280,6 +283,7 @@ app.put('/admin/game_config/:id', auth, requireSuper, function(req, res){
     if(c.cai_gang != null) sets.push('cai_gang=' + (c.cai_gang ? 1 : 0));
     if(c.cai_pure != null) sets.push('cai_pure=' + (c.cai_pure ? 1 : 0));
     if(c.hu_guo_confirm != null) sets.push('hu_guo_confirm=' + (c.hu_guo_confirm ? 1 : 0));
+    if(c.hide_wall != null) sets.push('hide_wall=' + (c.hide_wall ? 1 : 0));
     if(c.dianpao_hu != null) sets.push('dianpao_hu=' + (c.dianpao_hu ? 1 : 0));
     if(c.remove_tiao != null) sets.push('remove_tiao=' + (c.remove_tiao ? 1 : 0));
     if(c.cai7 != null) sets.push('cai7=' + (c.cai7 ? 1 : 0));
@@ -757,7 +761,10 @@ app.post('/admin/club_member/gems', auth, function(req, res){
     if(!(userid > 0) || isNaN(gems)){ send(res, 1, "参数错误"); return; }
     db.club_member_gems(cid, userid, gems, function(ok, why){
         if(ok){ send(res, 0, "ok"); return; }
-        send(res, 1, why === 'not_member' ? "该用户不是本俱乐部成员" : "操作失败");
+        if(why === 'not_member'){ send(res, 1, "该用户不是本俱乐部成员"); return; }
+        if(why === 'self'){ send(res, 1, "不能给自己调豆"); return; }
+        if(why === 'insufficient'){ send(res, 1, "豆豆不足"); return; }
+        send(res, 1, "操作失败");
     });
 });
 
@@ -970,9 +977,10 @@ app.post('/admin/partner/gems', auth, function(req, res){
         var found = false;
         var walkUp = function(){
             if(found){
-                db.add_user_gems(club[0].owner_userid, gems, function(ok){
-                    send(res, ok ? 0 : 1, ok ? "ok" : "操作失败");
-                }, {changeType: "合伙人豆豆调整", clubId: cid, partnerClubId: partnerClubId});
+                db.club_to_user_gems(cid, club[0].owner_userid, gems, function(ok, why){
+                    if(ok){ send(res, 0, "ok"); return; }
+                    send(res, 1, why === 'insufficient' ? "豆豆不足" : "操作失败");
+                });
                 return;
             }
             if(depth++ > 5 || !(cur > 0)){ send(res, 1, "合伙人不属于当前顶级俱乐部"); return; }
@@ -1150,6 +1158,72 @@ app.delete('/admin/club/:id', auth, requireSuper, function(req, res){
     });
 });
 
+// ============ 一键清空顶级俱乐部整链数据 ============
+// 危险操作: 删除该顶级俱乐部 + 所有下级俱乐部 + 所有相关流水/战绩/成员账号
+// 保护: 仅 super、必须 confirm_id 匹配、目标必须是顶级俱乐部、跨俱乐部账号跳过
+app.post('/admin/club/:id/purge', auth, requireSuper, function(req, res){
+    var id = parseInt(req.params.id);
+    var confirmId = parseInt(req.body && req.body.confirm_id);
+    if(!(id > 0)){ send(res, 1, "俱乐部ID不能为空"); return; }
+    if(confirmId !== id){ send(res, 1, "确认ID不匹配,请重新输入"); return; }
+    // 校验必须是顶级俱乐部
+    db.club_get(id, function(club){
+        if(club == null){ send(res, 1, "俱乐部不存在"); return; }
+        if(Number(club.parent_clubid) !== 0){ send(res, 1, "只能清空顶级俱乐部,该俱乐部是下级"); return; }
+
+        var priKey = (config && config.ROOM_PRI_KEY) ? config.ROOM_PRI_KEY : '~!@#$(*&^%$&';
+
+        // 先递归收集整链 club_ids
+        var clubIds = [id];
+        (function collect(){
+            var ph = clubIds.map(function(){ return '?'; }).join(',');
+            db.query('SELECT id FROM t_clubs WHERE parent_clubid IN (' + clubIds.join(',') + ')', function(err, rows){
+                var added = 0;
+                (rows || []).forEach(function(r){
+                    var v = Number(r.id);
+                    if(clubIds.indexOf(v) < 0){ clubIds.push(v); added++; }
+                });
+                if(added > 0 && clubIds.length < 500){ collect(); return; }
+                clearRooms();
+            });
+        })();
+
+        // 清场: 解散整链所有运行中的房间
+        function clearRooms(){
+            db.query('SELECT id, roomid FROM t_club_tables WHERE club_id IN (' + clubIds.join(',') + ')', function(err, tables){
+                if(err){ send(res, 500, "数据库错误"); return; }
+                var idx = 0;
+                var list = tables || [];
+                function clearNext(){
+                    if(idx >= list.length){ doPurge(); return; }
+                    var t = list[idx++];
+                    if(t.roomid == null){ clearNext(); return; }
+                    db.get_room_data(String(t.roomid), function(roomData){
+                        if(roomData == null){
+                            db.query('UPDATE t_club_tables SET roomid = NULL WHERE id = ' + t.id, function(){ clearNext(); });
+                            return;
+                        }
+                        var sign = crypto.md5(String(t.roomid) + priKey);
+                        var gs3 = gameHttpAddr();
+                        http.get(gs3.ip, gs3.port, '/clear_room?roomid=' + t.roomid + '&sign=' + sign, null, function(){
+                            db.query('UPDATE t_club_tables SET roomid = NULL WHERE id = ' + t.id, function(){ clearNext(); });
+                        });
+                    });
+                }
+                clearNext();
+            });
+        }
+
+        // 执行清空
+        function doPurge(){
+            db.admin_club_purge_chain(id, function(stats){
+                if(stats == null){ send(res, 1, "清空失败"); return; }
+                send(res, 0, "ok", stats);
+            });
+        }
+    });
+});
+
 // ============ 管理员账号管理 ============
 // GET 列表:super 看全部; club 只看非 super 的管理员(不能看超级管理员)
 app.get('/admin/admin_users', auth, requireSuper, function(req, res){
@@ -1217,19 +1291,31 @@ app.delete('/admin/admin_user/:id', auth, requireSuper, function(req, res){
 // ============ APP包发布(仅超级管理员) ============
 var UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 var APK_FILE = path.join(UPLOAD_DIR, 'baobao.apk');
+var IPA_FILE = path.join(UPLOAD_DIR, 'baobao.ipa');
 
-// 读取当前发布的APP信息(版本号/大小/更新时间/下载地址)
+// 读取双端发布信息; 顶层字段继续保留 Android 数据, 兼容旧下载页
 function getAppInfo(callback){
-    db.query('SELECT k,v FROM t_sys_config WHERE k IN ("app_version","app_size","app_update_time")', function(err, rows){
-        var info = { version: '', size: 0, update_time: 0, has_file: fs.existsSync(APK_FILE), url: '/uploads/baobao.apk' };
+    db.query('SELECT k,v FROM t_sys_config WHERE k IN ("app_version","app_size","app_update_time","ios_app_version","ios_app_size","ios_app_update_time")', function(err, rows){
+        var android = { version: '', size: 0, update_time: 0, has_file: fs.existsSync(APK_FILE), url: '/uploads/baobao.apk' };
+        var ios = { version: '', size: 0, update_time: 0, has_file: fs.existsSync(IPA_FILE), url: '/uploads/baobao.ipa' };
         if(!err && rows){
             rows.forEach(function(r){
-                if(r.k === 'app_version') info.version = r.v;
-                else if(r.k === 'app_size') info.size = parseInt(r.v) || 0;
-                else if(r.k === 'app_update_time') info.update_time = parseInt(r.v) || 0;
+                var target = r.k.indexOf('ios_') === 0 ? ios : android;
+                var key = r.k.replace(/^ios_/, '');
+                if(key === 'app_version') target.version = r.v;
+                else if(key === 'app_size') target.size = parseInt(r.v) || 0;
+                else if(key === 'app_update_time') target.update_time = parseInt(r.v) || 0;
             });
         }
-        callback(info);
+        callback({
+            version: android.version,
+            size: android.size,
+            update_time: android.update_time,
+            has_file: android.has_file,
+            url: android.url,
+            android: android,
+            ios: ios
+        });
     });
 }
 
@@ -1238,12 +1324,16 @@ app.get('/admin/app/info', auth, function(req, res){
     getAppInfo(function(info){ send(res, 0, "ok", info); });
 });
 
-// 上传APP安装包(APK):优先直接上传二进制,避免Base64增加约33%请求体积;兼容旧base64方式
+// 上传APK或企业签IPA; platform缺省为android, 兼容旧后台和旧base64方式
 app.post('/admin/app/upload', auth, requireSuper, express.raw({
     type: ['application/vnd.android.package-archive', 'application/octet-stream'],
     limit: '512mb'
 }), function(req, res){
     var body = req.body || {};
+    var platform = String(req.query.platform || body.platform || 'android').toLowerCase();
+    if(platform !== 'android' && platform !== 'ios'){ send(res, 1, "不支持的平台"); return; }
+    var isIos = platform === 'ios';
+    var targetFile = isIos ? IPA_FILE : APK_FILE;
     var version = String(req.query.version || body.version || '').trim();
     if(!version){ send(res, 1, "版本号不能为空"); return; }
     var buf;
@@ -1252,27 +1342,30 @@ app.post('/admin/app/upload', auth, requireSuper, express.raw({
     } else {
         var base64 = body.base64 || '';
         if(!base64){ send(res, 1, "文件内容为空"); return; }
-        // 去掉 data URI 前缀(如 "data:application/vnd.android.package-archive;base64,")
         var commaIdx = base64.indexOf(',');
         if(commaIdx >= 0 && base64.indexOf('base64') >= 0){ base64 = base64.substring(commaIdx + 1); }
         try { buf = Buffer.from(base64, 'base64'); }
         catch(e){ send(res, 1, "文件解析失败"); return; }
     }
-    if(buf.length < 1024){ send(res, 1, "文件过小,可能不是有效APK"); return; }
+    if(buf.length < 1024){ send(res, 1, "文件过小,可能不是有效" + (isIos ? 'IPA' : 'APK')); return; }
     // 先写临时文件,成功后再rename,避免中途失败留下残缺包
-    var tmpFile = APK_FILE + '.tmp';
+    var tmpFile = targetFile + '.tmp';
     fs.writeFile(tmpFile, buf, function(err){
         if(err){ send(res, 1, "写入文件失败: " + err.message); return; }
-        fs.rename(tmpFile, APK_FILE, function(err){
+        fs.rename(tmpFile, targetFile, function(err){
             if(err){ send(res, 1, "替换安装包失败"); return; }
             var now = Math.floor(Date.now()/1000);
-            var items = { app_version: version, app_size: String(buf.length), app_update_time: String(now) };
+            var prefix = isIos ? 'ios_' : '';
+            var items = {};
+            items[prefix + 'app_version'] = version;
+            items[prefix + 'app_size'] = String(buf.length);
+            items[prefix + 'app_update_time'] = String(now);
             var sqls = [];
             for(var k in items){ sqls.push('("' + k + '","' + items[k] + '","APP发布")'); }
             var sql = 'INSERT INTO t_sys_config(k,v,remark) VALUES ' + sqls.join(',') + ' ON DUPLICATE KEY UPDATE v=VALUES(v)';
             db.query(sql, function(err){
-                if(err){ send(res, 0, "安装包已上传,但版本信息保存失败: " + err.message, {version: version, size: buf.length}); return; }
-                send(res, 0, "ok", {version: version, size: buf.length});
+                if(err){ send(res, 0, "安装包已上传,但版本信息保存失败: " + err.message, {platform: platform, version: version, size: buf.length}); return; }
+                send(res, 0, "ok", {platform: platform, version: version, size: buf.length});
             });
         });
     });
@@ -1506,7 +1599,7 @@ app.post('/admin/hotupdate/upload', auth, requireSuper, function(req, res){
                 return;
             }
             // 5. 清单里的下载地址: 只修正"本机回环地址"的情况
-            //    构建清单里写的是公网地址(http://47.239.100.68:9100/hotupdate), 直接用即可;
+            //    构建清单里写的是公网地址(http://47.243.106.169:9100/hotupdate), 直接用即可;
             //    之前按请求 Host 强制改写, 经过 nginx 反代后 Host 变成 127.0.0.1:9100,
             //    结果手机上拿到 127.0.0.1 下载自己本机, 热更全部失败
             try {
