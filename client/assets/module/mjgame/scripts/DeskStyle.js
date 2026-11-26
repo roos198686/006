@@ -339,8 +339,10 @@ cc.Class({
             gpNode.scaleX = gb * k;
             gpNode.scaleY = gb * k;
         }
-        //宝宝牌: 自己的手牌容器(game/up/bbSeatN/bbCards)跟随设置缩放
+        //宝宝牌/十三水: 自己的手牌容器(game/up/bbSeatN/bbCards)跟随设置缩放
         var bsi = (cc.vv.gameNetMgr && cc.vv.gameNetMgr.seatIndex != null) ? cc.vv.gameNetMgr.seatIndex : 0;
+        //十三水自己固定坐在 bbSeat0(其余座位按座位环映射), 不能用房间座位号
+        if (this.node.getComponent("SSSGame")) { bsi = 0; }
         var bbCards = cc.find("Canvas/game/up/bbSeat" + bsi + "/bbCards");
         if (bbCards) {
             var bbBase = self._baseScales.get(bbCards.uuid);

@@ -15,7 +15,7 @@ cc.Class({
         // 只列项目里真实存在、且能正常加载的场景;没有 .fire 的玩法不放进预加载列表
         this.SCENE_LIST = ["login", "loading", "hall", "club", "mjgame_bb_shou",
             "mjgame_ldh", "mjgame_bmj", "mjgame_zjlao", "mjgame_zjzx",
-            "mjgame_wujin", "mjgame_gp2", "mjgame_sss"];
+            "mjgame_wujin", "mjgame_gp2", "mjgame_zppdk", "mjgame_sss"];
         this._preloaded = {};
         this._isTransitioning = false;
         this._transitionStart = 0;

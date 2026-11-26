@@ -1587,7 +1587,11 @@ cc.Class({
                 tintHandCard(nc, isCs);
                 //摸牌的财神角标同样显隐
                 var moCorner = nc.getChildByName("csCorner");
-                if(moCorner){ moCorner.active = isCs; }
+                if(moCorner){
+                    moCorner.active = isCs;
+                    //自摸胡用放倒贴图(B_), 可见牌面比正立牌(M_)窄且左侧有透明边, 角标右移4px贴住牌面
+                    moCorner.setPosition(-24, 32);
+                }
             }
         }
         else if(pai != null){
@@ -1851,7 +1855,11 @@ cc.Class({
         tintHandCard(sprite.node, isCs);
         //财神角标: 场景里手牌下的csCorner子节点, 位置/大小在编辑器里调, 代码只控制显隐
         var corner = sprite.node.getChildByName("csCorner");
-        if(corner){ corner.active = isCs; }
+        if(corner){
+            corner.active = isCs;
+            //正立手牌(M_)的角标坐标, 与initMopai里放倒牌(B_)区分开
+            corner.setPosition(-28, 32);
+        }
     },
 
     //自己座位数据:优先 seatIndex 命中,异常时用 userId 兜底(2人房/4人房都适用)

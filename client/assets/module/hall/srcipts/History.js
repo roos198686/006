@@ -15,7 +15,9 @@ var TYPE_NAMES = {
     "wujin": "五经",
     "wujin4": "五经(四人)",
     "guanpai2": "关牌",
-    "guanpai3": "关牌"
+    "guanpai3": "关牌",
+    "zppdk2": "漳浦跑得快",
+    "zppdk3": "漳浦跑得快"
 };
 
 //麻将牌 mjid -> 图集基础帧名

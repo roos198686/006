@@ -36,7 +36,10 @@ var IMG_TYPE = {
 var IMG_NAMES = [
     "\u7406\u724c\u4e2d-1", "\u7406\u724c\u4e2d-2", "\u7406\u724c\u4e2d-3",
     "\u5df2\u5b8c\u6210", "\u7279\u6b8a\u724c\u578b", "\u4e4c\u9f99",
-    "\u5bf9\u5b50", "\u4e8c\u5bf9", "\u4e09\u6761", "\u51b2\u4e09", "\u987a\u5b50", "\u540c\u82b1", "\u846b\u82a6", "\u94c1\u652f", "\u540c\u82b1\u987a", "\u4e94\u540c"
+    "\u5bf9\u5b50", "\u4e8c\u5bf9", "\u4e09\u6761", "\u51b2\u4e09", "\u987a\u5b50", "\u540c\u82b1", "\u846b\u82a6", "\u94c1\u652f", "\u540c\u82b1\u987a", "\u4e94\u540c",
+    // 摆牌面板用的新版牌型图(文件名带 -2)
+    "\u51b2\u4e09-2", "\u5bf9\u5b50-2", "\u4e8c\u5bf9-2", "\u4e09\u6761-2", "\u987a\u5b50-2", "\u540c\u82b1-2", "\u846b\u82a6-2", "\u94c1\u652f-2", "\u540c\u82b1\u987a-2", "\u4e94\u540c-2", "\u4e4c\u9f99-2",
+    "\u81ea\u52a8-a", "\u81ea\u52a8-b", "sss-d"
 ];
 
 // 亮牌报牌语音: 乌龙=1, 对子/二对/三条/顺子/同花/葫芦/铁支/同花顺/五同 = 13~21
@@ -309,6 +312,22 @@ function groupByRank(ids) {
 function sortIdsDesc(ids) {
     return ids.slice().sort(function (a, b) { return (rankVal(b) - rankVal(a)) || (suitPow(b) - suitPow(a)); });
 }
+// 每道牌按牌型顺序摆放: 成刻/成对/成三条的牌聚在最前(同点数按花色强弱),
+// 其余散牌点数从大到小。例: 两对 3 9 2 3 6 9 -> 99 33 6 2; 顺子 9 6 8 7 5 -> 9 8 7 6 5
+function sortRoadByType(ids) {
+    if (!ids || ids.length < 2) return (ids || []).slice();
+    var cnt = {};
+    for (var i = 0; i < ids.length; ++i) {
+        var v = rankVal(ids[i]);
+        cnt[v] = (cnt[v] || 0) + 1;
+    }
+    return ids.slice().sort(function (a, b) {
+        var ra = rankVal(a), rb = rankVal(b);
+        if (cnt[ra] != cnt[rb]) return cnt[rb] - cnt[ra];
+        if (ra != rb) return rb - ra;
+        return suitPow(b) - suitPow(a);
+    });
+}
 function findStraightIds(ids, suit) {
     var byRank = {};
     for (var i = 0; i < ids.length; ++i) {
@@ -450,6 +469,8 @@ cc.Class({
         this._confirmed = false;
         this._roundRevealed = false;   // 本局是否已经亮完牌(亮完后桌上保持牌面)
         this._pendingGameEnd = null;   // 亮牌期间收到的总结算, 等归位后再弹
+        this._pendingEndTimer = null;  // 总结算兜底定时器(小局结算没正常关闭时强制弹出)
+        this._awaitFinal = false;      // 小局结算已关, 等待总结算数据
         this._pendingConfirm = false;
         this._autoMode = true;
         this._final = false;
@@ -474,22 +495,47 @@ cc.Class({
         this._seatSig = null;   // 座位数据指纹(座位变化时自动刷新 username/昵称/分数/头像)
         this._imgs = {};
         this._imgsReady = false;
-        this._frames = null;
+        this._frames = null;        // images/atlas/cards  (桌面亮牌用, SpadeA/Heart2/...)
+        this._pokerAtlas = null;    // images/atlas/pokei_x  (结算行用, n_1_1/n_2_3/...)
         this._startFrames = null;
         this._fxTimer = null;
 
         this._n = {};
-        this._bindUI();
+        // 设置面板里的"桌面背景/牌面大小/出牌手势"复用麻将/宝宝牌的 DeskStyle 组件,
+        // 场景没挂时运行时补挂(与 BBGame/MJGame 的 deps 兜底一致)
+        try {
+            if (!this.getComponent("DeskStyle")) this.addComponent("DeskStyle");
+        } catch (e) {
+            cc.error("[sss] DeskStyle 挂载失败: " + (e && (e.message || e)));
+        }
+        // 先把"坐下/退出"绑好: 后面任何初始化异常都不能让牌桌按钮失效
+        // (之前 _bindUI 中途抛错会跳过按钮绑定, 表现为进房后是场景默认状态、按钮全点不动)
+        try {
+            this._bindCoreBtns();
+        } catch (e) {
+            cc.error("[sss] _bindCoreBtns error: " + (e && (e.stack || e.message || e)));
+        }
+        try {
+            this._bindUI();
+        } catch (e) {
+            cc.error("[sss] _bindUI error: " + (e && (e.stack || e.message || e)));
+        }
         // 进房/发牌前, 座位上 13 张手牌全部隐藏(等发牌动画再逐张亮出)
-        this._resetSeatsCards(false);
+        try {
+            this._resetSeatsCards(false);
+        } catch (e) {
+            cc.error("[sss] _resetSeatsCards error: " + (e && (e.stack || e.message || e)));
+        }
         this._spine = {};
         this._loadCards();
         this._loadSz();
         this._loadImgs();
+        this._loadChips();
         this._loadStartFx();
         this._loadSpines();
         this._loadGunFrames();
         this._bindNet();
+        this._refreshRoomTitle();
         this._refreshSeats();
         this._szResetAll();            // 开局前不显示比牌分数
         // 兜底: 递归关闭场景里所有 SZSprite(不进比牌绝不显示)
@@ -509,6 +555,7 @@ cc.Class({
         this.unschedule(this._tick);
         this.unschedule(this._mbTick);
         if (this._revealTimer) { clearTimeout(this._revealTimer); this._revealTimer = null; }
+        if (this._pendingEndTimer) { clearTimeout(this._pendingEndTimer); this._pendingEndTimer = null; }
         if (this._toastTimer) { clearTimeout(this._toastTimer); this._toastTimer = null; }
         if (this._fxTimer) { clearInterval(this._fxTimer); this._fxTimer = null; }
         if (this._n && this._n.seats) {
@@ -698,22 +745,26 @@ cc.Class({
                         self._bindTap(rowInfo.cards[idx], function () { self.onRowCardTap(road, idx); }, true);
                     })(ci);
                 }
-                // 摆满合法时显示绿色 ✓(视频里每道左侧的对勾)
-                var check = new cc.Node("rowCheck");
-                check.parent = rowInfo.wrap;
-                var ty = rowInfo.typeSp;
-                check.setPosition(ty ? ty.x : 100, ty ? ty.y + 96 : 60);
-                check.setContentSize(64, 64);
-                var klb = check.addComponent(cc.Label);
-                klb.string = "\u2713";
-                klb.fontSize = 52;
-                klb.lineHeight = 56;
-                klb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
-                klb.verticalAlign = cc.Label.VerticalAlign.CENTER;
-                check.color = cc.color(90, 230, 120);
-                var kol = check.addComponent(cc.LabelOutline);
-                kol.color = cc.color(0, 60, 0, 200);
-                kol.width = 3;
+                // 摆满合法时显示 ✓: 勾节点已经放在场景里(rowCheck, 带空 Sprite 由美术换图), 代码只控制显隐
+                var check = self._findIn(rowInfo.wrap, "rowCheck");
+                if (!check) {
+                    // 兜底: 场景里没有 rowCheck 时用代码画一个绿色 ✓
+                    check = new cc.Node("rowCheck");
+                    check.parent = rowInfo.wrap;
+                    var ty = rowInfo.typeSp;
+                    check.setPosition(ty ? ty.x : 100, ty ? ty.y + 96 : 60);
+                    check.setContentSize(64, 64);
+                    var klb = check.addComponent(cc.Label);
+                    klb.string = "\u2713";
+                    klb.fontSize = 52;
+                    klb.lineHeight = 56;
+                    klb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
+                    klb.verticalAlign = cc.Label.VerticalAlign.CENTER;
+                    check.color = cc.color(90, 230, 120);
+                    var kol = check.addComponent(cc.LabelOutline);
+                    kol.color = cc.color(0, 60, 0, 200);
+                    kol.width = 3;
+                }
                 check.active = false;
                 rowInfo.check = check;
                 // 手动摆牌: 每道右侧一个 X, 点一下把这一道的牌收回手牌(视频里的行删除按钮)
@@ -758,27 +809,44 @@ cc.Class({
                     self._bindTap(zn, function () { self.onPickSlot(slot); });
                 })(z);
             }
-            // 推荐牌型一页 3 个, 左右箭头翻页(视频里的 ◀ ▶)
+            // 推荐牌型一页 4 个, 左右箭头翻页(视频里的 ◀ ▶)
             p.page = 0;
             var holder = this._findIn(root, "allNode-a") || root;
             var mkArrow = function (txt, x) {
                 var n = new cc.Node("sssArrow");
                 n.parent = holder;
-                n.setPosition(x, -500);
-                n.setContentSize(96, 96);
-                var lb = n.addComponent(cc.Label);
+                n.setPosition(x, -460);
+                n.setContentSize(96, 130);
+                // 翻页按钮底图: 普通 自动-a, 按下 自动-b
+                var bg = n.addComponent(cc.Sprite);
+                bg.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+                var setFrame = function (nm) {
+                    var f = self._img(nm);
+                    if (f) { bg.spriteFrame = f; return; }
+                    cc.resources.load("images/png/" + nm, cc.SpriteFrame, function (e, sf) {
+                        if (!e && sf && cc.isValid(bg)) bg.spriteFrame = sf;
+                    });
+                };
+                setFrame("\u81ea\u52a8-a");
+                n.on(cc.Node.EventType.TOUCH_START, function () { setFrame("\u81ea\u52a8-b"); });
+                n.on(cc.Node.EventType.TOUCH_END, function () { setFrame("\u81ea\u52a8-a"); });
+                n.on(cc.Node.EventType.TOUCH_CANCEL, function () { setFrame("\u81ea\u52a8-a"); });
+                var lbNode = new cc.Node("txt");
+                lbNode.parent = n;
+                lbNode.setContentSize(96, 130);
+                var lb = lbNode.addComponent(cc.Label);
                 lb.string = txt;
                 lb.fontSize = 56;
                 lb.lineHeight = 60;
                 lb.horizontalAlign = cc.Label.HorizontalAlign.CENTER;
                 lb.verticalAlign = cc.Label.VerticalAlign.CENTER;
-                var ol = n.addComponent(cc.LabelOutline);
+                var ol = lbNode.addComponent(cc.LabelOutline);
                 ol.color = cc.color(0, 0, 0, 200);
                 ol.width = 3;
                 return n;
             };
-            p.arrowL = mkArrow("\u25c0", -390);
-            p.arrowR = mkArrow("\u25b6", 400);
+            p.arrowL = mkArrow("\u25c0", 390);
+            p.arrowR = mkArrow("\u25b6", 510);
             this._bindTap(p.arrowL, function () { self.onPage(-1); });
             this._bindTap(p.arrowR, function () { self.onPage(1); });
         } else {
@@ -806,6 +874,32 @@ cc.Class({
         return p;
     },
 
+    // ================= 进房必走的按钮: 坐下 / 退出 =================
+    // 这两个按钮必须在任何其它初始化之前绑定, 否则初始化异常会让整个牌桌"点不动"
+    _bindCoreBtns: function () {
+        var self = this, n = this._n;
+        n.prepare = this._find("prepare");
+        n.game = this._find("game");
+        // 准备区盖在牌桌层之上, 避免点击被牌桌层吃掉
+        if (n.prepare && n.game) {
+            try { n.prepare.setSiblingIndex(n.game.getSiblingIndex() + 1); } catch (e) { }
+        }
+        n.readyBtn = this._findIn(n.prepare, "readyBtn");
+        this._bindTap(n.readyBtn, function () {
+            cc.log("[sss] tap ready / 坐下");
+            // 点"坐下"立刻隐藏按钮并显示自己的 okSprite(不等服务端回包)
+            self._sat = true;
+            if (n.readyBtn) n.readyBtn.active = false;
+            try { self._refreshSitUI(); } catch (e) { cc.error("[sss] _refreshSitUI error: " + e); }
+            self.onReady();
+        });
+        this._bindTap(this._findIn(n.prepare, "exitBtn"), function () {
+            cc.log("[sss] tap exit / 退出房间");
+            self.onExit();
+        });
+        cc.log("[sss] core btns bound, prepare=" + !!n.prepare + " readyBtn=" + !!n.readyBtn);
+    },
+
     _bindUI: function () {
         var self = this, n = this._n;
         n.seats = [];
@@ -823,9 +917,22 @@ cc.Class({
         n.manual = this._panelInfo(this._find("bbArrange"), false);
         this._setupPanelLabels(n.auto, true);
         this._setupPanelLabels(n.manual, false);
-        n.prepare = this._find("prepare");
         n.settle = this._find("settlePanel");
         n.gameResult = this._find("game_result");
+        n.finalCards = [];
+        for (var fi = 0; fi < 6; ++fi) {
+            var fc = this._findIn(n.gameResult, "bbFinalCard" + fi);
+            if (!fc) continue;
+            n.finalCards.push({
+                root: fc,
+                bg: this._findIn(fc, "bbCardBg"),
+                win: this._findIn(fc, "bbWinTag"),
+                avatar: this._findIn(fc, "bbAvatar"),
+                name: this._findIn(fc, "bbPName"),
+                id: this._findIn(fc, "bbPId"),
+                score: this._findIn(fc, "bbPScore")
+            });
+        }
         n.alert = this._find("alert");
         n.shuffle = this._find("bbShuffleAnim");
         n.tableRoot = this._find("up") || this._find("game") || this.node;
@@ -837,16 +944,7 @@ cc.Class({
         if (n.alert) n.alert.active = false;
         if (n.shuffle) n.shuffle.active = false;
 
-        // 准备/退出/解散/规则/继续
-        n.readyBtn = this._findIn(n.prepare, "readyBtn");
-        this._bindTap(n.readyBtn, function () {
-            // 点"坐下"立刻隐藏按钮并显示自己的 okSprite(不等服务端回包)
-            self._sat = true;
-            if (n.readyBtn) n.readyBtn.active = false;
-            self._refreshSitUI();
-            self.onReady();
-        });
-        this._bindTap(this._findIn(n.prepare, "exitBtn"), function () { self.onExit(); });
+        // 准备/退出已在 _bindCoreBtns 里绑定, 这里只绑其它按钮
         this._bindTap(this._find("bbRuleBtn"), function () {
             var win = self._find("bbRuleWin");
             if (win) win.active = !win.active;
@@ -857,8 +955,20 @@ cc.Class({
         });
         this._bindTap(this._findIn(n.settle, "settleAgainBtn"), function () { self.onReady(); });
         this._bindTap(this._findIn(n.settle, "bbDisbandBtn"), function () { self.onDissolve(); });
-        this._bindTap(this._findIn(n.gameResult, "btnClose"), function () { self.leaveRoom(); });
+        // 总结算面板退出: 与其它玩法一致, 先向服务端发 leave_room 释放座位, 最后一人离开即实时清房;
+        // 服务端回 exit_result 后切场景, 500ms 兜底
+        this._bindTap(this._findIn(n.gameResult, "btnClose"), function () { self.onExit(); });
+        this._bindTap(this._findIn(n.gameResult, "bbFinalBack"), function () { self.onExit(); });
         this._bindTap(this._find("btn_settings"), function () { self.onBtnSettingsClicked(); });
+        // 设置面板:桌面背景 -> 背景选择弹窗(DeskStyle);申请解散 -> 走本玩法的确认流程
+        var settingsRoot = this._find("settings");
+        this._bindTap(this._findIn(settingsRoot, "btn_desk_bg"), function () {
+            if (cc.vv.deskStyle && cc.vv.deskStyle.openBgChoose) cc.vv.deskStyle.openBgChoose();
+        });
+        this._bindTap(this._findIn(settingsRoot, "btn_sqjsfj"), function () {
+            if (settingsRoot) settingsRoot.active = false;
+            self.onDissolve();
+        });
 
         // 退出确认弹窗
         if (n.alert) {
@@ -876,14 +986,38 @@ cc.Class({
         this._initChat();
     },
 
-    // 摆牌面板按钮文字: 自动页=手动, 手动页=自动; 重置按钮改成"取消"
+    // infobar/titleLabel 显示房间信息: 房号 + 牌桌名 + 底分 + 局数
+    _refreshRoomTitle: function (conf) {
+        var lb = this._labelOf(this._find("titleLabel"));
+        if (!lb) return;
+        var nm = cc.vv && cc.vv.gameNetMgr;
+        var c = conf || (nm && nm.conf) || {};
+        var parts = [];
+        var rid = (nm && (nm.roomId || nm.roomid)) || "";
+        if (rid) parts.push("\u623f\u53f7:" + rid);
+        var name = c.club_table_name || "";
+        if (!name) name = (String(c.type || "").indexOf("sss") === 0) ? "\u5341\u4e09\u6c34(6\u4eba)" : "\u5341\u4e09\u6c34";
+        parts.push(name);
+        var bs = (c.baseScore != null) ? c.baseScore : c.base_score;
+        if (bs != null && bs !== "" && Number(bs) > 0) parts.push("\u5e95\u5206" + bs);
+        // 局数: 显示当前第几局/总局数, 例 "第3/8局"
+        var mg = (c.maxGames != null) ? c.maxGames : c.max_games;
+        if (mg == null || mg === "") mg = (nm && nm.maxNumOfGames) || 0;
+        var cur = (nm && nm.numOfGames) || 0;
+        if (mg != null && mg !== "" && Number(mg) > 0) {
+            parts.push((cur > 0 ? "\u7b2c" + cur + "/" : "") + mg + "\u5c40");
+        }
+        lb.string = parts.join("  ");
+    },
+
+    // 摆牌面板按钮文字: 自动页=手动, 手动页=自动; 重置按钮自动页=重摆, 手动页=取消
     _setupPanelLabels: function (p, isAuto) {
         if (!p) return;
         var ln = isAuto ? "bbAutoBtnLabel-a" : "bbAutoBtnLabel";
         var toggle = this._labelOf(this._findIn(p.autoBtn, ln));
         if (toggle) toggle.string = isAuto ? "\u624b\u52a8" : "\u81ea\u52a8";
-        var cancel = this._labelOf(this._findIn(p.reopenBtn, ln));
-        if (cancel) cancel.string = "\u53d6\u6d88";
+        var reopen = this._labelOf(this._findIn(p.reopenBtn, ln));
+        if (reopen) reopen.string = isAuto ? "\u91cd\u6446" : "\u53d6\u6d88";
     },
 
     // ================= 聊天 / 动态与互动表情 =================
@@ -1208,6 +1342,182 @@ cc.Class({
             for (var k = 0; k < self._n.seats.length; ++k) self._applySz(self._n.seats[k]);
         });
     },
+
+    // ================= 筹码动画(baoqei_a 图集 ysz_102~107) =================
+    _loadChips: function () {
+        var self = this;
+        this._chipFrames = [];
+        cc.resources.load("images/atlas/baoqei_a", cc.SpriteAtlas, function (err, atlas) {
+            if (err || !atlas) { console.log("[SSS] 筹码图集加载失败", err); return; }
+            var names = ["ysz_102", "ysz_103", "ysz_104", "ysz_105", "ysz_106", "ysz_107"];
+            for (var i = 0; i < names.length; ++i) {
+                var f = atlas.getSpriteFrame(names[i] + ".png") || atlas.getSpriteFrame(names[i]);
+                if (f) self._chipFrames.push(f);
+            }
+        });
+    },
+
+    _chipLayer: function () {
+        if (this._chipRoot && cc.isValid(this._chipRoot)) return this._chipRoot;
+        var n = new cc.Node("chipFx");
+        n.parent = this.node;
+        n.zIndex = 999;
+        this._chipRoot = n;
+        return n;
+    },
+
+    // 节点中心换算到 Canvas 坐标; node 为空时表示桌面中心
+    _chipPos: function (node) {
+        if (!node || !cc.isValid(node)) return cc.v2(0, 0);
+        var wp = node.convertToWorldSpaceAR(cc.v2(0, 0));
+        var lp = this.node.convertToNodeSpaceAR(wp);
+        return cc.v2(lp.x, lp.y);
+    },
+
+    // 飞筹码音效(同一时间多串筹码只放一次, 避免叠音)
+    _chipSfx: function () {
+        var now = Date.now();
+        if (this._chipSfxAt && now - this._chipSfxAt < 110) return;
+        this._chipSfxAt = now;
+        if (cc.vv && cc.vv.audioMgr) cc.vv.audioMgr.playSFX("dropCoin.wav");
+    },
+
+    // 从 fromNode 飞一串筹码到 toNode(为空=桌面中心)
+    // 从 fromNode 飞一串筹码到 toNode(为空=桌面中心); keepAtTo=true 时飞到终点后留在桌面
+    _flyChips: function (fromNode, toNode, count, delayMs, keepAtTo) {
+        if (!this._chipFrames || !this._chipFrames.length) return;
+        var layer = this._chipLayer();
+        var from = this._chipPos(fromNode);
+        var to = this._chipPos(toNode);
+        var fromCenter = !fromNode;
+        for (var i = 0; i < count; ++i) {
+            (function (k) {
+                var me = this;
+                var n = new cc.Node("chip");
+                n.parent = layer;
+                var sp = n.addComponent(cc.Sprite);
+                sp.sizeMode = cc.Sprite.SizeMode.CUSTOM;
+                sp.spriteFrame = this._chipFrames[Math.floor(Math.random() * this._chipFrames.length)];
+                n.setContentSize(56, 56);
+                n.setPosition(from.x + (Math.random() - 0.5) * 70, from.y + (Math.random() - 0.5) * 40);
+                n.setScale(0.2);
+                n.opacity = 0;
+                var acts = [
+                    cc.delayTime((delayMs || 0) / 1000 + k * 0.08),
+                    // 每颗筹码飞出时配音(带节流); 从中心起飞时消耗掉中心筹码堆里的一颗
+                    cc.callFunc(function () { me._chipSfx(); if (fromCenter) me._takePileChip(); }),
+                    cc.spawn(cc.scaleTo(0.12, 1).easing(cc.easeBackOut()), cc.fadeIn(0.12)),
+                    cc.moveTo(0.5 + Math.random() * 0.12,
+                        to.x + (Math.random() - 0.5) * 50,
+                        to.y + (Math.random() - 0.5) * 30).easing(cc.easeSineIn())
+                ];
+                if (keepAtTo) {
+                    acts.push(cc.callFunc(function () { if (cc.isValid(n)) me._addPileChip(n); }));
+                } else {
+                    acts.push(cc.spawn(cc.scaleTo(0.16, 0.15), cc.fadeOut(0.16)));
+                    acts.push(cc.callFunc(function () { if (cc.isValid(n)) n.destroy(); }));
+                }
+                n.runAction(cc.sequence(acts));
+            }).call(this, i);
+        }
+    },
+
+    // 飞到桌面中心后停住, 归入筹码堆(继续显示)
+    _addPileChip: function (n) {
+        if (!this._chipPile) this._chipPile = [];
+        n.stopAllActions();
+        n.opacity = 255;
+        n.scale = 1;
+        n.setPosition(n.x + (Math.random() - 0.5) * 24, n.y + (Math.random() - 0.5) * 14);
+        this._chipPile.push(n);
+    },
+
+    _takePileChip: function () {
+        if (!this._chipPile || !this._chipPile.length) return;
+        var n = this._chipPile.shift();
+        if (n && cc.isValid(n)) n.destroy();
+    },
+
+    _clearPileChips: function () {
+        if (!this._chipPile) return;
+        for (var i = 0; i < this._chipPile.length; ++i) {
+            if (cc.isValid(this._chipPile[i])) this._chipPile[i].destroy();
+        }
+        this._chipPile = [];
+    },
+
+    // 某一道比完: 这一道输家的筹码飞向桌面中心
+    _chipsToCenter: function (road) {
+        if (!road || !this._roadDeltas) return;
+        for (var k = 0; k < this._n.seats.length; ++k) {
+            var seat = this._n.seats[k];
+            if (!seat || !seat.player) continue;
+            var d = this._roadDeltas[seat.roomSeat];
+            if (!d || !d.known) continue;
+            var val = Number(d[road]) || 0;
+            if (val >= 0) continue;
+            var cnt = Math.max(3, Math.min(8, Math.round(Math.abs(val) / 5) + 3));
+            this._flyChips(seat.avatarIcon || seat.avatarNode || seat.root, null, cnt, 0, true); // 飞到中心后留下
+        }
+    },
+
+    // 三道全部比完: 桌面中心的筹码"全部"飞向本局赢家(按赢的分数比例分配)
+    _chipsToWinners: function (done) {
+        var winners = [];
+        for (var k = 0; k < this._n.seats.length; ++k) {
+            var seat = this._n.seats[k];
+            if (!seat || !seat.player) continue;
+            var r = this._resultByRoom[seat.roomSeat];
+            if (r && (Number(r.delta) || 0) > 0) winners.push({ seat: seat, d: Number(r.delta) || 0 });
+        }
+        if (!winners.length) { this._clearPileChips(); if (done) done(); return; }
+        var self = this;
+        var pile = [];
+        var rawPile = this._chipPile || [];
+        for (var pi = 0; pi < rawPile.length; ++pi) { if (cc.isValid(rawPile[pi])) pile.push(rawPile[pi]); }
+        // 中心没有筹码堆时(图集未加载等): 退回"从中心生成几颗"
+        if (!pile.length) {
+            var last0 = 0;
+            for (var i0 = 0; i0 < winners.length; ++i0) {
+                var cnt0 = Math.max(3, Math.min(8, Math.round(winners[i0].d / 5) + 3));
+                var wait0 = i0 * 120;
+                this._flyChips(null, winners[i0].seat.avatarIcon || winners[i0].seat.avatarNode || winners[i0].seat.root, cnt0, wait0);
+                if (wait0 > last0) last0 = wait0;
+            }
+            if (done) this.scheduleOnce(function () { self._clearPileChips(); done(); }, 1.1 + last0 / 1000);
+            return;
+        }
+        // 把中心筹码全部取出来逐个飞走, 不再保留
+        this._chipPile = [];
+        var totalD = 0;
+        for (var w = 0; w < winners.length; ++w) totalD += winners[w].d;
+        var marks = [], acc = 0;
+        for (var w2 = 0; w2 < winners.length; ++w2) { acc += winners[w2].d / totalD; marks.push(acc); }
+        var maxT = 0;
+        for (var c = 0; c < pile.length; ++c) {
+            (function (ci, chip) {
+                var pos = (ci + 0.5) / pile.length;
+                var wi = 0;
+                while (wi < marks.length - 1 && pos > marks[wi]) wi++;
+                var sw = winners[wi].seat;
+                var to = self._chipPos(sw.avatarIcon || sw.avatarNode || sw.root);
+                var wait = ci * 0.06 + Math.random() * 0.06;
+                chip.stopAllActions();
+                chip.runAction(cc.sequence(
+                    cc.delayTime(wait),
+                    cc.callFunc(function () { self._chipSfx(); }),
+                    cc.moveTo(0.5 + Math.random() * 0.15,
+                        to.x + (Math.random() - 0.5) * 50,
+                        to.y + (Math.random() - 0.5) * 30).easing(cc.easeSineIn()),
+                    cc.spawn(cc.scaleTo(0.18, 0.15), cc.fadeOut(0.18)),
+                    cc.callFunc(function () { if (cc.isValid(chip)) chip.destroy(); })
+                ));
+                if (wait > maxT) maxT = wait;
+            })(c, pile[c]);
+        }
+        if (done) this.scheduleOnce(function () { done(); }, maxT + 0.95);
+    },
+
     // idx: 1=符号位, 2..11=数字 0..9
     _szFrame: function (set, idx) {
         if (!this._szAtlas) return null;
@@ -1354,6 +1664,25 @@ cc.Class({
                 self._repaintBacks();
             }
         });
+        // 结算行用的 pokei_x 扑克图集(帧名 n_{suit1-4}_{rank1-13})
+        cc.resources.load("images/atlas/pokei_x", cc.SpriteAtlas, function (err2, atlas2) {
+            if (err2 || !atlas2) {
+                console.log("[SSS] pokei_x 图集加载失败", err2);
+                return;
+            }
+            self._pokerAtlas = atlas2;
+        });
+    },
+
+    // pokei_x 图集帧名 n_{suitIdx+1}_{rankIdx+1}  =>  id 0=♠A→n_1_1, id 51=♦K→n_4_13
+    _pokerFrameOf: function (id) {
+        if (!this._pokerAtlas) return null;
+        var cid = Number(id) % 52;
+        if (!(cid >= 0 && cid < 52)) return null;
+        var suit = Math.floor(cid / 13) + 1;
+        var rank = (cid % 13) + 1;
+        var key = "n_" + suit + "_" + rank;
+        return this._pokerAtlas.getSpriteFrame(key + ".png") || this._pokerAtlas.getSpriteFrame(key) || null;
     },
 
     _loadImgs: function () {
@@ -1374,6 +1703,12 @@ cc.Class({
     },
 
     _img: function (name) { return name ? (this._imgs[name] || null) : null; },
+
+    // 摆牌面板(bg0/bg1/bg2 Spritea)用新版 -2 牌型图, 缺失时回退旧图
+    _arrangeImg: function (name) {
+        if (!name) return null;
+        return this._imgs[name + "-2"] || this._imgs[name] || null;
+    },
 
     // 图集帧名在运行时没有 ".png" 后缀(cards.plist 导入后键名是 card_back / SpadeA),
     // 两种都试一次, 否则取不到牌背帧会把 spriteFrame 置空, 牌直接不可见
@@ -1417,7 +1752,7 @@ cc.Class({
         this.node.on("sss_result", function (d) { self.onResult(d && d.detail); });
         this.node.on("game_over", function () { self._refreshSeats(); });
         this.node.on("game_end", function (d) { self.onGameEnd(d && d.detail); });
-        this.node.on("game_num", function () { self.renderAll(); });
+        this.node.on("game_num", function () { self._refreshRoomTitle(); self.renderAll(); });
         this.node.on("user_state_changed", function () { self._refreshSeats(); });
         this.node.on("new_user", function () { self._refreshSeats(); });
         this.node.on("chat_push", function (d) {
@@ -1464,6 +1799,7 @@ cc.Class({
     // ================= 开局: 开始动画 -> 发牌 =================
     applyStart: function (data) {
         if (!data) return;
+        this._refreshRoomTitle(data.conf);
         this._cancelReveal();
         this._szResetAll();            // 新一局: 上一局的比牌分数全部清掉
         this._cards = (data.myCards || []).map(Number).sort(function (a, b) { return a - b; });
@@ -1516,6 +1852,7 @@ cc.Class({
         this._playedOnce = true;   // 本房已经开过局: 之后不再显示自己座位上的"已准备"标记
         this._roundRevealed = false;
         this._pendingGameEnd = null;
+        this._awaitFinal = false;
         this._resetSeatsCards(false);
         this.renderAll();
         var self = this;
@@ -1929,6 +2266,12 @@ cc.Class({
             mid: (data.mid || []).map(Number),
             tail: (data.tail || []).map(Number)
         };
+        // 服务端超时自动摆牌的也要按牌型顺序显示
+        if (data.auto) {
+            this._roads.head = sortRoadByType(this._roads.head);
+            this._roads.mid = sortRoadByType(this._roads.mid);
+            this._roads.tail = sortRoadByType(this._roads.tail);
+        }
         var used = {};
         var self = this;
         ROADS.forEach(function (r) { self._roads[r].forEach(function (c) { used[c] = true; }); });
@@ -1960,7 +2303,7 @@ cc.Class({
         var nm = typeImgOf(road, ids);
         if (rowInfo.typeSp) {
             var sp = rowInfo.typeSp.getComponent(cc.Sprite);
-            if (sp) sp.spriteFrame = this._img(nm);
+            if (sp) sp.spriteFrame = this._arrangeImg(nm);
             rowInfo.typeSp.active = !!nm;
         }
         // 摆满且合法时显示 ✓
@@ -1978,9 +2321,9 @@ cc.Class({
             this._renderRow(p.rows[i], road, this._roads[road] || []);
         }
         if (!p.isAuto) return;
-        // 推荐牌型: 一页 3 个, 箭头翻页
+        // 推荐牌型: 一页 4 个, 箭头翻页
         var total = this._candidates.length;
-        var per = 3;
+        var per = 4;
         var maxPage = Math.max(0, Math.ceil(total / per) - 1);
         if ((p.page || 0) > maxPage) p.page = maxPage;
         for (var z = 0; z < p.zd.length; ++z) {
@@ -1989,10 +2332,18 @@ cc.Class({
             var cand = (z < per && idx < total) ? this._candidates[idx] : null;
             if (!cand) { item.root.active = false; continue; }
             item.root.active = true;
-            // 一页 3 个居中排布, 两边留给箭头
-            item.root.setPosition((z - 1) * 230, item.home ? item.home.y : item.root.y);
+            // 一页最多 4 个, 直接用场景里靠左的原始位置, 避免第4张压住右下角的"开始比牌"按钮
+            item.root.setPosition(item.home ? item.home.x : item.root.x, item.home ? item.home.y : item.root.y);
             var sel = (idx === this._autoIdx);
-            item.root.color = sel ? cc.color(255, 232, 160) : cc.color(255, 255, 255);
+            // 选中的推荐框换成 sss-d 图, 没选中恢复原图
+            var spRoot = item.root.getComponent(cc.Sprite);
+            if (spRoot) {
+                if (!item.homeFrame) item.homeFrame = spRoot.spriteFrame;
+                var selFrame = this._img("sss-d");
+                spRoot.spriteFrame = (sel && selFrame) ? selFrame : item.homeFrame;
+            }
+            var dSel = !!(sel && this._img("sss-d"));
+            item.root.color = (sel && !dSel) ? cc.color(255, 232, 160) : cc.Color.WHITE;
             item.root.opacity = sel ? 255 : 175;
             item.root.setScale(sel ? 1.06 : 1, sel ? 1.06 : 1);
             var roads = [cand.head, cand.mid, cand.tail];
@@ -2001,7 +2352,8 @@ cc.Class({
                 var roadN = ROAD_BY_ROW[j];
                 var nm = typeImgOf(roadN, roads[j]);
                 var sp2 = part.getComponent(cc.Sprite);
-                if (sp2) sp2.spriteFrame = this._img(nm);
+                // 推荐牌型三道: 统一用 PNG 里带 -2 的新版牌型图(冲三-2/顺子-2/乌龙-2 ...), 缺失回退旧图
+                if (sp2) sp2.spriteFrame = this._arrangeImg(nm);
                 part.active = !!nm;
             }
         }
@@ -2046,8 +2398,8 @@ cc.Class({
         var arranging = (this._phase === "arrange") && !this._confirmed;
         if (n.auto) n.auto.root.active = arranging && this._autoMode;
         if (n.manual) n.manual.root.active = arranging && !this._autoMode;
-        // 自动推荐时只有"确定比牌"; 手动摆牌时才有"取消"
-        if (n.auto && n.auto.reopenBtn) n.auto.reopenBtn.active = false;
+        // 自动/手动面板都显示各自的"重摆/取消"按钮(摆牌阶段)
+        if (n.auto && n.auto.reopenBtn) n.auto.reopenBtn.active = arranging;
         if (n.manual && n.manual.reopenBtn) n.manual.reopenBtn.active = arranging && !this._autoMode;
         if (n.prepare) n.prepare.active = (this._phase === "idle" || (this._phase === "end" && !this._final));
     },
@@ -2125,13 +2477,27 @@ cc.Class({
     // ================= 自动摆牌 =================
     _buildCandidates: function () {
         this._candidates = (this._cards.length >= 13) ? arrangeCandidates(this._cards.slice(), 4) : [];
+        // 四个推荐框按"牌型从大到小"排: 尾道牌型 > 中道牌型 > 头道牌型, 牌型相同再比点数
+        this._candidates.sort(function (a, b) {
+            var at = eval5(a.tail).lv, bt = eval5(b.tail).lv;
+            if (at != bt) return bt - at;
+            var am = eval5(a.mid).lv, bm = eval5(b.mid).lv;
+            if (am != bm) return bm - am;
+            var ah = eval3(a.head).lv, bh = eval3(b.head).lv;
+            if (ah != bh) return bh - ah;
+            return b.sc - a.sc;
+        });
     },
 
     _applyCandidate: function (idx) {
         var cand = this._candidates[idx];
         if (!cand) return;
         this._autoIdx = idx;
-        this._roads = { head: cand.head.slice(), mid: cand.mid.slice(), tail: cand.tail.slice() };
+        this._roads = {
+            head: sortRoadByType(cand.head),
+            mid: sortRoadByType(cand.mid),
+            tail: sortRoadByType(cand.tail)
+        };
         this._hand = [];
         this._picked = {};
         this._ownSpecial = detectSpecialClient(this._cards, this._roads);
@@ -2144,18 +2510,18 @@ cc.Class({
         this.renderAll();
     },
 
-    // 翻页后点第 slot 个推荐(一页 3 个)
+    // 翻页后点第 slot 个推荐(一页 4 个)
     onPickSlot: function (slot) {
         if (!this._canArrange() || !this._autoMode) return;
         var p = this._n.auto;
-        this.onPickCandidate(((p && p.page) || 0) * 3 + slot);
+        this.onPickCandidate(((p && p.page) || 0) * 4 + slot);
     },
 
     onPage: function (dir) {
         if (!this._canArrange() || !this._autoMode) return;
         var p = this._n.auto;
         if (!p) return;
-        var maxPage = Math.max(0, Math.ceil(this._candidates.length / 3) - 1);
+        var maxPage = Math.max(0, Math.ceil(this._candidates.length / 4) - 1);
         var np = Math.max(0, Math.min(maxPage, (p.page || 0) + dir));
         if (np === p.page) return;
         p.page = np;
@@ -2386,6 +2752,11 @@ cc.Class({
 
     onResult: function (data) {
         if (!data) return;
+        this._dbg("onResult n=" + ((data.results && data.results.length) || 0));
+        // 清掉上一局残留的筹码
+        if (this._chipRoot && cc.isValid(this._chipRoot)) this._chipRoot.destroy();
+        this._chipRoot = null;
+        this._chipPile = [];
         this._cancelReveal();
         this._lastResult = data;
         this._resultByRoom = {};
@@ -2454,6 +2825,7 @@ cc.Class({
                 self._hideRoadBadges(prevRoad);
                 self._restoreRoadAll(prevRoad);
                 self._szHideJklAll();          // 上一道结算完: 其他座位的临时盈亏收起
+                self._chipsToCenter(prevRoad); // 这一道比完: 输家筹码飞向桌面中心
             }
             prevRoad = st.road;
             var arr = (st.seat.results.arrange && st.seat.results.arrange[st.road]) || [];
@@ -2752,8 +3124,35 @@ cc.Class({
         }
     },
 
+    // 亮牌收尾: 任何美化/筹码/播报异常都不能把结算流程打断
     _finishReveal: function () {
+        this._dbg("finishReveal");
+        try {
+            this._finishRevealBody();
+        } catch (e) {
+            console.log("[SSS] 亮牌收尾异常", e);
+            this._dbg("finishReveal err " + (e && (e.message || e)));
+            this._revealing = false;
+            this._phase = "settle";
+            this._roundRevealed = true;
+            var self2 = this;
+            if (!this._final) {
+                this.scheduleOnce(function () {
+                    if (cc.isValid(self2.node)) self2._showSettle();
+                }, 1.0);
+            }
+            if (this._pendingGameEnd) {
+                var p2 = this._pendingGameEnd;
+                this._pendingGameEnd = null;
+                this.onGameEnd(p2, true);
+            }
+        }
+    },
+
+    _finishRevealBody: function () {
         this._revealing = false;
+        // 后道比完: 这一道输家的筹码先飞向桌面中心
+        this._chipsToCenter("tail");
         this._phase = "settle";
         this._roundRevealed = true;   // 本局已亮完: 桌上保持牌面, 不再被重绘成牌背
         // 三道全部结算完: 临时盈亏收起, 自己的总分常显到下一局开始
@@ -2797,10 +3196,25 @@ cc.Class({
                 self.onGameEnd(pend);
             }
         }, 1.1);
-        // 打枪/全垒打动画播完再弹结算(没有特效时直接弹)
+        // 筹码飞向赢家 与 打枪/全垒打动画同时播, 两个"都"结束再弹结算
+        // 注意: 无打枪/全垒打时 _playEndFx 会立即回调 done(), 不能让它抢先弹出结算,
+        // 否则玩家会看到"先跳结算弹窗、后飞筹码/清筹码", 必须等筹码飞到赢家头像后再弹
         this.scheduleOnce(function () {
             if (!cc.isValid(self.node)) return;
-            self._playEndFx(function () { if (cc.isValid(self.node)) self._showSettle(); });
+            var chipDone = false, fxDone = false, shown = false;
+            var show = function () {
+                if (shown) return;            // 去重: 正常完成回调与 4s 兜底可能先后到达, 只弹一次
+                shown = true;
+                if (cc.isValid(self.node)) self._showSettle();
+            };
+            var tryShow = function () {
+                if (chipDone && fxDone) show();
+            };
+            self._chipsToWinners(function () { chipDone = true; tryShow(); });
+            self._playEndFx(function () { fxDone = true; tryShow(); });
+            // 兜底: 筹码/动画回调万一没回来(资源缺失等), 也必须弹小局结算,
+            // 否则倒计时不会启动, 后面的总结算也永远等不到(已 shown 则跳过)
+            self.scheduleOnce(function () { chipDone = true; fxDone = true; tryShow(); }, 4.0);
         }, 1.5);
         // 亮牌结束: 座位上的"已准备"标记要收掉(结算阶段不需要)
         this._refreshSitUI();
@@ -2814,63 +3228,224 @@ cc.Class({
     },
 
     _showSettle: function () {
-        this._restoreAllRoadsNow();   // 弹结算前再兜底复原一次
+        // 总结算已经弹出/已进入结束态: 迟到的亮牌回调不允许再盖住总结算
+        if (this._final || this._phase === "end") return;
+        this._dbg("showSettle");
         var panel = this._n.settle;
-        if (!panel) return;
-        var title = this._labelOf(this._findIn(panel, "settleTitle"));
-        if (title) { title.node.active = true; title.string = "\u672c\u5c40\u7ed3\u7b97"; }
+        if (!panel) { this._dbg("showSettle no panel"); return; }
+        // 先显示: 后面填数据/美化任何一步异常都不能导致"小局结算不弹"
+        panel.active = true;
+        try {
+            this._restoreAllRoadsNow();   // 弹结算前再兜底复原一次
+            var title = this._labelOf(this._findIn(panel, "settleTitle"));
+            if (title) { title.node.active = true; title.string = "\u672c\u5c40\u7ed3\u7b97"; }
+            // 顶部横幅: 胜利/失败/平 三张结果图, 按自己本局盈亏切换(有结果图时替代"本局结算"文字)
+            var mySeatS = this._ownSeat();
+            var myRes = (mySeatS && this._resultByRoom) ? this._resultByRoom[mySeatS.roomSeat] : null;
+            var myDeltaS = myRes ? (Number(myRes.delta) || 0) : null;
+            var slSp = this._findIn(panel, "slSprite");
+            var sbSp = this._findIn(panel, "sbSprite");
+            var hjSp = this._findIn(panel, "hjSprite");
+            if (slSp) slSp.active = (myDeltaS != null && myDeltaS > 0);
+            if (sbSp) sbSp.active = (myDeltaS != null && myDeltaS < 0);
+            if (hjSp) hjSp.active = (myDeltaS != null && myDeltaS === 0);
+            if (title && myDeltaS != null) title.node.active = false;
+            var lines = [];
+            for (var k = 0; k < this._n.seats.length; ++k) {
+                var seat = this._n.seats[k];
+                if (!seat || !seat.player) continue;
+                var r = this._resultByRoom[seat.roomSeat];
+                if (!r) continue;
+                var dd = r.delta || 0;
+                var line = (r.name || seat.player.name || "\u73a9\u5bb6") + "  " + (dd >= 0 ? "+" : "") + dd;
+                if (r.totalscore != null) line += "  (\u603b " + r.totalscore + ")";
+                if (r.special) line += "  " + r.special;
+                if (r.gun > 0) line += "  \u6253\u67aa\u00d7" + r.gun;
+                lines.push(line);
+            }
+            // 优先用场景里现成的 bbSettleCards/bbSettleRow 逐行显示每家得分
+            if (!this._renderSettleRows(panel)) {
+                var content = this._findIn(panel, "settleContent");
+                var contentLb = this._labelOf(content);
+                if (contentLb) {
+                    content.active = true;
+                    contentLb.string = lines.join("\n");
+                }
+            }
+            // 记录本小局大赢家(bbZhuang 只给分数最高者显示), 无正分则全部隐藏
+            var winRoomSeat = null, bestDelta = 0;
+            for (var wk in this._resultByRoom) {
+                if (!this._resultByRoom.hasOwnProperty(wk)) continue;
+                var wr = this._resultByRoom[wk];
+                if (wr && (wr.delta || 0) > bestDelta) { bestDelta = wr.delta; winRoomSeat = parseInt(wk, 10); }
+            }
+            this._lastWinRoomSeat = winRoomSeat;
+            for (var zk = 0; zk < this._n.seats.length; ++zk) {
+                var zs = this._n.seats[zk];
+                if (zs && zs.zhuangNode) zs.zhuangNode.active = (winRoomSeat != null && zs.roomSeat === winRoomSeat && !!zs.player);
+            }
+            var roundLb = this._labelOf(this._findIn(panel, "settleRound"));
+            if (roundLb) {
+                var nm2 = cc.vv && cc.vv.gameNetMgr;
+                var cur = (nm2 && nm2.numOfGames) || 0;
+                var max = (nm2 && nm2.maxNumOfGames) || 0;
+                roundLb.string = cur > 0 ? ("\u7b2c" + cur + (max ? "/" + max : "") + "\u5c40") : "";
+            }
+        } catch (e) {
+            console.log("[SSS] 小局结算显示异常", e);
+            this._dbg("showSettle err " + (e && (e.message || e)));
+        }
+        this._startSettleCd(panel);
+    },
+
+    // 小局结算按钮上的倒计时: 10 秒走完自动"继续游戏"
+    _startSettleCd: function (panel) {
+        this._stopSettleCd();
+        var panelRef = panel;
+        var lb = this._labelOf(this._findIn(panelRef, "settleCd"));
+        var self = this;
+        var left = 10;
+        if (lb) lb.string = "" + left;
+        var tick = function () {
+            if (!cc.isValid(self.node)) { self._settleCdTimer = null; return; }
+            if (!panelRef || !panelRef.active) { self._stopSettleCd(); return; }
+            left--;
+            if (lb && cc.isValid(lb.node)) lb.string = "" + Math.max(0, left);
+            if (left <= 0) {
+                self._stopSettleCd();
+                self.onReady();
+                return;
+            }
+            self._settleCdTimer = setTimeout(tick, 1000);
+        };
+        this._settleCdTimer = setTimeout(tick, 1000);
+    },
+
+    _stopSettleCd: function () {
+        if (this._settleCdTimer) { clearTimeout(this._settleCdTimer); this._settleCdTimer = null; }
+    },
+
+    // 小局结算: 用场景里的 bbSettleCards/bbSettleRow 模板逐行显示(头像/昵称/本局得分)
+    _renderSettleRows: function (panel) {
         var cards = this._findIn(panel, "bbSettleCards");
-        if (cards) cards.active = false;
-        var lines = [];
+        if (!cards) return false;
+        this._hideSettleRows();
+        var tpl = null;
+        for (var i = 0; i < cards.children.length; ++i) {
+            if (cards.children[i].name === "bbSettleRow") { tpl = cards.children[i]; break; }
+        }
+        if (!tpl) return false;
+        var list = [];
         for (var k = 0; k < this._n.seats.length; ++k) {
             var seat = this._n.seats[k];
             if (!seat || !seat.player) continue;
-            var r = this._resultByRoom[seat.roomSeat];
-            if (!r) continue;
+            var r0 = this._resultByRoom[seat.roomSeat];
+            if (!r0) continue;
+            list.push({ seat: seat, r: r0 });
+        }
+        if (!list.length) { cards.active = false; return false; }
+        cards.active = true;
+        tpl.active = true;
+        this._settleRowClones = [];
+        var baseX = tpl.x, baseY = tpl.y, step = 84;
+        for (var j = 0; j < list.length; ++j) {
+            var row = (j === 0) ? tpl : cc.instantiate(tpl);
+            if (j > 0) {
+                row.name = "bbSettleRow_c" + j;   // 克隆行改名, 下次只认场景模板
+                row.parent = cards;
+                this._settleRowClones.push(row);
+            }
+            row.active = true;
+            row.setPosition(baseX, baseY - j * step);
+            var it = list[j], r = it.r, pl = it.seat.player;
+            var nameLb = this._labelOf(this._findIn(row, "rowName"));
+            if (nameLb) nameLb.string = r.name || pl.name || ("\u73a9\u5bb6" + (it.seat.roomSeat + 1));
+            var scoreLb = this._labelOf(this._findIn(row, "rowScore"));
             var dd = r.delta || 0;
-            var line = (r.name || seat.player.name || "\u73a9\u5bb6") + "  " + (dd >= 0 ? "+" : "") + dd;
-            if (r.totalscore != null) line += "  (\u603b " + r.totalscore + ")";
-            if (r.special) line += "  " + r.special;
-            if (r.gun > 0) line += "  \u6253\u67aa\u00d7" + r.gun;
-            lines.push(line);
+            if (scoreLb) {
+                scoreLb.string = (dd >= 0 ? "+" : "") + dd +
+                    (r.totalscore != null ? "  (\u603b " + r.totalscore + ")" : "");
+            }
+            var descNode = this._findIn(row, "rowDesc");
+            var descLb = this._labelOf(descNode);
+            var extra = [];
+            if (r.special) extra.push(r.special);
+            if (r.gun > 0) extra.push("\u6253\u67aa\u00d7" + r.gun);
+            if (descLb) {
+                descNode.active = extra.length > 0;
+                descLb.string = extra.join("  ");
+            }
+            var icon = this._findIn(row, "rowIcon");
+            var uid = pl.userid;
+            if (icon && uid) {
+                var il = icon.getComponent("ImageLoader");
+                if (!il) { try { il = icon.addComponent("ImageLoader"); } catch (e) { il = null; } }
+                if (il && il.setUserID) il.setUserID(uid);
+            }
+            // 该行玩家的 13 张牌: 前(card0-2)/中(card3-7)/后(card8-12) 按顺序用 pokei_x 图集显示
+            var arrange = (r && r.arrange) || {};
+            var cardIdx2 = 0;
+            for (var ri2 = 0; ri2 < ROAD_BY_ROW.length; ++ri2) {
+                var roadIds = arrange[ROAD_BY_ROW[ri2]] || [];
+                for (var ci2 = 0; ci2 < roadIds.length; ++ci2) {
+                    var cn2 = row.getChildByName("card" + cardIdx2);
+                    if (cn2) {
+                        cn2.active = true;
+                        var csp2 = cn2.getComponent(cc.Sprite);
+                        if (csp2) csp2.spriteFrame = this._pokerFrameOf(roadIds[ci2]) || this._frameOf(roadIds[ci2]);
+                    }
+                    cardIdx2++;
+                }
+            }
+            // 数据不足 13 张时, 多余牌位隐藏, 避免显示场景默认占位图
+            for (; cardIdx2 < 13; ++cardIdx2) {
+                var cn3 = row.getChildByName("card" + cardIdx2);
+                if (cn3) cn3.active = false;
+            }
         }
-        // 用场景里的 settleContent 显示每家的本局得分(总分), settleRound 只留"第x/y局"
         var content = this._findIn(panel, "settleContent");
-        var contentLb = this._labelOf(content);
-        if (contentLb) {
-            content.active = true;
-            contentLb.string = lines.join("\n");
+        if (content) content.active = false;
+        return true;
+    },
+
+    _hideSettleRows: function () {
+        if (!this._settleRowClones) { this._settleRowClones = []; return; }
+        for (var i = 0; i < this._settleRowClones.length; ++i) {
+            if (cc.isValid(this._settleRowClones[i])) this._settleRowClones[i].destroy();
         }
-        // 记录本小局大赢家(bbZhuang 只给分数最高者显示), 无正分则全部隐藏
-        var winRoomSeat = null, bestDelta = 0;
-        for (var wk in this._resultByRoom) {
-            if (!this._resultByRoom.hasOwnProperty(wk)) continue;
-            var wr = this._resultByRoom[wk];
-            if (wr && (wr.delta || 0) > bestDelta) { bestDelta = wr.delta; winRoomSeat = parseInt(wk, 10); }
-        }
-        this._lastWinRoomSeat = winRoomSeat;
-        for (var zk = 0; zk < this._n.seats.length; ++zk) {
-            var zs = this._n.seats[zk];
-            if (zs && zs.zhuangNode) zs.zhuangNode.active = (winRoomSeat != null && zs.roomSeat === winRoomSeat && !!zs.player);
-        }
-        var roundLb = this._labelOf(this._findIn(panel, "settleRound"));
-        if (roundLb) {
-            var nm2 = cc.vv && cc.vv.gameNetMgr;
-            var cur = (nm2 && nm2.numOfGames) || 0;
-            var max = (nm2 && nm2.maxNumOfGames) || 0;
-            roundLb.string = cur > 0 ? ("\u7b2c" + cur + (max ? "/" + max : "") + "\u5c40") : "";
-        }
-        panel.active = true;
+        this._settleRowClones = [];
     },
 
     // ================= 结束/准备 =================
-    onGameEnd: function (data) {
-        // 最后一局: 服务端在结算推送后马上发总结算, 此时亮牌动画还没播完.
-        // 先记下来, 等亮牌走完并把牌放回场景位置后再弹总结算, 否则牌会停在半翻/横排状态
-        if (this._revealing || this._phase === "reveal") {
+    onGameEnd: function (data, force) {
+        var self = this;
+        this._dbg("onGameEnd force=" + !!force + " phase=" + this._phase +
+            " revealing=" + !!this._revealing + " settle=" + !!(this._n.settle && this._n.settle.active) +
+            " await=" + !!this._awaitFinal + " hasEnd=" + !!data);
+        // 最后一局: 服务端在结算推送后发总结算, 此时亮牌还没播完或小局结算还开着.
+        // 先记下来, 等小局结算关闭后再弹总结算, 否则总结算会被随后弹出的的小局结算盖住
+        if (!force && !this._awaitFinal &&
+            (this._revealing || this._phase === "reveal" || this._phase === "settle" ||
+             (this._n.settle && this._n.settle.active))) {
             this._pendingGameEnd = data;
+            // 兜底: 小局结算若因动画/倒计时异常一直没关, 8 秒后强制弹总结算(force 绕过本分支),
+            // 否则服务端到点解散房间, 玩家一局结算都看不到就被踢出
+            if (!this._pendingEndTimer) {
+                this._pendingEndTimer = setTimeout(function () {
+                    self._pendingEndTimer = null;
+                    var p = self._pendingGameEnd;
+                    self._pendingGameEnd = null;
+                    if (p == null) return;
+                    self._dbg("finalForce");
+                    self.onGameEnd(p, true);
+                }, 8000);
+            }
             return;
         }
+        if (this._pendingEndTimer) { clearTimeout(this._pendingEndTimer); this._pendingEndTimer = null; }
+        this._awaitFinal = false;
+        this._pendingGameEnd = null;
+        this._stopSettleCd();
         this._cancelReveal();
         // 弹总结算前, 把三道牌立即放回亮牌前记下的场景原位置/角度/缩放/层级
         this._restoreAllRoadsNow();
@@ -2878,23 +3453,108 @@ cc.Class({
         this._revealing = false;
         this._final = true;
         if (this._n.settle) this._n.settle.active = false;
-        var lines = [];
         var endinfo = (data && data.endinfo) || [];
-        for (var i = 0; i < endinfo.length; ++i) {
-            var e = endinfo[i];
-            var sc = e.score || 0;
-            lines.push((e.name || "\u73a9\u5bb6") + "   " + (sc >= 0 ? "+" : "") + sc);
+        // endinfo 缺失时用本局结算里的总分兜底
+        if (!endinfo.length) {
+            for (var k = 0; k < this._n.seats.length; ++k) {
+                var st = this._n.seats[k];
+                if (!st || !st.player || !st.player.userid) continue;
+                var rk = this._resultByRoom[st.roomSeat];
+                endinfo.push({
+                    userid: st.player.userid,
+                    name: st.player.name || "",
+                    score: rk ? (rk.totalscore != null ? rk.totalscore : (rk.delta || 0)) : 0
+                });
+            }
         }
-        var info = this._labelOf(this._findIn(this._n.gameResult, "bbFinalInfo"));
-        if (info) info.string = lines.length ? lines.join("\n") : "\u672c\u5c40\u7ed3\u675f";
-        if (this._n.gameResult) this._n.gameResult.active = true;
+        try {
+            var okFinal = this._renderFinalPanel(endinfo);
+            this._dbg("finalPanel ok=" + okFinal);
+            // 面板填数据异常也必须把总结算显示出来, 否则玩家什么都看不到就被解散房间
+            if (!okFinal && this._n.gameResult) this._n.gameResult.active = true;
+        } catch (e) {
+            console.log("[SSS] 总结算显示异常", e);
+            this._dbg("finalPanel err " + (e && (e.message || e)));
+            if (this._n.gameResult) this._n.gameResult.active = true;
+        }
         this.renderAll();
     },
 
+    // 整场总结算: 用场景 game_result 里的 6 张 bbFinalCard 显示头像/昵称/ID/总分,
+    // 按总分从高到低排, 最高分且为正的标"大赢家"
+    _renderFinalPanel: function (endinfo) {
+        var panel = this._n.gameResult;
+        if (!panel) return false;
+        endinfo = (endinfo || []).slice().sort(function (a, b) {
+            return (Number(b && b.score) || 0) - (Number(a && a.score) || 0);
+        });
+        var info = this._labelOf(this._findIn(panel, "bbFinalInfo"));
+        if (info) {
+            var nm = cc.vv && cc.vv.gameNetMgr;
+            var tb = (nm && nm.conf && nm.conf.club_table_name) || "\u5341\u4e09\u6c34";
+            info.string = "\u623f\u53f7\uff1a" + ((nm && nm.roomId) || "") + "  " + tb;
+        }
+        var cards = this._n.finalCards || [];
+        var maxScore = -Infinity;
+        for (var i = 0; i < endinfo.length; ++i) {
+            var v = Number(endinfo[i].score) || 0;
+            if (v > maxScore) maxScore = v;
+        }
+        var total = Math.min(cards.length, endinfo.length);
+        var cardW = (cards[0] && cards[0].root.width) || 260;
+        var SPACING = cardW + 8;
+        var startX = -((total - 1) * SPACING) / 2;
+        for (var c = 0; c < cards.length; ++c) {
+            var card = cards[c];
+            var on = c < total;
+            card.root.active = on;
+            if (!on) continue;
+            card.root.setPosition(startX + c * SPACING, card.root.y);
+            var e = endinfo[c] || {};
+            var sc = Number(e.score) || 0;
+            if (card.win) card.win.active = (sc > 0 && sc === maxScore);
+            if (card.bg) card.bg.color = sc > 0 ? cc.color(255, 132, 112) : (sc < 0 ? cc.color(128, 166, 255) : cc.color(235, 235, 235));
+            if (card.avatar) {
+                var il = card.avatar.getComponent("ImageLoader");
+                if (!il) { try { il = card.avatar.addComponent("ImageLoader"); } catch (err) {} }
+                if (il && e.userid) il.setUserID(e.userid);
+            }
+            var nameLb = this._labelOf(card.name);
+            if (nameLb) nameLb.string = e.name || "";
+            var idLb = this._labelOf(card.id);
+            if (idLb) idLb.string = (e.userid != null) ? ("ID:" + e.userid) : "";
+            var scLb = this._labelOf(card.score);
+            if (scLb) {
+                scLb.string = (sc > 0 ? "+" : "") + sc;
+                scLb.color = sc > 0 ? cc.color(255, 212, 70) : (sc < 0 ? cc.color(92, 232, 160) : cc.color(240, 240, 240));
+            }
+        }
+        panel.active = true;
+        if (panel.parent) panel.setSiblingIndex(panel.parent.childrenCount - 1);
+        return true;
+    },
+
     onReady: function () {
+        this._stopSettleCd();
         var nm = cc.vv && cc.vv.gameNetMgr;
-        if (nm && nm.maxNumOfGames > 0 && nm.numOfGames >= nm.maxNumOfGames) {
-            this._toast("\u5df2\u662f\u6700\u540e\u4e00\u5c40");
+        // 最后一局: 局数比对不是唯一依据(服务端已发 game_end/已进入等总结算状态同样算)
+        var isLast = (nm && nm.maxNumOfGames > 0 && nm.numOfGames >= nm.maxNumOfGames) ||
+            !!this._pendingGameEnd || !!this._awaitFinal;
+        this._dbg("onReady last=" + !!isLast + " cur=" + (nm && nm.numOfGames) + "/" + (nm && nm.maxNumOfGames) +
+            " pend=" + !!this._pendingGameEnd);
+        if (isLast) {
+            // 最后一局: 关掉小局结算, 接着弹总结算(数据没到就等 game_end 来了再弹)
+            if (this._n.settle) this._n.settle.active = false;
+            this._phase = "end";
+            this._final = true;
+            if (this._pendingGameEnd) {
+                var pend = this._pendingGameEnd;
+                this._pendingGameEnd = null;
+                this.onGameEnd(pend, true);
+            } else {
+                this._awaitFinal = true;
+            }
+            this.renderAll();
             return;
         }
         cc.vv.net.send("ready");
@@ -2910,11 +3570,22 @@ cc.Class({
 
     // ================= 操作 =================
     onBtnSettingsClicked: function () {
+        var root = this._find("popups");
+        if (root) root.active = true;
         var st = this._find("settings");
         if (st) st.active = true;
     },
 
     showTip: function (msg) { this._toast(msg); },
+
+    // 关键流程上报到大厅服 /dbg_log: 真机/预览控制台看不到时靠它定位结算卡在哪一步
+    _dbg: function (msg) {
+        try {
+            if (cc.vv && cc.vv.http && cc.vv.http.sendRequest) {
+                cc.vv.http.sendRequest("/dbg_log", { m: "[sss] " + msg }, null);
+            }
+        } catch (e) { }
+    },
 
     _toast: function (msg) {
         if (!msg) return;
@@ -2995,6 +3666,8 @@ cc.Class({
     leaveRoom: function () {
         if (this._leaving) return;
         this._leaving = true;
+        this._dbg("leaveRoom final=" + !!this._final + " phase=" + this._phase +
+            " finalShown=" + !!(this._n.gameResult && this._n.gameResult.active));
         var curScene = cc.director.getScene ? cc.director.getScene() : null;
         var curName = (curScene && curScene.name) ? curScene.name : "";
         if (curName === "hall" || curName === "club") return;
@@ -3004,3 +3677,4 @@ cc.Class({
         else cc.director.loadScene("club");
     }
 });
+

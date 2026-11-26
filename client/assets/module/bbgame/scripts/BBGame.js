@@ -3447,6 +3447,7 @@ cc.Class({
         }
         var h = di.home || this._homeOf(di.node); // 拖动的牌归位到原牌位
         if (h) { di.node.stopAllActions(); di.node.setPosition(h.x, h.y); di.node.setScale(h.sx, h.sy); }
+        this._autoFillBack();   // 前/中道已满且不会乌龙时, 自动补后道两张
         this.renderCards(); // 命中放入/未命中回位, 统一重排
     },
 
@@ -3613,6 +3614,7 @@ cc.Class({
             if (!this._daoOrderOkWith(sel)) continue;
             this._daoSel = sel;
             this._wulongWarned = false;
+            this._autoFillBack();   // 前/中道已满且不会乌龙时, 自动补后道两张
             this.renderCards();
             return;
         }
@@ -3621,6 +3623,30 @@ cc.Class({
         } else {
             this._showArrangeWarn("摆不上：必须 后道 ≥ 中道 ≥ 前道");
         }
+    },
+
+    // 前道/中道都摆满后, 手里只剩两张且放进后道不会判乌龙时, 自动补到后道
+    _autoFillBack: function () {
+        if (!this._arranging || !this._daoSel) return false;
+        var sel = this._daoSel;
+        if (!this._daoFull(sel[0]) || !this._daoFull(sel[1]) || this._daoFull(sel[2])) return false;
+        var myCards = (cc.vv.gameNetMgr.bbMyCards || []);
+        var placed = [];
+        for (var d = 0; d < 3; ++d) {
+            for (var k = 0; k < 2; ++k) { if (sel[d][k] != null) placed.push(sel[d][k]); }
+        }
+        if (placed.length != 4) return false;
+        var rest = [];
+        for (var i = 0; i < myCards.length; ++i) {
+            if (placed.indexOf(myCards[i]) < 0) rest.push(myCards[i]);
+        }
+        if (rest.length != 2) return false;
+        var trial = [sel[0].slice(), sel[1].slice(), rest.slice()];
+        if (this._daoOrderErr(trial)) return false;   // 会判乌龙就不自动摆, 留给玩家自己调整
+        this._daoSel = trial;
+        this._wulongWarned = false;
+        this.showTip("前道、中道已摆好，后道已自动补齐");
+        return true;
     },
 
     // 点道内牌退回: 传 k 只退这一张, 不传整道退回

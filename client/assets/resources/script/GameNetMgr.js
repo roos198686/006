@@ -235,6 +235,7 @@ cc.Class({
         if(t == "zj_bt") return "mjgame_bmj";
         if(t == "zj_zx") return "mjgame_zjzx";
         if(t == "wujin") return "mjgame_wujin";
+        if(t == "zppdk2" || t == "zppdk3") return "mjgame_zppdk";
         if(t == "guanpai2") return "mjgame_gp2";
         if(t == "sss2" || t == "sss4" || t == "sss6") return "mjgame_sss";
         if(t == "zj" || t == "zj4" || t == "zj4_bt") return "mjgame_ldh";
@@ -1088,6 +1089,15 @@ cc.Class({
             for(var i = 0; i < self.seats.length; ++i){
                 self.dispatchEvent('user_state_changed',self.seats[i]);
             }
+        });
+
+        //十三水等玩法整场结束单独下发 game_end_push:转成通用的 game_end(其他玩法在 game_over_push 里带 endinfo)
+        cc.vv.net.addHandler("game_end_push",function(data){
+            self.isOver = true;
+            self.dispatchEvent('game_end', {
+                endinfo: (data && data.endinfo) || [],
+                roundHistory: (data && data.roundHistory) || null
+            });
         });
 
         // ===== 通用 =====

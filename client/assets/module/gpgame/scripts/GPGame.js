@@ -535,9 +535,15 @@ cc.Class({
         var baseScore = conf.baseScore || 1;
         var parts = [];
         if (roomId) parts.push("房号 " + roomId);
-        parts.push("关牌·" + this.maxPlayers + "人");
+        parts.push((this.isZppdk() ? "漳浦跑得快·" : "关牌·") + this.maxPlayers + "人");
         parts.push("底分:" + baseScore);
         if (this._n.titleLabel) this.setStr(this._n.titleLabel, parts.join(" · "));
+    },
+
+    // 是否漳浦跑得快: 没有"过", 有能压的牌必须出, 超时自动出
+    isZppdk: function () {
+        var conf = this._gpConf || (cc.vv.gameNetMgr && cc.vv.gameNetMgr.conf) || {};
+        return String(conf.type || "").indexOf("zppdk") === 0;
     },
 
     // ===== 牌面模板 =====
@@ -1552,6 +1558,7 @@ cc.Class({
     },
 
     onPass: function () {
+        if (this.isZppdk()) return; // 漳浦跑得快没有"过"
         if (!this.isMyTurn() || this._freePlay) return;
         this.resetHintState();
         cc.vv.net.send("guo");
@@ -2184,7 +2191,8 @@ cc.Class({
         this._n.playBtn.zIndex = 999; // 确保不被遮挡
         this.setBtnEnabled(this._n.playBtn, hasSel);
         // 过:轮到自己就显示,自由出牌时置灰不可用(与提示一致,不再隐藏)
-        this._n.passBtn.active = myTurn;
+        // 漳浦跑得快没有"过",按钮始终隐藏(无牌可压时由 checkAutoPass 自动过)
+        this._n.passBtn.active = myTurn && !this.isZppdk();
         if (this._n.passBtn) {
             this._n.passBtn.opacity = 255;
             this._n.passBtn.zIndex = 999;

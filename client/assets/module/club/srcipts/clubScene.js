@@ -1049,6 +1049,7 @@ cc.Class({
         if(s == "sss2"){ return "十三水(2人)"; }
         if(s == "sss4"){ return "十三水(4人)"; }
         if(s == "sss6"){ return "十三水(6人)"; }
+        if(s.indexOf("zppdk") === 0){ return "漳浦跑得快"; }
         return s ? s : "-";
     },
 

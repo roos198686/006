@@ -4,8 +4,6 @@
 var DISPLAY_NAMES = {
     zj_zx: "自选麻将",
     guanpai2: "诸暨关牌",
-    sss2: "十三水(2人)",
-    sss4: "十三水(4人)",
     sss6: "十三水(6人)"
 };
 function displayName(g) {
@@ -64,7 +62,7 @@ var TEXTS = {
         "· 单道规则:对子为宝,宝>散点(两牌相加取个位,9最大0最小);宝排序 宝A>宝K/Q/J>宝10~2。\n" +
         "· 强制 前道≤中道≤后道,摆错为乌龙,三道全输。\n" +
         "· 三道独立结算,每道按赢家道型倍率:宝A=10倍,宝K/Q/J=6倍,宝10~2=5倍,9点=4倍,8点=3倍,7点=2倍,6~0点=1倍。",
-    //大厅介绍:宝宝 + 十三水(2人/4人/6人)
+    //大厅介绍:宝宝 + 十三水(6人)
     baobao: "宝宝(6张玩法,最多6人同桌),分免摆与手摆两种:\n" +
         "每人发6张牌。免摆由系统自动选出最大牌型亮牌,整手比大小;手摆由自己摆成前2/中2/后2三道,逐道比大小。\n" +
         "· 牌型从大到小:6同花顺 > 4条带对 > 4条带2单 > 3条带3条 > 3条带对带1 > 6同花 > 6连顺 > 5同花带1 > 5连顺带1 > 3对 > 3组9 > 散牌。\n" +
@@ -125,11 +123,9 @@ cc.Class({
     },
 
     loadList: function () {
-        //大厅只介绍宝宝与十三水,固定列表,不读取后台配置的名称
+        //大厅只介绍宝宝与十三水(6人),固定列表,不读取后台配置的名称
         this._games = [
             { type: "baobao", name: "宝宝" },
-            { type: "sss2", name: "十三水(2人)" },
-            { type: "sss4", name: "十三水(4人)" },
             { type: "sss6", name: "十三水(6人)" }
         ];
         this.renderList();
@@ -153,6 +149,7 @@ cc.Class({
         }
         for (var i = 0; i < this._games.length; ++i) {
             var item = slots[i];
+            if (item) { item.active = true; }
             if (item == null) {
                 item = this.makeFallbackItem(i);
                 cc.log("[help] 场景缺少列表项节点,已用代码兜底:请在 help/helpList 下添加 item" + i);
@@ -188,6 +185,9 @@ cc.Class({
             this._items.push(item);
         }
         this.refreshItems();
+        for (var s = this._games.length; s < slots.length; ++s) {
+            if (slots[s]) { slots[s].active = false; }
+        }
         this.select(0);
     },
 
